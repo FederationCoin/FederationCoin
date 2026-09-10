@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <addresstype.h>
 #include <consensus/amount.h>
 #include <key.h>
 #include <policy/fees.h>
@@ -35,7 +36,7 @@ BOOST_AUTO_TEST_CASE(max_signed_input_size_uses_external_outpoint)
 
 BOOST_FIXTURE_TEST_CASE(SubtractFee, TestChain100Setup)
 {
-    CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
+    CreateAndProcessBlock({}, GetScriptForDestination(PKHash(coinbaseKey.GetPubKey())));
     auto wallet = CreateSyncedWallet(*m_node.chain, WITH_LOCK(Assert(m_node.chainman)->GetMutex(), return m_node.chainman->ActiveChain()), coinbaseKey);
 
     // Check that a subtract-from-recipient transaction slightly less than the
@@ -83,7 +84,7 @@ BOOST_FIXTURE_TEST_CASE(wallet_duplicated_preset_inputs_test, TestChain100Setup)
     // Verify that the wallet's Coin Selection process does not include pre-selected inputs twice in a transaction.
 
     // Add 4 spendable UTXO, 50 BTC each, to the wallet (total balance 200 BTC)
-    for (int i = 0; i < 4; i++) CreateAndProcessBlock({}, GetScriptForRawPubKey(coinbaseKey.GetPubKey()));
+    for (int i = 0; i < 4; i++) CreateAndProcessBlock({}, GetScriptForDestination(PKHash(coinbaseKey.GetPubKey())));
     auto wallet = CreateSyncedWallet(*m_node.chain, WITH_LOCK(Assert(m_node.chainman)->GetMutex(), return m_node.chainman->ActiveChain()), coinbaseKey);
 
     LOCK(wallet->cs_wallet);

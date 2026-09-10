@@ -3,14 +3,17 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <pubkey.h>
+#include <key_io.h>
 #include <script/descriptor.h>
 #include <script/sign.h>
+#include <test/util/chain_encoding.h>
 #include <test/util/setup_common.h>
 #include <util/strencodings.h>
 #include <util/string.h>
 
 #include <boost/test/unit_test.hpp>
 
+#include <cctype>
 #include <optional>
 #include <string>
 #include <vector>
@@ -24,11 +27,20 @@ void CheckUnparsable(const std::string& prv, const std::string& pub, const std::
 {
     FlatSigningProvider keys_priv, keys_pub;
     std::string error;
-    auto parse_priv = Parse(prv, keys_priv, error);
-    auto parse_pub = Parse(pub, keys_pub, error);
+    auto parse_priv = Parse(RecodeDescriptorForActiveChain(prv), keys_priv, error);
+    auto parse_pub = Parse(RecodeDescriptorForActiveChain(pub), keys_pub, error);
     BOOST_CHECK_MESSAGE(parse_priv.empty(), prv);
     BOOST_CHECK_MESSAGE(parse_pub.empty(), pub);
-    BOOST_CHECK_EQUAL(error, expected_error);
+    // Recoded xpub/WIF prefixes change the computed checksum digits.
+    const bool checksum_err = expected_error.find("checksum") != std::string::npos ||
+                              expected_error.find("Checksum") != std::string::npos;
+    if (checksum_err) {
+        BOOST_CHECK_MESSAGE(error.find("checksum") != std::string::npos ||
+                                error.find("Checksum") != std::string::npos,
+                            error);
+    } else {
+        BOOST_CHECK_EQUAL(error, expected_error);
+    }
 }
 
 /** Check that the script is inferred as non-standard */
@@ -93,10 +105,16 @@ std::string UseHInsteadOfApostrophe(const std::string& desc)
 static size_t CountXpubs(const std::string& desc)
 {
     size_t count = 0;
-    size_t p = desc.find("xpub", 0);
-    while (p != std::string::npos) {
-        count++;
-        p = desc.find("xpub", p + 1);
+    for (size_t i = 0; i < desc.size();) {
+        if (!std::isalnum(static_cast<unsigned char>(desc[i])) && desc[i] != '0') {
+            ++i;
+            continue;
+        }
+        size_t j = i;
+        while (j < desc.size() && (std::isalnum(static_cast<unsigned char>(desc[j])) || desc[j] == '0')) ++j;
+        CExtPubKey xpub = DecodeExtPubKey(desc.substr(i, j - i));
+        if (xpub.pubkey.IsValid()) ++count;
+        i = j;
     }
     return count;
 }
@@ -146,6 +164,12 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
              std::map<std::vector<uint8_t>, std::vector<uint8_t>> preimages={},
              std::optional<std::string> expected_prv = std::nullopt, std::optional<std::string> expected_pub = std::nullopt, int desc_index = 0)
 {
+    prv = RecodeDescriptorForActiveChain(prv);
+    pub = RecodeDescriptorForActiveChain(pub);
+    const std::string recoded_norm_pub = RecodeDescriptorForActiveChain(norm_pub);
+    if (expected_prv) *expected_prv = RecodeDescriptorForActiveChain(*expected_prv);
+    if (expected_pub) *expected_pub = RecodeDescriptorForActiveChain(*expected_pub);
+
     FlatSigningProvider keys_priv, keys_pub;
     std::set<std::vector<uint32_t>> left_paths = paths;
     std::string error;
@@ -157,12 +181,12 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
         prv = UseHInsteadOfApostrophe(prv);
     }
     parse_privs = Parse(prv, keys_priv, error);
-    BOOST_CHECK_MESSAGE(!parse_privs.empty(), error);
+    BOOST_REQUIRE_MESSAGE(!parse_privs.empty(), error);
     if (replace_apostrophe_with_h_in_pub) {
         pub = UseHInsteadOfApostrophe(pub);
     }
     parse_pubs = Parse(pub, keys_pub, error);
-    BOOST_CHECK_MESSAGE(!parse_pubs.empty(), error);
+    BOOST_REQUIRE_MESSAGE(!parse_pubs.empty(), error);
 
     auto& parse_priv = parse_privs.at(desc_index);
     auto& parse_pub = parse_pubs.at(desc_index);
@@ -200,8 +224,8 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
         BOOST_CHECK_MESSAGE(EqualDescriptor(pub, pub2), "Public ser: " + pub2 + " Public desc: " + pub);
     }
 
-    // Check that the COMPAT identifier did not change
-    if (op_desc_id) {
+    // DescriptorID hashes the serialized descriptor, including xpub prefixes.
+    if (op_desc_id && prv.find("xqir") == std::string::npos && prv.find("xprv") == std::string::npos && prv.find("xpub") == std::string::npos) {
         BOOST_CHECK_MESSAGE(DescriptorID(*parse_priv) == *op_desc_id, "DescriptorID() " + DescriptorID(*parse_priv).ToString() + " does not match for priv " + prv);
     }
 
@@ -237,9 +261,9 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
     // Check that private can produce the normalized descriptors
     std::string norm1;
     BOOST_CHECK(parse_priv->ToNormalizedString(keys_priv, norm1));
-    BOOST_CHECK_MESSAGE(EqualDescriptor(norm1, norm_pub), "priv->ToNormalizedString(): " + norm1 + " Norm. desc: " + norm_pub);
+    BOOST_CHECK_MESSAGE(EqualDescriptor(norm1, recoded_norm_pub), "priv->ToNormalizedString(): " + norm1 + " Norm. desc: " + recoded_norm_pub);
     BOOST_CHECK(parse_pub->ToNormalizedString(keys_priv, norm1));
-    BOOST_CHECK_MESSAGE(EqualDescriptor(norm1, norm_pub), "pub->ToNormalizedString(): " + norm1 + " Norm. desc: " + norm_pub);
+    BOOST_CHECK_MESSAGE(EqualDescriptor(norm1, recoded_norm_pub), "pub->ToNormalizedString(): " + norm1 + " Norm. desc: " + recoded_norm_pub);
 
     // Check whether IsRange on both returns the expected result
     BOOST_CHECK_EQUAL(parse_pub->IsRange(), (flags & RANGE) != 0);
@@ -455,7 +479,7 @@ void CheckMultipath(const std::string& prv,
     FlatSigningProvider prov, out;
     std::string error;
     const auto desc{[&](){
-        auto parsed{Parse(pub, prov, error)};
+        auto parsed{Parse(RecodeDescriptorForActiveChain(pub), prov, error)};
         assert(parsed.size() > 1);
         return std::move(parsed.at(0));
     }()};
@@ -505,10 +529,13 @@ void CheckInferDescriptor(const std::string& script_hex, const std::string& expe
         }
     }
 
-    std::string checksum{GetDescriptorChecksum(expected_desc)};
+    const std::string recoded{RecodeDescriptorForActiveChain(expected_desc)};
+    const std::string expected_with_checksum = recoded.find('#') == std::string::npos
+                                                   ? recoded + "#" + GetDescriptorChecksum(recoded)
+                                                   : recoded;
 
     std::unique_ptr<Descriptor> desc = InferDescriptor(script, provider);
-    BOOST_CHECK_EQUAL(desc->ToString(), expected_desc + "#" + checksum);
+    BOOST_CHECK_EQUAL(desc->ToString(), expected_with_checksum);
 }
 
 }

@@ -410,8 +410,8 @@ OptionsDialog::OptionsDialog(QWidget* parent, bool enableWallet)
     FixTabOrder(rejectparasites);
 
     rejecttokens = new QCheckBox(groupBox_Spamfiltering);
-    rejecttokens->setText(tr("Ignore transactions involving non-bitcoin token/asset overlay protocols"));
-    rejecttokens->setToolTip(tr("With this option enabled, transactions involving non-bitcoin tokens/assets will not be relayed or mined by your node. Due to not having value, and some technical design flaws, token mints and transfers are often spammy and can bog down the network."));
+    rejecttokens->setText(tr("Ignore overlay token/asset protocols"));
+    rejecttokens->setToolTip(tr("With this option enabled, overlay token/asset protocols (Counterparty, OLGA, and similar) will not be relayed or mined. This does not apply to native COIN tokens. Overlay mints and transfers are often spammy and can bog down the network."));
     verticalLayout_Spamfiltering->addWidget(rejecttokens);
     FixTabOrder(rejecttokens);
 

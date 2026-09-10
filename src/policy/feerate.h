@@ -14,16 +14,16 @@
 #include <string>
 #include <type_traits>
 
-const std::string CURRENCY_UNIT = "BTC"; // One formatted unit
-const std::string CURRENCY_ATOM = "sat"; // One indivisible minimum value unit
+const std::string CURRENCY_UNIT = "COIN"; // 1e8 tokens; not a ticker
+const std::string CURRENCY_ATOM = "token"; // Native atomic unit; not overlay -rejecttokens
 
 /* Used to determine type of fee estimation requested */
 enum class FeeEstimateMode {
     UNSET,        //!< Use default settings based on other criteria
     ECONOMICAL,   //!< Force estimateSmartFee to use non-conservative estimates
     CONSERVATIVE, //!< Force estimateSmartFee to use conservative estimates
-    BTC_KVB,      //!< Use BTC/kvB fee rate unit
-    SAT_VB,       //!< Use sat/vB fee rate unit
+    BTC_KVB,      //!< Use COIN per kvB fee rate unit
+    SAT_VB,       //!< Use tokens per vB fee rate unit
 };
 
 /**
@@ -65,9 +65,9 @@ public:
     friend bool operator>=(const CFeeRate& a, const CFeeRate& b) { return a.nSatoshisPerK >= b.nSatoshisPerK; }
     friend bool operator!=(const CFeeRate& a, const CFeeRate& b) { return a.nSatoshisPerK != b.nSatoshisPerK; }
     CFeeRate& operator+=(const CFeeRate& a) { nSatoshisPerK += a.nSatoshisPerK; return *this; }
-    /** Return the fee rate in sat/vB or BTC/kvB, with units, as a string. */
+    /** Return the fee rate in token/vB or COIN/kvB, with units, as a string. */
     std::string ToString(const FeeEstimateMode& fee_estimate_mode = FeeEstimateMode::BTC_KVB) const;
-    /** Return the fee rate in sat/vB, without units, as a string. */
+    /** Return the fee rate as numeric atoms/vB, with no unit suffix. */
     std::string SatsToString() const;
     friend CFeeRate operator*(const CFeeRate& f, int a) { return CFeeRate(a * f.nSatoshisPerK); }
     friend CFeeRate operator*(int a, const CFeeRate& f) { return CFeeRate(a * f.nSatoshisPerK); }

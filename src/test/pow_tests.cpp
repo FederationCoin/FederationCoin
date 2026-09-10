@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <arith_uint256.h>
 #include <chain.h>
 #include <chainparams.h>
 #include <pow.h>
@@ -40,8 +41,8 @@ BOOST_AUTO_TEST_CASE(get_next_work_pow_limit)
     CBlockIndex pindexLast;
     pindexLast.nHeight = 2015;
     pindexLast.nTime = 1233061996;  // Block #2015
-    pindexLast.nBits = 0x1d00ffff;
-    unsigned int expected_nbits = 0x1d00ffffU;
+    pindexLast.nBits = UintToArith256(chainParams->GetConsensus().powLimit).GetCompact();
+    unsigned int expected_nbits = pindexLast.nBits;
     BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, nLastRetargetTime, chainParams->GetConsensus()), expected_nbits);
     BOOST_CHECK(PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, expected_nbits));
 }
@@ -236,7 +237,11 @@ BOOST_AUTO_TEST_CASE(powchange_permitted_difficulty_transition)
     params.Blake2bHeight = pindexLast.nHeight + 1;
 
     const unsigned int fork_nbits = GetNextWorkRequired(&pindexLast, &block, params);
-    BOOST_CHECK_NE(fork_nbits, tip_nbits);
+    if (params.Blake2bTargetShift == 0) {
+        BOOST_CHECK_EQUAL(fork_nbits, tip_nbits);
+    } else {
+        BOOST_CHECK_NE(fork_nbits, tip_nbits);
+    }
 
     // This is the call headerssync.cpp makes for every header in IBD. The
     // shifted target is now accepted across the algorithm change.
@@ -248,10 +253,12 @@ BOOST_AUTO_TEST_CASE(powchange_permitted_difficulty_transition)
     too_easy <<= 4;
     BOOST_CHECK(!PermittedDifficultyTransition(params, pindexLast.nHeight + 1, tip_nbits, too_easy.GetCompact()));
 
-    // ...and only when the algorithm actually changes. Claiming the shift
-    // between two pre-fork blocks is still rejected.
+    // ...and only when the algorithm actually changes. Claiming the fork nBits
+    // between two pre-fork blocks is rejected when those bits differ (shift > 0)
+    // and permitted when they are the same (shift 0).
     params.Blake2bHeight = pindexLast.nHeight + 2;
-    BOOST_CHECK(!PermittedDifficultyTransition(params, pindexLast.nHeight + 1, tip_nbits, fork_nbits));
+    BOOST_CHECK_EQUAL(PermittedDifficultyTransition(params, pindexLast.nHeight + 1, tip_nbits, fork_nbits),
+                      params.Blake2bTargetShift == 0);
 
     // At a retarget boundary the shift is permitted on top of the 4x window,
     // and values beyond that window are still rejected.

@@ -26,7 +26,7 @@ get_directory_property(precious_variables CACHE_VARIABLES)
 #=============================
 # Project / Package metadata
 #=============================
-set(CLIENT_NAME "Bitcoin Knots")
+set(CLIENT_NAME "Federation Coin")
 set(CLIENT_VERSION_MAJOR 29)
 set(CLIENT_VERSION_MINOR 4)
 set(CLIENT_VERSION_BUILD 1)
@@ -34,7 +34,7 @@ set(CLIENT_VERSION_RC 0)
 set(CLIENT_VERSION_IS_RELEASE "true")
 set(COPYRIGHT_YEAR "2026")
 
-set(CLIENT_VERSION_SUFFIX ".knots20260508")
+set(CLIENT_VERSION_SUFFIX ".federation0")
 
 # During the enabling of the CXX and CXXOBJ languages, we modify
 # CMake's compiler/linker invocation strings by appending the content
@@ -54,8 +54,8 @@ set(CMAKE_TRY_COMPILE_PLATFORM_VARIABLES
 
 project(BitcoinCore
   VERSION ${CLIENT_VERSION_MAJOR}.${CLIENT_VERSION_MINOR}.${CLIENT_VERSION_BUILD}
-  DESCRIPTION "Bitcoin client software"
-  HOMEPAGE_URL "https://bitcoinknots.org/"
+  DESCRIPTION "FederationCoin node software"
+  HOMEPAGE_URL "https://federationcoin.org"
   LANGUAGES NONE
 )
 
@@ -66,7 +66,7 @@ endif()
 
 set(COPYRIGHT_HOLDERS "The %s developers")
 set(COPYRIGHT_HOLDERS_FINAL "The ${CLIENT_NAME} developers")
-set(CLIENT_BUGREPORT "https://github.com/bitcoinknots/bitcoin/issues")
+set(CLIENT_BUGREPORT "https://github.com/FederationCoin/FederationCoin/issues")
 
 #=============================
 # Language setup
@@ -96,18 +96,18 @@ endif()
 #=============================
 include(CMakeDependentOption)
 # When adding a new option, end the <help_text> with a full stop for consistency.
-option(BUILD_DAEMON "Build bitcoind executable." ON)
-option(BUILD_GUI "Build bitcoin-qt executable." OFF)
+option(BUILD_DAEMON "Build federationcoind executable." ON)
+option(BUILD_GUI "Build federationcoin-qt executable." OFF)
 set(WITH_QT_VERSION "5" CACHE STRING "Choose 5 or 6.")
 set_property(CACHE WITH_QT_VERSION PROPERTY STRINGS "5" "6")
-option(BUILD_CLI "Build bitcoin-cli executable." ON)
+option(BUILD_CLI "Build federationcoin-cli executable." ON)
 option(BUILD_BITCOINCONSENSUS_LIB "Build libbitcoinconsensus library." OFF)
 
 option(BUILD_TESTS "Build test_bitcoin executable." ON)
-option(BUILD_TX "Build bitcoin-tx executable." ${BUILD_TESTS})
-option(BUILD_UTIL "Build bitcoin-util executable." ${BUILD_TESTS})
+option(BUILD_TX "Build federationcoin-tx executable." ${BUILD_TESTS})
+option(BUILD_UTIL "Build federationcoin-util executable." ${BUILD_TESTS})
 
-option(BUILD_UTIL_CHAINSTATE "Build experimental bitcoin-chainstate executable." OFF)
+option(BUILD_UTIL_CHAINSTATE "Build experimental federationcoin-chainstate executable." OFF)
 option(BUILD_KERNEL_LIB "Build experimental bitcoinkernel library." ${BUILD_UTIL_CHAINSTATE})
 
 option(WITH_SYSTEM_LEVELDB "Build with system LevelDB instead of embedded fork." OFF)
@@ -190,7 +190,7 @@ if(WITH_BDB)
     endif()
   endif()
 endif()
-cmake_dependent_option(BUILD_WALLET_TOOL "Build bitcoin-wallet tool." ${BUILD_TESTS} "ENABLE_WALLET" OFF)
+cmake_dependent_option(BUILD_WALLET_TOOL "Build federationcoin-wallet tool." ${BUILD_TESTS} "ENABLE_WALLET" OFF)
 
 option(ENABLE_HARDENING "Attempt to harden the resulting executables." ON)
 option(REDUCE_EXPORTS "Attempt to reduce exported symbols in the resulting executables." OFF)
@@ -752,7 +752,7 @@ message("\n")
 message("Configure summary")
 message("=================")
 message("Executables:")
-message("  bitcoind ............................ ${BUILD_DAEMON}")
+message("  federationcoind ..................... ${BUILD_DAEMON}")
 if(BUILD_DAEMON AND WITH_MULTIPROCESS)
   set(bitcoin_daemon_status ON)
 else()
@@ -767,18 +767,18 @@ if(BUILD_GUI)
 else()
   set(bitcoin_qt_status "OFF")
 endif()
-message("  bitcoin-qt (GUI) .................... ${bitcoin_qt_status}")
+message("  federationcoin-qt (GUI) ............. ${bitcoin_qt_status}")
 if(BUILD_GUI AND WITH_MULTIPROCESS)
   set(bitcoin_gui_status ON)
 else()
   set(bitcoin_gui_status OFF)
 endif()
-message("  bitcoin-cli ......................... ${BUILD_CLI}")
+message("  federationcoin-cli .................. ${BUILD_CLI}")
 message("  libbitcoinconsensus ................. ${BUILD_BITCOINCONSENSUS_LIB}")
-message("  bitcoin-tx .......................... ${BUILD_TX}")
-message("  bitcoin-util ........................ ${BUILD_UTIL}")
-message("  bitcoin-wallet ...................... ${BUILD_WALLET_TOOL}")
-message("  bitcoin-chainstate (experimental) ... ${BUILD_UTIL_CHAINSTATE}")
+message("  federationcoin-tx ................... ${BUILD_TX}")
+message("  federationcoin-util ................. ${BUILD_UTIL}")
+message("  federationcoin-wallet ............... ${BUILD_WALLET_TOOL}")
+message("  federationcoin-chainstate (experimental) ${BUILD_UTIL_CHAINSTATE}")
 message("  libbitcoinkernel (experimental) ..... ${BUILD_KERNEL_LIB}")
 message("Optional features:")
 message("  wallet support ...................... ${ENABLE_WALLET}")

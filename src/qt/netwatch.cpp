@@ -521,7 +521,7 @@ QVariant NetWatchLogModel::headerData(int section, Qt::Orientation orientation, 
                 return BitcoinUnits::getAmountColumnTitle(m_client_model->getOptionsModel()->getDisplayUnit());
             } else {
                 // Used only for sizing of the column
-                return BitcoinUnits::getAmountColumnTitle(BitcoinUnits::Unit::mBTC);
+                return BitcoinUnits::getAmountColumnTitle(BitcoinUnits::Unit::COIN);
             }
     }
     return QVariant();

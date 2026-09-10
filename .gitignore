@@ -21,3 +21,19 @@ test/lint/test_runner/target/
 /guix-build-*
 
 /ci/scratch/
+
+# IDE / editor (CMake Tools, VS, VS Code, clangd)
+.vs/
+.vscode/
+.idea/
+.cache/
+*.user
+*.suo
+CMakeSettings.json
+
+# VS / CMake Tools default binary dir (not /*build*)
+/out/
+
+# In-tree compile DB if a generator drops it at the root
+/compile_commands.json
+

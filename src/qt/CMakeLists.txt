@@ -249,8 +249,6 @@ add_library(bitcoinqt STATIC EXCLUDE_FROM_ALL
   rpcconsole.h
   splashscreen.cpp
   splashscreen.h
-  tonalutils.cpp
-  tonalutils.h
   trafficgraphwidget.cpp
   trafficgraphwidget.h
   utilitydialog.cpp
@@ -400,30 +398,30 @@ if(qt_lib_type STREQUAL "STATIC_LIBRARY")
   )
 endif()
 
-add_executable(bitcoin-qt
+add_executable(federationcoin-qt
   main.cpp
-  ../init/bitcoin-qt.cpp
+  ../init/federationcoin-qt.cpp
 )
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-  add_dependencies(bitcoin-qt generate_ico)
+  add_dependencies(federationcoin-qt generate_ico)
 endif()
 
 if(WIN32)
   configure_file(${CMAKE_CURRENT_SOURCE_DIR}/res/bitcoin-qt-res.rc ${CMAKE_CURRENT_BINARY_DIR}/res/bitcoin-qt-res.rc USE_SOURCE_PERMISSIONS @ONLY)
-  add_windows_resources(bitcoin-qt ${CMAKE_CURRENT_BINARY_DIR}/res/bitcoin-qt-res.rc)
+  add_windows_resources(federationcoin-qt ${CMAKE_CURRENT_BINARY_DIR}/res/bitcoin-qt-res.rc)
 endif()
 
-target_link_libraries(bitcoin-qt
+target_link_libraries(federationcoin-qt
   core_interface
   bitcoinqt
   bitcoin_node
 )
 
-import_plugins(bitcoin-qt)
-install_binary_component(bitcoin-qt HAS_MANPAGE)
+import_plugins(federationcoin-qt)
+install_binary_component(federationcoin-qt HAS_MANPAGE)
 if(WIN32)
-  set_target_properties(bitcoin-qt PROPERTIES WIN32_EXECUTABLE TRUE)
+  set_target_properties(federationcoin-qt PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
 if(WITH_MULTIPROCESS)

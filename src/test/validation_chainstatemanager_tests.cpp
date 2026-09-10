@@ -174,14 +174,25 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_ibd_exit_after_loading_blocks, ChainTe
 
         chainman.m_cached_finished_ibd.store(cached_finished_ibd, std::memory_order_relaxed);
         chainman.m_blockman.m_importing = loading_blocks;
+        bool insufficient_work{false};
         if (tip_exists) {
-            tip.nChainWork = chainman.MinimumChainWork() - (enough_work ? 0 : 1);
+            const arith_uint256 min_work{chainman.MinimumChainWork()};
+            if (enough_work) {
+                tip.nChainWork = min_work;
+            } else if (min_work == 0) {
+                // Product min-work is 0; cannot be below zero. Work gate does not keep IBD.
+                tip.nChainWork = 0;
+            } else {
+                tip.nChainWork = min_work - 1;
+            }
+            insufficient_work = tip.nChainWork < min_work;
             tip.nTime = (recent_time - (tip_recent ? 0h : 100h)).time_since_epoch().count();
             chainman.ActiveChain().SetTip(tip);
         } else {
             assert(!chainman.ActiveChain().Tip());
         }
         chainman.UpdateIBDStatus();
+        return insufficient_work;
     }};
 
     for (const bool cached_finished_ibd : {false, true}) {
@@ -189,8 +200,8 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_ibd_exit_after_loading_blocks, ChainTe
             for (const bool tip_exists : {false, true}) {
                 for (const bool enough_work : {false, true}) {
                     for (const bool tip_recent : {false, true}) {
-                        apply(cached_finished_ibd, loading_blocks, tip_exists, enough_work, tip_recent);
-                        const bool expected_ibd = !cached_finished_ibd && (loading_blocks || !tip_exists || !enough_work || !tip_recent);
+                        const bool insufficient_work = apply(cached_finished_ibd, loading_blocks, tip_exists, enough_work, tip_recent);
+                        const bool expected_ibd = !cached_finished_ibd && (loading_blocks || !tip_exists || insufficient_work || !tip_recent);
                         BOOST_CHECK_EQUAL(chainman.IsInitialBlockDownload(), expected_ibd);
                     }
                 }

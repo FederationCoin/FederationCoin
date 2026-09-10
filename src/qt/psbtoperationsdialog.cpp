@@ -157,7 +157,7 @@ void PSBTOperationsDialog::saveTransaction() {
         CTxDestination address;
         ExtractDestination(out.scriptPubKey, address);
         QString amount = BitcoinUnits::format(unit, out.nValue, /*plussign=*/false, BitcoinUnits::SeparatorStyle::NEVER);
-        if (unit != BitcoinUnits::Unit::BTC) amount += BitcoinUnits::shortName(unit);  // NOTE: no space
+        if (unit != BitcoinUnits::Unit::COIN) amount += BitcoinUnits::shortName(unit);  // NOTE: no space
         QString address_str = QString::fromStdString(EncodeDestination(address));
         filename_suggestion.append(address_str + "-" + amount);
         first = false;
@@ -183,7 +183,7 @@ void PSBTOperationsDialog::updateTransactionDisplay() {
 
 QString PSBTOperationsDialog::renderTransaction(const PartiallySignedTransaction &psbtx)
 {
-    const QFont font_for_money_BTC = m_client_model->getOptionsModel()->getFontForMoney(BitcoinUnit::BTC);
+    const QFont font_for_money_COIN = m_client_model->getOptionsModel()->getFontForMoney(BitcoinUnit::COIN);
     QString tx_description;
     QLatin1String bullet_point(" * ");
     CAmount totalAmount = 0;
@@ -192,7 +192,7 @@ QString PSBTOperationsDialog::renderTransaction(const PartiallySignedTransaction
         ExtractDestination(out.scriptPubKey, address);
         totalAmount += out.nValue;
         tx_description.append(bullet_point).append(tr("Sends %1 to %2")
-            .arg(BitcoinUnits::formatHtmlWithUnit(font_for_money_BTC, BitcoinUnit::BTC, out.nValue))
+            .arg(BitcoinUnits::formatHtmlWithUnit(font_for_money_COIN, BitcoinUnit::COIN, out.nValue))
             .arg(QString::fromStdString(EncodeDestination(address))));
         // Check if the address is one of ours
         if (m_wallet_model != nullptr && m_wallet_model->wallet().txoutIsMine(out)) tx_description.append(" (" + tr("own address") + ")");
@@ -206,7 +206,7 @@ QString PSBTOperationsDialog::renderTransaction(const PartiallySignedTransaction
         tx_description.append(tr("Unable to calculate transaction fee or total transaction amount."));
     } else {
         tx_description.append(tr("Pays transaction fee: "));
-        tx_description.append(BitcoinUnits::formatHtmlWithUnit(font_for_money_BTC, BitcoinUnit::BTC, *analysis.fee));
+        tx_description.append(BitcoinUnits::formatHtmlWithUnit(font_for_money_COIN, BitcoinUnit::COIN, *analysis.fee));
 
         // add total amount in all subdivision units
         tx_description.append("<hr />");

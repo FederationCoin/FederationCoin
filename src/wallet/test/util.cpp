@@ -8,7 +8,9 @@
 #include <key.h>
 #include <key_io.h>
 #include <streams.h>
+#include <test/util/chain_encoding.h>
 #include <test/util/setup_common.h>
+#include <stdexcept>
 #include <validationinterface.h>
 #include <wallet/context.h>
 #include <wallet/wallet.h>
@@ -23,7 +25,7 @@ std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, CChain& cc
     {
         LOCK2(wallet->cs_wallet, ::cs_main);
         wallet->SetLastBlockProcessed(cchain.Height(), cchain.Tip()->GetBlockHash());
-        wallet->m_default_address_type = OutputType::BECH32M;
+        wallet->m_default_address_type = OutputType::BECH32;
     }
     {
         LOCK(wallet->cs_wallet);
@@ -33,18 +35,30 @@ std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, CChain& cc
         FlatSigningProvider provider;
         std::string error;
         auto descs = Parse("combo(" + EncodeSecret(key) + ")", provider, error, /* require_checksum=*/ false);
-        assert(descs.size() == 1);
+        if (descs.size() != 1) {
+            throw std::runtime_error("Parse combo descriptor failed: " + error);
+        }
         auto& desc = descs.at(0);
         WalletDescriptor w_desc(std::move(desc), 0, 0, 1, 1);
-        if (!wallet->AddWalletDescriptor(w_desc, provider, "", false)) assert(false);
+        if (!wallet->AddWalletDescriptor(w_desc, provider, "", false)) {
+            throw std::runtime_error("AddWalletDescriptor failed");
+        }
     }
     WalletRescanReserver reserver(*wallet);
     reserver.reserve();
     CWallet::ScanResult result = wallet->ScanForWalletTransactions(cchain.Genesis()->GetBlockHash(), /*start_height=*/0, /*max_height=*/{}, reserver, /*fUpdate=*/false, /*save_progress=*/false);
-    assert(result.status == CWallet::ScanResult::SUCCESS);
-    assert(result.last_scanned_block == cchain.Tip()->GetBlockHash());
-    assert(*result.last_scanned_height == cchain.Height());
-    assert(result.last_failed_block.IsNull());
+    if (result.status != CWallet::ScanResult::SUCCESS) {
+        throw std::runtime_error("ScanForWalletTransactions failed");
+    }
+    if (result.last_scanned_block != cchain.Tip()->GetBlockHash()) {
+        throw std::runtime_error("ScanForWalletTransactions tip mismatch");
+    }
+    if (*result.last_scanned_height != cchain.Height()) {
+        throw std::runtime_error("ScanForWalletTransactions height mismatch");
+    }
+    if (!result.last_failed_block.IsNull()) {
+        throw std::runtime_error("ScanForWalletTransactions reported a failed block");
+    }
     return wallet;
 }
 
@@ -200,8 +214,10 @@ wallet::ScriptPubKeyMan* CreateDescriptor(CWallet& keystore, const std::string& 
 
     FlatSigningProvider keys;
     std::string error;
-    auto parsed_descs = Parse(desc_str, keys, error, false);
-    Assert(success == (!parsed_descs.empty()));
+    auto parsed_descs = Parse(RecodeDescriptorForActiveChain(desc_str), keys, error, false);
+    if (success != !parsed_descs.empty()) {
+        throw std::runtime_error("CreateDescriptor parse mismatch: " + error);
+    }
     if (!success) return nullptr;
     auto& desc = parsed_descs.at(0);
 

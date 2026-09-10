@@ -8,9 +8,12 @@
 #include <coins.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <consensus/params.h>
 #include <consensus/validation.h>
+#include <deploymentstatus.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
+#include <script/script.h>
 #include <util/check.h>
 #include <util/moneystr.h>
 
@@ -167,6 +170,21 @@ bool Consensus::CheckOutputSizes(const CTransaction& tx, TxValidationState& stat
         if (txout.scriptPubKey.empty()) continue;
         if (txout.scriptPubKey.size() > ((txout.scriptPubKey[0] == OP_RETURN) ? MAX_OUTPUT_DATA_SIZE : MAX_OUTPUT_SCRIPT_SIZE)) {
             return state.Invalid(TxValidationResult::TX_PREMATURE_SPEND, "bad-txns-vout-script-toolarge");
+        }
+    }
+    return true;
+}
+
+bool Consensus::CheckTaprootDisabledOutputs(const CTransaction& tx, const Params& params, TxValidationState& state)
+{
+    if (DeploymentEnabled(params, Consensus::DEPLOYMENT_TAPROOT)) {
+        return true;
+    }
+    for (const auto& txout : tx.vout) {
+        int version{0};
+        std::vector<unsigned char> program;
+        if (txout.scriptPubKey.IsWitnessProgram(version, program) && version >= 1) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vout-taproot-disabled");
         }
     }
     return true;

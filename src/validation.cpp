@@ -866,6 +866,10 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return false; // state filled in by CheckTransaction
     }
 
+    if (!Consensus::CheckTaprootDisabledOutputs(tx, m_active_chainstate.m_chainman.GetConsensus(), state)) {
+        return false;
+    }
+
     // Coinbase is only valid in a block, not as a loose transaction
     if (tx.IsCoinBase())
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "coinbase");
@@ -2714,11 +2718,11 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
     // retroactively applied to testnet)
     // However, only one historical block violated the P2SH rules (on both
     // mainnet and testnet).
-    // Similarly, only one historical block violated the TAPROOT rules on
-    // mainnet.
-    // For simplicity, always leave P2SH+WITNESS+TAPROOT on except for the two
-    // violating blocks.
-    uint32_t flags{SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT};
+    // Bitcoin Core always leaves P2SH+WITNESS+TAPROOT on except for those
+    // exceptions. FederationCoin parks Taproot at NEVER_ACTIVE, so the
+    // TAPROOT flag follows DeploymentActiveAt: off means fail-closed v1
+    // spends, not anyone-can-spend.
+    uint32_t flags{SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS};
     const auto it{consensusparams.script_flag_exceptions.find(*Assert(block_index.phashBlock))};
     if (it != consensusparams.script_flag_exceptions.end()) {
         flags = it->second;
@@ -2742,6 +2746,10 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
     // Enforce BIP147 NULLDUMMY (activated simultaneously with segwit)
     if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_SEGWIT)) {
         flags |= SCRIPT_VERIFY_NULLDUMMY;
+    }
+
+    if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_TAPROOT)) {
+        flags |= SCRIPT_VERIFY_TAPROOT;
     }
 
     if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_BLAKE2B)) {
@@ -4575,6 +4583,11 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
         if (!CheckTransaction(*tx, tx_state)) {
             // CheckBlock() does context-free validation checks. The only
             // possible failures are consensus failures.
+            assert(tx_state.GetResult() == TxValidationResult::TX_CONSENSUS);
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, tx_state.GetRejectReason(),
+                                 strprintf("Transaction check failed (tx hash %s) %s", tx->GetHash().ToString(), tx_state.GetDebugMessage()));
+        }
+        if (!Consensus::CheckTaprootDisabledOutputs(*tx, consensusParams, tx_state)) {
             assert(tx_state.GetResult() == TxValidationResult::TX_CONSENSUS);
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, tx_state.GetRejectReason(),
                                  strprintf("Transaction check failed (tx hash %s) %s", tx->GetHash().ToString(), tx_state.GetDebugMessage()));

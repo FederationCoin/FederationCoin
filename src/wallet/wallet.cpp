@@ -2738,6 +2738,9 @@ bool CWallet::TopUpKeyPool(unsigned int kpSize)
 util::Result<CTxDestination> CWallet::GetNewDestination(const OutputType type, const std::string label)
 {
     LOCK(cs_wallet);
+    if (!OutputTypeIsAllowed(type)) {
+        return util::Error{Untranslated("Bech32m / Taproot addresses are not valid on this chain.")};
+    }
     auto spk_man = GetScriptPubKeyMan(type, /*internal=*/false);
     if (!spk_man) {
         return util::Error{strprintf(_("Error: No %s addresses available."), FormatOutputType(type))};
@@ -2754,6 +2757,9 @@ util::Result<CTxDestination> CWallet::GetNewDestination(const OutputType type, c
 util::Result<CTxDestination> CWallet::GetNewChangeDestination(const OutputType type)
 {
     LOCK(cs_wallet);
+    if (!OutputTypeIsAllowed(type)) {
+        return util::Error{Untranslated("Bech32m / Taproot addresses are not valid on this chain.")};
+    }
 
     ReserveDestination reservedest(this, type);
     auto op_dest = reservedest.GetReservedDestination(true);
@@ -3277,6 +3283,10 @@ std::shared_ptr<CWallet> CWallet::Create(WalletContext& context, const std::stri
             error = strprintf(_("Unknown address type '%s'"), args.GetArg("-addresstype", ""));
             return nullptr;
         }
+        if (!OutputTypeIsAllowed(*parsed)) {
+            error = Untranslated("Bech32m / Taproot addresses are not valid on this chain.");
+            return nullptr;
+        }
         walletInstance->m_default_address_type = parsed.value();
     }
 
@@ -3284,6 +3294,10 @@ std::shared_ptr<CWallet> CWallet::Create(WalletContext& context, const std::stri
         std::optional<OutputType> parsed = ParseOutputType(args.GetArg("-changetype", ""));
         if (!parsed) {
             error = strprintf(_("Unknown change type '%s'"), args.GetArg("-changetype", ""));
+            return nullptr;
+        }
+        if (!OutputTypeIsAllowed(*parsed)) {
+            error = Untranslated("Bech32m / Taproot addresses are not valid on this chain.");
             return nullptr;
         }
         walletInstance->m_default_change_type = parsed.value();
@@ -3948,6 +3962,7 @@ void CWallet::SetupDescriptorScriptPubKeyMans(WalletBatch& batch, const CExtKey&
     AssertLockHeld(cs_wallet);
     for (bool internal : {false, true}) {
         for (OutputType t : OUTPUT_TYPES) {
+            if (!OutputTypeIsAllowed(t)) continue;
             SetupDescriptorScriptPubKeyMan(batch, master_key, t, internal);
         }
     }

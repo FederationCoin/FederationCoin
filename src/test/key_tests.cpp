@@ -4,6 +4,8 @@
 
 #include <key.h>
 
+#include <addresstype.h>
+#include <base58.h>
 #include <common/system.h>
 #include <key_io.h>
 #include <span.h>
@@ -34,19 +36,29 @@ static const std::string addr2C = "1CRj2HyM1CXWzHAXLQtiGLyggNT9WQqsDs";
 
 static const std::string strAddressBad = "1HV9Lc3sNHZxwj4Zk6fB38tEmBryq2cBiF";
 
+static CKey KeyFromWifPayload(const std::string& wif)
+{
+    CKey key;
+    std::vector<unsigned char> data;
+    if (DecodeBase58Check(wif, data, 34) && (data.size() == 33 || (data.size() == 34 && data.back() == 1))) {
+        key.Set(data.begin() + 1, data.begin() + 33, data.size() == 34);
+    }
+    return key;
+}
+
 
 BOOST_FIXTURE_TEST_SUITE(key_tests, BasicTestingSetup)
 
 BOOST_AUTO_TEST_CASE(key_test1)
 {
-    CKey key1  = DecodeSecret(strSecret1);
-    BOOST_CHECK(key1.IsValid() && !key1.IsCompressed());
-    CKey key2  = DecodeSecret(strSecret2);
-    BOOST_CHECK(key2.IsValid() && !key2.IsCompressed());
-    CKey key1C = DecodeSecret(strSecret1C);
-    BOOST_CHECK(key1C.IsValid() && key1C.IsCompressed());
-    CKey key2C = DecodeSecret(strSecret2C);
-    BOOST_CHECK(key2C.IsValid() && key2C.IsCompressed());
+    CKey key1  = KeyFromWifPayload(strSecret1);
+    BOOST_REQUIRE(key1.IsValid() && !key1.IsCompressed());
+    CKey key2  = KeyFromWifPayload(strSecret2);
+    BOOST_REQUIRE(key2.IsValid() && !key2.IsCompressed());
+    CKey key1C = KeyFromWifPayload(strSecret1C);
+    BOOST_REQUIRE(key1C.IsValid() && key1C.IsCompressed());
+    CKey key2C = KeyFromWifPayload(strSecret2C);
+    BOOST_REQUIRE(key2C.IsValid() && key2C.IsCompressed());
     CKey bad_key = DecodeSecret(strAddressBad);
     BOOST_CHECK(!bad_key.IsValid());
 
@@ -75,10 +87,14 @@ BOOST_AUTO_TEST_CASE(key_test1)
     BOOST_CHECK(!key2C.VerifyPubKey(pubkey2));
     BOOST_CHECK(key2C.VerifyPubKey(pubkey2C));
 
-    BOOST_CHECK(DecodeDestination(addr1)  == CTxDestination(PKHash(pubkey1)));
-    BOOST_CHECK(DecodeDestination(addr2)  == CTxDestination(PKHash(pubkey2)));
-    BOOST_CHECK(DecodeDestination(addr1C) == CTxDestination(PKHash(pubkey1C)));
-    BOOST_CHECK(DecodeDestination(addr2C) == CTxDestination(PKHash(pubkey2C)));
+    BOOST_CHECK(!IsValidDestination(DecodeDestination(addr1)));
+    BOOST_CHECK(!IsValidDestination(DecodeDestination(addr2)));
+    BOOST_CHECK(!IsValidDestination(DecodeDestination(addr1C)));
+    BOOST_CHECK(!IsValidDestination(DecodeDestination(addr2C)));
+    BOOST_CHECK(DecodeDestination(EncodeDestination(PKHash(pubkey1))) == CTxDestination(PKHash(pubkey1)));
+    BOOST_CHECK(DecodeDestination(EncodeDestination(PKHash(pubkey2))) == CTxDestination(PKHash(pubkey2)));
+    BOOST_CHECK(DecodeDestination(EncodeDestination(PKHash(pubkey1C))) == CTxDestination(PKHash(pubkey1C)));
+    BOOST_CHECK(DecodeDestination(EncodeDestination(PKHash(pubkey2C))) == CTxDestination(PKHash(pubkey2C)));
 
     for (int n=0; n<16; n++)
     {
@@ -165,7 +181,8 @@ BOOST_AUTO_TEST_CASE(key_test1)
 BOOST_AUTO_TEST_CASE(key_signature_tests)
 {
     // When entropy is specified, we should see at least one high R signature within 20 signatures
-    CKey key = DecodeSecret(strSecret1);
+    CKey key = KeyFromWifPayload(strSecret1);
+    BOOST_REQUIRE(key.IsValid());
     std::string msg = "A message to be signed";
     uint256 msg_hash = Hash(msg);
     std::vector<unsigned char> sig;
@@ -337,7 +354,8 @@ BOOST_AUTO_TEST_CASE(bip340_test_vectors)
 BOOST_AUTO_TEST_CASE(key_ellswift)
 {
     for (const auto& secret : {strSecret1, strSecret2, strSecret1C, strSecret2C}) {
-        CKey key = DecodeSecret(secret);
+        CKey key = KeyFromWifPayload(secret);
+        BOOST_REQUIRE(key.IsValid());
         BOOST_CHECK(key.IsValid());
 
         uint256 ent32 = m_rng.rand256();

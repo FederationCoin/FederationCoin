@@ -4,7 +4,9 @@
 
 #include <addresstype.h>
 
+#include <chainparams.h>
 #include <crypto/sha256.h>
+#include <deploymentstatus.h>
 #include <hash.h>
 #include <pubkey.h>
 #include <script/script.h>
@@ -158,8 +160,14 @@ public:
     bool operator()(const ScriptHash& dest) const { return true; }
     bool operator()(const WitnessV0KeyHash& dest) const { return true; }
     bool operator()(const WitnessV0ScriptHash& dest) const { return true; }
-    bool operator()(const WitnessV1Taproot& dest) const { return true; }
-    bool operator()(const WitnessUnknown& dest) const { return true; }
+    bool operator()(const WitnessV1Taproot& dest) const
+    {
+        return DeploymentEnabled(Params().GetConsensus(), Consensus::DEPLOYMENT_TAPROOT);
+    }
+    bool operator()(const WitnessUnknown& dest) const
+    {
+        return DeploymentEnabled(Params().GetConsensus(), Consensus::DEPLOYMENT_TAPROOT);
+    }
 };
 } // namespace
 

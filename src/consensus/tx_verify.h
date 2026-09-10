@@ -42,12 +42,20 @@ public:
 };
 
 namespace Consensus {
+struct Params;
+
 /**
  * Check whether all outputs of this transaction satisfy size limits.
  * Regular outputs must be <= MAX_OUTPUT_SCRIPT_SIZE (34 bytes).
  * OP_RETURN outputs must be <= MAX_OUTPUT_DATA_SIZE (83 bytes).
  */
 bool CheckOutputSizes(const CTransaction& tx, TxValidationState& state);
+
+/**
+ * Reject witness v1+ outputs while Taproot is parked (nStartTime NEVER_ACTIVE).
+ * Not context-free: test fixtures re-enable Taproot via -vbparams.
+ */
+bool CheckTaprootDisabledOutputs(const CTransaction& tx, const Params& params, TxValidationState& state);
 
 /**
  * Check whether all inputs of this transaction are valid (no double spends and amounts)

@@ -175,7 +175,7 @@ static const char* DEFAULT_ASMAP_FILENAME="ip_asn.map";
 /**
  * The PID file facilities.
  */
-static const char* BITCOIN_PID_FILENAME = "bitcoind.pid";
+static const char* BITCOIN_PID_FILENAME = "federationcoind.pid";
 /**
  * True if this process has created a PID file.
  * Used to determine whether we should remove the PID file on shutdown.
@@ -514,7 +514,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-coinstatsindex", strprintf("Maintain coinstats index used by the gettxoutsetinfo RPC (default: %u)", DEFAULT_COINSTATSINDEX), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-conf=<file>", strprintf("Specify path to read-only configuration file. Relative paths will be prefixed by datadir location (only useable from command line, not configuration file) (default: %s)", BITCOIN_CONF_FILENAME), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-confrw=<file>", strprintf("Specify read/write configuration file. Relative paths will be prefixed by the network-specific datadir location (default: %s)", BITCOIN_RW_CONF_FILENAME), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
-    argsman.AddArg("-corepolicy", strprintf("Use Bitcoin Core policy defaults (default: %u)", DEFAULT_COREPOLICY), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
+    argsman.AddArg("-corepolicy", strprintf("Use historical Core policy defaults (default: %u)", DEFAULT_COREPOLICY), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-datadir=<dir>", "Specify data directory", ArgsManager::ALLOW_ANY | ArgsManager::DISALLOW_NEGATION, OptionsCategory::OPTIONS);
     argsman.AddArg("-dbbatchsize", strprintf("Maximum database write batch size in bytes (default: %u)", nDefaultDbBatchSize), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::OPTIONS);
     argsman.AddArg("-dbcache=<n>", strprintf("Maximum database cache size <n> MiB (minimum %s, default is platform dependent, between %s and %s). Make sure you have enough RAM. In addition, unused memory allocated to the mempool is shared with this cache (see -maxmempool).", MIN_DBCACHE_BYTES / 1_MiB, MIN_DEFAULT_DBCACHE / 1_MiB, MAX_DEFAULT_DBCACHE / 1_MiB), ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
@@ -589,7 +589,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-i2pacceptincoming", strprintf("Whether to accept inbound I2P connections (default: %i). Ignored if -i2psam is not set. Listening for inbound I2P connections is done through the SAM proxy, not by binding to a local address and port.", DEFAULT_I2P_ACCEPT_INCOMING), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
     argsman.AddArg("-onlynet=<net>", "Make automatic outbound connections only to network <net> (" + Join(GetNetworkNames(), ", ") + "). Inbound and manual connections are not affected by this option. It can be specified multiple times to allow multiple networks.", ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
     argsman.AddArg("-v2transport", strprintf("Support v2 transport (default: %u)", DEFAULT_V2_TRANSPORT), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
-    argsman.AddArg("-v2onlyclearnet", strprintf("Ensure all outbound IPv4/IPv6 peers use encrypted network traffic (default: %u). Using this option requires -listen=0 and takes valuable listening capacity away from the network. Enable this option only if passive network observers like ISPs, firewalls, etc. pose a threat and unencrypted network traffic must be avoided. Note: Encryption protects message contents but does not obscure that you are running a Bitcoin node. Observers can still identify Bitcoin activity from your outbound connection attempts to the default port (8333) or by analysing traffic patterns.", DEFAULT_V2_ONLY_CLEARNET), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CONNECTION);
+    argsman.AddArg("-v2onlyclearnet", strprintf("Ensure all outbound IPv4/IPv6 peers use encrypted network traffic (default: %u). Using this option requires -listen=0 and takes valuable listening capacity away from the network. Enable this option only if passive network observers like ISPs, firewalls, etc. pose a threat and unencrypted network traffic must be avoided. Note: Encryption protects message contents but does not obscure that you are running a FederationCoin node. Observers can still identify node activity from your outbound connection attempts to the default P2P port or by analysing traffic patterns.", DEFAULT_V2_ONLY_CLEARNET), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CONNECTION);
     argsman.AddArg("-peerbloomfilters", strprintf("Support filtering of blocks and transactions with bloom filters (default: %s)", DEFAULT_PEERBLOOMFILTERS ? "1" : "localhost only"), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
     argsman.AddArg("-peerblockfilters", strprintf("Serve compact block filters to peers per BIP 157 (default: %u)", DEFAULT_PEERBLOCKFILTERS), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
     argsman.AddArg("-txreconciliation", strprintf("Enable transaction reconciliations per BIP 330 (default: %d)", DEFAULT_TXRECONCILIATION_ENABLE), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CONNECTION);
@@ -756,7 +756,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
                    ArgsManager::ALLOW_ANY,
                    OptionsCategory::NODE_RELAY);
     argsman.AddArg("-minrelaycoinblocks=<n>",
-                   strprintf("Minimum \"coin blocks\" (measured in %s per block) that a transaction must be spending to be relayed (default: %s)",
+                   strprintf("Minimum \"coin blocks\" (measured in native %s per block) that a transaction must be spending to be relayed (default: %s)",
                              CURRENCY_ATOM,
                              DEFAULT_MINRELAYCOINBLOCKS),
                    ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
@@ -768,7 +768,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
         CURRENCY_UNIT, FormatMoney(DEFAULT_MIN_RELAY_TX_FEE)), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-rejectparasites", strprintf("Refuse to relay or mine parasitic overlay protocols (default: %u)", DEFAULT_REJECT_PARASITES), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-rejecttokens",
-                   strprintf("Refuse to relay or mine transactions involving non-bitcoin tokens (default: %u)",
+                   strprintf("Refuse to relay or mine overlay token/asset protocols (Counterparty, OLGA, and similar), not native COIN tokens (default: %u)",
                              DEFAULT_REJECT_TOKENS),
                    ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-subdustfeepenalty",
@@ -1613,6 +1613,10 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     if (!init::StartLogging(args)) {
         // Detailed error printed inside StartLogging().
         return false;
+    }
+
+    if (chainparams.GetChainType() == ChainType::MAIN) {
+        InitWarning(_("This binary's default main network uses placeholder genesis, magic, and ports. They will be replaced at announcement. Do not treat this as launched main. Mine and peer on -testnet."));
     }
 
     LogPrintf("Using at most %i automatic connections (%i file descriptors available)\n", nMaxConnections, available_fds);

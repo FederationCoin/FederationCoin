@@ -121,8 +121,8 @@ int ParseVerbosity(const UniValue& arg, int default_verbosity, bool allow_bool);
  */
 CAmount AmountFromValue(const UniValue& value, int decimals = 8);
 /**
- * Parse a json number or string, denoting BTC/kvB, into a CFeeRate (sat/kvB).
- * Reject negative values or rates larger than 1BTC/kvB.
+ * Parse a json number or string, denoting COIN/kvB, into a CFeeRate (token/kvB).
+ * Reject negative values or rates larger than 1 COIN/kvB.
  */
 CFeeRate ParseFeeRate(const UniValue& json);
 

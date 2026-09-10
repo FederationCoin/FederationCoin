@@ -65,7 +65,7 @@ void ScalingGraphicsView::mouseMoveEvent(QMouseEvent * const event)
         unit = options_model->getDisplayUnit();
         font_for_money = options_model->getFontForMoney(unit);
     } else {
-        unit = BitcoinUnit::BTC;
+        unit = BitcoinUnit::COIN;
     }
     int i = 0;
     for (const auto& txout : tx->vout) {
@@ -408,7 +408,7 @@ void GuiBlockView::updateBlockFees(CAmount block_fees)
         unit = options_model->getDisplayUnit();
         font_for_money = options_model->getFontForMoney(unit);
     } else {
-        unit = BitcoinUnit::BTC;
+        unit = BitcoinUnit::COIN;
     }
     m_lbl_tx_fees->setFont(font_for_money);
     m_lbl_tx_fees->setText(BitcoinUnits::formatWithUnit(unit, block_fees));

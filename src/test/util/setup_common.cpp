@@ -4,6 +4,7 @@
 
 #include <test/util/setup_common.h>
 
+#include <addresstype.h>
 #include <addrman.h>
 #include <banman.h>
 #include <chainparams.h>
@@ -116,8 +117,7 @@ BasicTestingSetup::BasicTestingSetup(const ChainType chainType, TestOpts opts)
     m_node.shutdown_signal = &m_interrupt;
     m_node.shutdown_request = [this]{ return m_interrupt(); };
     m_node.args = &gArgs;
-    std::vector<const char*> arguments = Cat(
-        {
+    std::vector<const char*> arguments = {
             "dummy",
             "-printtoconsole=0",
             "-logsourcelocations",
@@ -127,8 +127,13 @@ BasicTestingSetup::BasicTestingSetup(const ChainType chainType, TestOpts opts)
             "-debug",
             "-debugexclude=libevent",
             "-debugexclude=leveldb",
-        },
-        opts.extra_args);
+        };
+    if (chainType == ChainType::REGTEST) {
+        // Production CRegTestParams parks Taproot (NEVER_ACTIVE). Existing
+        // tests assume it is active; re-enable only in this fixture.
+        arguments.push_back("-vbparams=taproot:-1:9223372036854775807");
+    }
+    arguments = Cat(arguments, opts.extra_args);
     if (G_TEST_COMMAND_LINE_ARGUMENTS) {
         arguments = Cat(arguments, G_TEST_COMMAND_LINE_ARGUMENTS());
     }
@@ -346,7 +351,9 @@ TestChain100Setup::TestChain100Setup(
     TestOpts opts)
     : TestingSetup{ChainType::REGTEST, opts}
 {
-    SetMockTime(1598887952);
+    // FederationCoin genesis is 2026-09-09. The historical Knots mock time
+    // (2020-08-31) is before genesis, so CreateNewBlock is time-too-new.
+    SetMockTime(std::max<int64_t>(1598887952, Params().GenesisBlock().nTime));
     constexpr std::array<unsigned char, 32> vchKey = {
         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
     coinbaseKey.Set(vchKey.begin(), vchKey.end(), true);
@@ -356,15 +363,14 @@ TestChain100Setup::TestChain100Setup(
 
     {
         LOCK(::cs_main);
-        assert(
-            m_node.chainman->ActiveChain().Tip()->GetBlockHash().ToString() ==
-            "571d80a9967ae599cec0448b0b0ba1cfb606f584d8069bd7166b86854ba7a191");
+        Assert(m_node.chainman->ActiveChain().Tip()->GetBlockHash().ToString() ==
+               "4b9ef63ecaeb1446b7a01c277232cb27db02fd3d2a00c000f38788200364b332");
     }
 }
 
 void TestChain100Setup::mineBlocks(int num_blocks)
 {
-    CScript scriptPubKey = CScript() << ToByteVector(coinbaseKey.GetPubKey()) << OP_CHECKSIG;
+    CScript scriptPubKey = GetScriptForDestination(PKHash(coinbaseKey.GetPubKey()));
     for (int i = 0; i < num_blocks; i++) {
         std::vector<CMutableTransaction> noTxns;
         CBlock b = CreateAndProcessBlock(noTxns, scriptPubKey);

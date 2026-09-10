@@ -14,6 +14,7 @@
 #include <wallet/receive.h>
 #include <wallet/rpc/util.h>
 #include <wallet/wallet.h>
+#include <outputtype.h>
 
 #include <univalue.h>
 
@@ -54,6 +55,8 @@ RPCHelpMan getnewaddress()
         std::optional<OutputType> parsed = ParseOutputType(request.params[1].get_str());
         if (!parsed) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("Unknown address type '%s'", request.params[1].get_str()));
+        } else if (!OutputTypeIsAllowed(parsed.value())) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Bech32m / Taproot addresses are not valid on this chain.");
         } else if (parsed.value() == OutputType::BECH32M && pwallet->GetLegacyScriptPubKeyMan()) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Legacy wallets cannot provide bech32m addresses");
         }
@@ -101,6 +104,8 @@ RPCHelpMan getrawchangeaddress()
         std::optional<OutputType> parsed = ParseOutputType(request.params[0].get_str());
         if (!parsed) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("Unknown address type '%s'", request.params[0].get_str()));
+        } else if (!OutputTypeIsAllowed(parsed.value())) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Bech32m / Taproot addresses are not valid on this chain.");
         } else if (parsed.value() == OutputType::BECH32M && pwallet->GetLegacyScriptPubKeyMan()) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Legacy wallets cannot provide bech32m addresses");
         }

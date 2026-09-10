@@ -20,7 +20,7 @@ using util::Join;
  * for both bitcoind and bitcoin-qt, to make it harder for attackers to
  * target servers or GUI users specifically.
  */
-const std::string UA_NAME("Satoshi");
+const std::string UA_NAME("Sumer");
 
 
 #include <bitcoin-build-info.h>
@@ -62,20 +62,16 @@ std::string FormatFullVersion()
 
 /**
  * Format the subversion field according to BIP 14 spec (https://github.com/bitcoin/bips/blob/master/bip-0014.mediawiki)
+ *
+ * Knots appended a UA suffix when base_name_only was false. FederationCoin
+ * dropped that suffix, so true and false produce the same BIP14 string. The
+ * parameter is kept because init.cpp `-uaspoof=1` still passes it.
  */
-std::string FormatSubVersion(const std::string& name, int nClientVersion, const std::vector<std::string>& comments, const bool base_name_only)
+std::string FormatSubVersion(const std::string& name, int nClientVersion, const std::vector<std::string>& comments, [[maybe_unused]] const bool base_name_only)
 {
     std::string comments_str;
     if (!comments.empty()) comments_str = strprintf("(%s)", Join(comments, "; "));
-    std::string ua = strprintf("/%s:%s%s/", name, FormatVersion(nClientVersion), comments_str);
-    if (!base_name_only) {
-        static const auto ua_knots = []() -> std::string {
-            const auto pos{CLIENT_BUILD.find(".knots")};
-            return "Knots:" + CLIENT_BUILD.substr(pos + 6) + "/";
-        }();
-        ua += ua_knots;
-    }
-    return ua;
+    return strprintf("/%s:%s%s/", name, FormatVersion(nClientVersion), comments_str);
 }
 
 std::string CopyrightHolders(const std::string& strPrefix)
@@ -92,7 +88,7 @@ std::string CopyrightHolders(const std::string& strPrefix)
 
 std::string LicenseInfo()
 {
-    const std::string URL_SOURCE_CODE = "<https://github.com/bitcoinknots/bitcoin>";
+    const std::string URL_SOURCE_CODE = "<https://github.com/FederationCoin/FederationCoin>";
 
     return CopyrightHolders(strprintf(_("Copyright (C) %i-%i"), 2009, COPYRIGHT_YEAR).translated + " ") + "\n" +
            "\n" +

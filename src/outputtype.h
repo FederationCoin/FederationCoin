@@ -29,8 +29,10 @@ static constexpr auto OUTPUT_TYPES = std::array{
     OutputType::BECH32M,
 };
 
-std::optional<OutputType> ParseOutputType(const std::string& str);
+std::optional<OutputType> ParseOutputType(const std::string& type);
 const std::string& FormatOutputType(OutputType type);
+/** False for bech32m while Taproot is parked (DeploymentEnabled). */
+bool OutputTypeIsAllowed(OutputType type);
 
 /**
  * Get a destination of the requested type (if possible) to the specified key.

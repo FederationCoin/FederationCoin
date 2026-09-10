@@ -49,19 +49,9 @@ BOOST_AUTO_TEST_CASE(checkpoint_sanity)
 {
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
     const auto& checkpoints = chainParams->Checkpoints();
-
-    uint256 p11111 = uint256{"0000000069e244f73d78e8fd29ba2fd2ed618bd6fa2ee92559f542fdb26e7c1d"};
-    uint256 p134444 = uint256{"00000000000005b12ffd4cd315cd34ffd4a594f430ac814c91184a0d42d2b0fe"};
-    BOOST_CHECK(checkpoints.CheckBlock(11111, p11111));
-    BOOST_CHECK(checkpoints.CheckBlock(134444, p134444));
-
-    // Wrong hashes at checkpoints should fail:
-    BOOST_CHECK(!checkpoints.CheckBlock(11111, p134444));
-    BOOST_CHECK(!checkpoints.CheckBlock(134444, p11111));
-
-    // ... but any hash not at a checkpoint should succeed:
-    BOOST_CHECK(checkpoints.CheckBlock(11111+1, p134444));
-    BOOST_CHECK(checkpoints.CheckBlock(134444+1, p11111));
+    BOOST_CHECK_EQUAL(checkpoints.GetHeight(), 0);
+    // Empty map: any hash at any height is accepted (no checkpoint to miss).
+    BOOST_CHECK(checkpoints.CheckBlock(11111, uint256::ONE));
 }
 
 BOOST_AUTO_TEST_CASE(block_subsidy_test)
@@ -179,13 +169,17 @@ BOOST_AUTO_TEST_CASE(test_assumeutxo)
         BOOST_CHECK(!out);
     }
 
-    const auto out110 = *params->AssumeutxoForHeight(110);
-    BOOST_CHECK_EQUAL(out110.hash_serialized.ToString(), "6657b736d4fe4db0cbc796789e812d5dba7f5c143764b1b6905612f1830609d1");
-    BOOST_CHECK_EQUAL(out110.m_chain_tx_count, 111U);
+    const auto out110 = params->AssumeutxoForHeight(110);
+    BOOST_REQUIRE(out110.has_value());
+    BOOST_CHECK_EQUAL(out110->hash_serialized.ToString(), "289909189a8e60dd0759ca4fa222eeaa7c109bee1d307213bec1be6dbe0202d2");
+    BOOST_CHECK_EQUAL(out110->m_chain_tx_count, 111U);
+    BOOST_CHECK_EQUAL(out110->blockhash.ToString(), "5d195e9d96c551feddabec553524177c0650669c6ae046798d9b24e9191c9990");
 
-    const auto out110_2 = *params->AssumeutxoForBlockhash(uint256{"696e92821f65549c7ee134edceeeeaaa4105647a3c4fd9f298c0aec0ab50425c"});
-    BOOST_CHECK_EQUAL(out110_2.hash_serialized.ToString(), "6657b736d4fe4db0cbc796789e812d5dba7f5c143764b1b6905612f1830609d1");
-    BOOST_CHECK_EQUAL(out110_2.m_chain_tx_count, 111U);
+    const auto out110_2 = params->AssumeutxoForBlockhash(uint256{"5d195e9d96c551feddabec553524177c0650669c6ae046798d9b24e9191c9990"});
+    BOOST_REQUIRE(out110_2.has_value());
+    BOOST_CHECK_EQUAL(out110_2->hash_serialized.ToString(), out110->hash_serialized.ToString());
+    BOOST_CHECK_EQUAL(out110_2->m_chain_tx_count, 111U);
+    BOOST_CHECK_EQUAL(out110_2->blockhash.ToString(), out110->blockhash.ToString());
 }
 
 BOOST_AUTO_TEST_CASE(block_malleation)

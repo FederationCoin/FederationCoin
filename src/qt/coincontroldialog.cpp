@@ -494,7 +494,7 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
     }
 
     // actually update labels
-    BitcoinUnit nDisplayUnit = BitcoinUnit::BTC;
+    BitcoinUnit nDisplayUnit = BitcoinUnit::COIN;
     QFont font_for_money;
     if (model && model->getOptionsModel())
     {

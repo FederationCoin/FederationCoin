@@ -42,11 +42,19 @@ std::vector<std::shared_ptr<CBlock>> CreateBlockChain(size_t total_height, const
         coinbase_tx.vin[0].prevout.SetNull();
         coinbase_tx.vout.resize(1);
         coinbase_tx.vout[0].scriptPubKey = P2WSH_OP_TRUE;
-        coinbase_tx.vout[0].nValue = GetBlockSubsidy(height + 1, params.GetConsensus());
-        coinbase_tx.vin[0].scriptSig = CScript() << (height + 1) << OP_0;
+        const int nHeight{static_cast<int>(height) + 1};
+        const auto& consensus{params.GetConsensus()};
+        coinbase_tx.vout[0].nValue = GetBlockSubsidy(nHeight, consensus);
+        coinbase_tx.vin[0].scriptSig = CScript() << nHeight << OP_0;
+        if (nHeight == consensus.Blake2bHeight) {
+            coinbase_tx.vin[0].scriptSig << consensus.Blake2bHeadline;
+        }
         block.vtx = {MakeTransactionRef(std::move(coinbase_tx))};
 
         block.nVersion = VERSIONBITS_LAST_OLD_BLOCK_VERSION;
+        block.m_header_v2 = consensus.IsBlake2bHeight(nHeight);
+        block.m_height = block.m_header_v2 ? nHeight : 0;
+        block.m_txcount = block.m_header_v2 ? 1 : 0;
         block.hashPrevBlock = (height >= 1 ? *ret.at(height - 1) : params.GenesisBlock()).GetHash();
         block.hashMerkleRoot = BlockMerkleRoot(block);
         block.nTime = ++time;

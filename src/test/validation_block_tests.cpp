@@ -71,6 +71,12 @@ std::shared_ptr<CBlock> MinerTestingSetup::Block(const uint256& prev_hash)
     auto pblock = std::make_shared<CBlock>(ptemplate->block);
     pblock->hashPrevBlock = prev_hash;
     pblock->nTime = ++time;
+    if (pblock->m_header_v2) {
+        LOCK(::cs_main);
+        const CBlockIndex* prev{m_node.chainman->m_blockman.LookupBlockIndex(prev_hash)};
+        BOOST_REQUIRE(prev);
+        pblock->m_height = prev->nHeight + 1;
+    }
 
     // Make the coinbase transaction with two outputs:
     // One zero-value one that has a unique pubkey to make sure that blocks at the same height can have a different hash
@@ -81,9 +87,15 @@ std::shared_ptr<CBlock> MinerTestingSetup::Block(const uint256& prev_hash)
     txCoinbase.vout[1].nValue = txCoinbase.vout[0].nValue;
     txCoinbase.vout[0].nValue = 0;
     txCoinbase.vin[0].scriptWitness.SetNull();
-    // Always pad with OP_0 at the end to avoid bad-cb-length error
-    txCoinbase.vin[0].scriptSig = CScript{} << WITH_LOCK(::cs_main, return m_node.chainman->m_blockman.LookupBlockIndex(prev_hash)->nHeight + 1) << OP_0;
+    const int height{WITH_LOCK(::cs_main, return m_node.chainman->m_blockman.LookupBlockIndex(prev_hash)->nHeight + 1)};
+    txCoinbase.vin[0].scriptSig = CScript{} << height << OP_0;
+    if (height == Params().GetConsensus().Blake2bHeight) {
+        txCoinbase.vin[0].scriptSig << Params().GetConsensus().Blake2bHeadline;
+    }
     pblock->vtx[0] = MakeTransactionRef(std::move(txCoinbase));
+    if (pblock->m_header_v2) {
+        pblock->m_txcount = pblock->vtx.size();
+    }
 
     return pblock;
 }
@@ -190,7 +202,7 @@ BOOST_AUTO_TEST_CASE(processnewblock_signals_ordering)
             for (const auto& block : blocks) {
                 if (block->vtx.size() == 1) {
                     bool processed = Assert(m_node.chainman)->ProcessNewBlock(block, true, true, &ignored);
-                    assert(processed);
+                    BOOST_REQUIRE(processed);
                 }
             }
         });

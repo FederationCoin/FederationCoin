@@ -5,6 +5,8 @@
 
 #include <outputtype.h>
 
+#include <chainparams.h>
+#include <deploymentstatus.h>
 #include <pubkey.h>
 #include <script/script.h>
 #include <script/sign.h>
@@ -33,6 +35,12 @@ std::optional<OutputType> ParseOutputType(const std::string& type)
         return OutputType::BECH32M;
     }
     return std::nullopt;
+}
+
+bool OutputTypeIsAllowed(OutputType type)
+{
+    if (type != OutputType::BECH32M) return true;
+    return DeploymentEnabled(Params().GetConsensus(), Consensus::DEPLOYMENT_TAPROOT);
 }
 
 const std::string& FormatOutputType(OutputType type)

@@ -153,6 +153,9 @@ public:
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 0;
 
+        // Dummy MAIN; not launched. At announcement, Blake2b nBits should be
+        // 100x Bitcoin genesis: 0x1d00ffff target / 100, compact 0x1c028f59.
+        // Do not remine this placeholder until then.
         // nTime is LOCKTIME_THRESHOLD so timestamp-lock tests still mean timestamps.
         genesis = CreateGenesisBlock("UNLAUNCHED FederationCoin placeholder; not main", UnspendableGenesisScript(), LOCKTIME_THRESHOLD, 3586848, 0x1e00ffff, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
@@ -227,9 +230,13 @@ public:
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 0;
 
-        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin testnet3: time is the unit, not the state", UnspendableGenesisScript(), 1788912001, 79333582, 0x1e00ffff, 1, 50 * COIN);
+        // Blake2b from height 1 inherits genesis nBits: Blake2bTargetShift is 0,
+        // so GetNextWorkRequired does not change the compact target at Blake2bHeight.
+        // Height 0 is still SHA256d (v1 header). Those bits live on genesis so Blake2b
+        // matches Bitcoin launch difficulty (0x1d00ffff) without a second policy.
+        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin testnet3: time is the unit, not the state", UnspendableGenesisScript(), 1788912001, 926009097, 0x1d00ffff, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256{"000000f5e120154c61eeca65bde83e68b5cb59bec3a7a40d4f4b2b83075b8952"});
+        assert(consensus.hashGenesisBlock == uint256{"000000007b820d7dd6173e5c91ac6c5851a5a914bbe228d20b99e94cdd2d7733"});
         assert(genesis.hashMerkleRoot == uint256{"657a6ec8479f3691139773b02986e6941fb1a7e951e30b8e3676d062e78b0e9f"});
 
         vFixedSeeds.clear();
@@ -301,9 +308,10 @@ public:
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 0;
 
-        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin testnet4: time is the unit, not the state", UnspendableGenesisScript(), 1788912002, 17240778, 0x1e00ffff, 1, 50 * COIN);
+        // Same nBits as testnet3: Blake2b inherits genesis compact bits (shift 0).
+        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin testnet4: time is the unit, not the state", UnspendableGenesisScript(), 1788912002, 5926862, 0x1d00ffff, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256{"000000b97d7bc58bcf36a9fd427a0a8ce98501e7b1299d42aa02ec1f8dc47848"});
+        assert(consensus.hashGenesisBlock == uint256{"00000000518588d27956912b3e6c5a310067c1d43a95290bd84b5d4f732d1622"});
         assert(genesis.hashMerkleRoot == uint256{"46ebc78e97f6f0293a7e542d61da1ae9928204cc8e09721326cc92d6ae3d0e31"});
 
         vFixedSeeds.clear();

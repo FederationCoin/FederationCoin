@@ -145,8 +145,21 @@ class FrameworkInfo(object):
 class ApplicationBundleInfo(object):
     def __init__(self, path: str):
         self.path = path
-        # for backwards compatibility reasons, this must remain as Bitcoin-Qt
-        self.binaryPath = os.path.join(path, "Contents", "MacOS", "Bitcoin-Qt")
+        macos_dir = os.path.join(path, "Contents", "MacOS")
+        if not os.path.isdir(macos_dir):
+            raise RuntimeError(f"Could not find Contents/MacOS in {path}")
+        candidates = [
+            name
+            for name in os.listdir(macos_dir)
+            if not name.startswith(".") and os.path.isfile(os.path.join(macos_dir, name))
+        ]
+        if "federationcoin-qt" in candidates:
+            binary_name = "federationcoin-qt"
+        elif candidates:
+            binary_name = candidates[0]
+        else:
+            raise RuntimeError(f"Could not find bundle binary for {path}")
+        self.binaryPath = os.path.join(macos_dir, binary_name)
         if not os.path.exists(self.binaryPath):
             raise RuntimeError(f"Could not find bundle binary for {path}")
         self.resourcesPath = os.path.join(path, "Contents", "Resources")
@@ -421,7 +434,7 @@ if os.path.exists(appname + ".zip"):
 
 # ------------------------------------------------
 
-target = os.path.join("dist", "Bitcoin-Qt.app")
+target = os.path.join("dist", os.path.basename(os.path.normpath(app_bundle)))
 
 print("+ Copying source bundle +")
 if verbose:
@@ -493,12 +506,12 @@ with open(os.path.join(applicationBundle.resourcesPath, "qt.conf"), "wb") as f:
 # ------------------------------------------------
 
 if platform.system() == "Darwin":
-    subprocess.check_call(f"codesign --deep --force --sign - {target}", shell=True)
+    subprocess.check_call(["codesign", "--deep", "--force", "--sign", "-", target])
 
 # ------------------------------------------------
 
 if config.zip is not None:
-    shutil.make_archive('{}'.format(appname), format='zip', root_dir='dist', base_dir='Bitcoin-Qt.app')
+    shutil.make_archive('{}'.format(appname), format='zip', root_dir='dist', base_dir=os.path.basename(target))
 
 # ------------------------------------------------
 

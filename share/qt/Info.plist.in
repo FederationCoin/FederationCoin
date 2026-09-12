@@ -7,7 +7,7 @@
 
   <key>LSArchitecturePriority</key>
   <array>
-    <string>x86_64</string>
+    <string>@OSX_ARCHITECTURE_PRIORITY@</string>
   </array>
 
   <key>CFBundleIconFile</key>
@@ -34,16 +34,16 @@
   <string>????</string>
 
   <key>CFBundleExecutable</key>
-  <string>Bitcoin-Qt</string>
+  <string>federationcoin-qt</string>
 
   <key>CFBundleName</key>
-  <string>Bitcoin-Qt</string>
+  <string>@CLIENT_NAME@</string>
 
   <key>LSHasLocalizedDisplayName</key>
   <true/>
 
   <key>CFBundleIdentifier</key>
-  <string>org.bitcoinfoundation.Bitcoin-Qt</string>
+  <string>org.federationcoin.FederationCoin</string>
 
   <key>CFBundleURLTypes</key>
   <array>

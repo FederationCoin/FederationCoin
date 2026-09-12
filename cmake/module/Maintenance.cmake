@@ -68,20 +68,31 @@ endfunction()
 
 function(add_macos_deploy_target)
   if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND TARGET federationcoin-qt)
-    set(macos_app "Bitcoin-Qt.app")
+    set(macos_app "${CLIENT_NAME}.app")
+    set(macos_bundle_binary "federationcoin-qt")
+    if(CMAKE_OSX_ARCHITECTURES)
+      list(GET CMAKE_OSX_ARCHITECTURES 0 OSX_ARCHITECTURE_PRIORITY)
+    else()
+      string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _macos_processor)
+      if(_macos_processor MATCHES "arm64|aarch64")
+        set(OSX_ARCHITECTURE_PRIORITY "arm64")
+      else()
+        set(OSX_ARCHITECTURE_PRIORITY "x86_64")
+      endif()
+    endif()
     # Populate Contents subdirectory.
-    configure_file(${PROJECT_SOURCE_DIR}/share/qt/Info.plist.in ${macos_app}/Contents/Info.plist NO_SOURCE_PERMISSIONS)
-    file(CONFIGURE OUTPUT ${macos_app}/Contents/PkgInfo CONTENT "APPL????")
+    configure_file(${PROJECT_SOURCE_DIR}/share/qt/Info.plist.in "${macos_app}/Contents/Info.plist" NO_SOURCE_PERMISSIONS)
+    file(CONFIGURE OUTPUT "${macos_app}/Contents/PkgInfo" CONTENT "APPL????")
     # Populate Contents/Resources subdirectory.
-    file(CONFIGURE OUTPUT ${macos_app}/Contents/Resources/empty.lproj CONTENT "")
-    file(CONFIGURE OUTPUT ${macos_app}/Contents/Resources/Base.lproj/InfoPlist.strings
+    file(CONFIGURE OUTPUT "${macos_app}/Contents/Resources/empty.lproj" CONTENT "")
+    file(CONFIGURE OUTPUT "${macos_app}/Contents/Resources/Base.lproj/InfoPlist.strings"
       CONTENT "{ CFBundleDisplayName = \"@CLIENT_NAME@\"; CFBundleName = \"@CLIENT_NAME@\"; }"
     )
 
     set(bitcoin_icns ${PROJECT_BINARY_DIR}/src/qt/res/rendered_icons/bitcoin.icns)
     set(bitcoin_icns_dest ${macos_app}/Contents/Resources/bitcoin.icns)
     add_custom_command(
-      OUTPUT ${bitcoin_icns_dest}
+      OUTPUT "${bitcoin_icns_dest}"
       COMMAND ${CMAKE_COMMAND} -E copy ${bitcoin_icns} ${bitcoin_icns_dest}
       DEPENDS generate_icns
       VERBATIM
@@ -89,9 +100,9 @@ function(add_macos_deploy_target)
     add_custom_target(bitcoin_icns_deployed DEPENDS "${bitcoin_icns_dest}")
 
     add_custom_command(
-      OUTPUT ${PROJECT_BINARY_DIR}/${macos_app}/Contents/MacOS/Bitcoin-Qt
+      OUTPUT "${PROJECT_BINARY_DIR}/${macos_app}/Contents/MacOS/${macos_bundle_binary}"
       COMMAND ${CMAKE_COMMAND} --install ${PROJECT_BINARY_DIR} --config $<CONFIG> --component federationcoin-qt --prefix ${macos_app}/Contents/MacOS --strip
-      COMMAND ${CMAKE_COMMAND} -E rename ${macos_app}/Contents/MacOS/bin/$<TARGET_FILE_NAME:federationcoin-qt> ${macos_app}/Contents/MacOS/Bitcoin-Qt
+      COMMAND ${CMAKE_COMMAND} -E rename ${macos_app}/Contents/MacOS/bin/$<TARGET_FILE_NAME:federationcoin-qt> ${macos_app}/Contents/MacOS/${macos_bundle_binary}
       COMMAND ${CMAKE_COMMAND} -E rm -rf ${macos_app}/Contents/MacOS/bin
       COMMAND ${CMAKE_COMMAND} -E rm -rf ${macos_app}/Contents/MacOS/share
       VERBATIM
@@ -102,7 +113,7 @@ function(add_macos_deploy_target)
       add_custom_command(
         OUTPUT ${PROJECT_BINARY_DIR}/${osx_volname}.zip
         COMMAND ${PYTHON_COMMAND} ${PROJECT_SOURCE_DIR}/contrib/macdeploy/macdeployqtplus ${macos_app} ${osx_volname} -translations-dir=${QT_TRANSLATIONS_DIR} -zip
-        DEPENDS ${PROJECT_BINARY_DIR}/${macos_app}/Contents/MacOS/Bitcoin-Qt
+        DEPENDS "${PROJECT_BINARY_DIR}/${macos_app}/Contents/MacOS/${macos_bundle_binary}"
         VERBATIM
       )
       add_custom_target(deploydir
@@ -113,13 +124,13 @@ function(add_macos_deploy_target)
       )
     else()
       add_custom_command(
-        OUTPUT ${PROJECT_BINARY_DIR}/dist/${macos_app}/Contents/MacOS/Bitcoin-Qt
+        OUTPUT "${PROJECT_BINARY_DIR}/dist/${macos_app}/Contents/MacOS/${macos_bundle_binary}"
         COMMAND OBJDUMP=${CMAKE_OBJDUMP} ${PYTHON_COMMAND} ${PROJECT_SOURCE_DIR}/contrib/macdeploy/macdeployqtplus ${macos_app} ${osx_volname} -translations-dir=${QT_TRANSLATIONS_DIR}
-        DEPENDS ${PROJECT_BINARY_DIR}/${macos_app}/Contents/MacOS/Bitcoin-Qt
+        DEPENDS "${PROJECT_BINARY_DIR}/${macos_app}/Contents/MacOS/${macos_bundle_binary}"
         VERBATIM
       )
       add_custom_target(deploydir
-        DEPENDS ${PROJECT_BINARY_DIR}/dist/${macos_app}/Contents/MacOS/Bitcoin-Qt
+        DEPENDS "${PROJECT_BINARY_DIR}/dist/${macos_app}/Contents/MacOS/${macos_bundle_binary}"
       )
 
       find_program(ZIP_COMMAND zip REQUIRED)

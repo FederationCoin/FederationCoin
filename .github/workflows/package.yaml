@@ -223,7 +223,7 @@ jobs:
           echo "$(wc -l < SHA256SUMS) entries"
           cat SHA256SUMS
       - name: Verify the manifest covers every platform
-        run: ./.github/scripts/verify-package-manifest.sh SHA256SUMS
+        run: bash .github/scripts/verify-package-manifest.sh SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: SHA256SUMS

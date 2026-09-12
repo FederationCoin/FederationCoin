@@ -37,3 +37,11 @@ CMakeSettings.json
 # In-tree compile DB if a generator drops it at the root
 /compile_commands.json
 
+# Local cmake / VS leftovers (/*build* already covers build/ and build-vs-static/)
+/vcpkg_installed/
+/Testing/
+*.obj
+*.pdb
+*.ilk
+*.idb
+

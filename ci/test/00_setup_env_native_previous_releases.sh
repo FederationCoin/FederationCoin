@@ -15,7 +15,10 @@ export TEST_RUNNER_EXTRA="--previous-releases --coverage --extended --exclude fe
 export RUN_UNIT_TESTS_SEQUENTIAL="true"
 export RUN_UNIT_TESTS="false"
 export GOAL="install"
-export DOWNLOAD_PREVIOUS_RELEASES="true"
+# Previous-release binaries: https://bin.federationcoin.org
+# not yet provisioned
+# export DOWNLOAD_PREVIOUS_RELEASES="true"
+export DOWNLOAD_PREVIOUS_RELEASES="false"
 export BITCOIN_CONFIG="\
  -DWITH_ZMQ=ON -DBUILD_GUI=ON -DREDUCE_EXPORTS=ON \
  -DBUILD_BITCOINCONSENSUS_LIB=OFF \

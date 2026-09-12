@@ -49,7 +49,7 @@ function(add_windows_deploy_target)
     include(GenerateSetupNsi)
     generate_setup_nsi()
     add_custom_command(
-      OUTPUT ${PROJECT_BINARY_DIR}/bitcoin-win64-setup.exe
+      OUTPUT ${PROJECT_BINARY_DIR}/federationcoin-win64-setup.exe
       COMMAND ${CMAKE_COMMAND} -E make_directory ${PROJECT_BINARY_DIR}/release
       COMMAND ${CMAKE_STRIP} $<TARGET_FILE:federationcoin-qt> -o ${PROJECT_BINARY_DIR}/release/$<TARGET_FILE_NAME:federationcoin-qt>
       COMMAND ${CMAKE_STRIP} $<TARGET_FILE:federationcoind> -o ${PROJECT_BINARY_DIR}/release/$<TARGET_FILE_NAME:federationcoind>
@@ -58,11 +58,11 @@ function(add_windows_deploy_target)
       COMMAND ${CMAKE_STRIP} $<TARGET_FILE:federationcoin-wallet> -o ${PROJECT_BINARY_DIR}/release/$<TARGET_FILE_NAME:federationcoin-wallet>
       COMMAND ${CMAKE_STRIP} $<TARGET_FILE:federationcoin-util> -o ${PROJECT_BINARY_DIR}/release/$<TARGET_FILE_NAME:federationcoin-util>
       COMMAND ${CMAKE_STRIP} $<TARGET_FILE:test_bitcoin> -o ${PROJECT_BINARY_DIR}/release/$<TARGET_FILE_NAME:test_bitcoin>
-      COMMAND makensis -V2 ${PROJECT_BINARY_DIR}/bitcoin-win64-setup.nsi
+      COMMAND makensis -V2 ${PROJECT_BINARY_DIR}/federationcoin-win64-setup.nsi
       DEPENDS generate_nsis_images
       VERBATIM
     )
-    add_custom_target(deploy DEPENDS ${PROJECT_BINARY_DIR}/bitcoin-win64-setup.exe)
+    add_custom_target(deploy DEPENDS ${PROJECT_BINARY_DIR}/federationcoin-win64-setup.exe)
   endif()
 endfunction()
 

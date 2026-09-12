@@ -67,18 +67,24 @@ EOF
 if [ "$RUN_FUZZ_TESTS" = "true" ]; then
   export DIR_FUZZ_IN=${DIR_QA_ASSETS}/fuzz_corpora/
   if [ ! -d "$DIR_FUZZ_IN" ]; then
-    ${CI_RETRY_EXE} git clone --depth=1 https://github.com/bitcoin-core/qa-assets "${DIR_QA_ASSETS}"
+    # ${CI_RETRY_EXE} git clone --depth=1 https://qa-assets.federationcoin.org "${DIR_QA_ASSETS}"
+    # not yet provisioned
+    echo "qa-assets.federationcoin.org is not yet provisioned; not cloning fuzz corpora"
   fi
-  (
-    cd "${DIR_QA_ASSETS}"
-    echo "Using qa-assets repo from commit ..."
-    git log -1
-  )
+  if [ -d "${DIR_QA_ASSETS}/.git" ]; then
+    (
+      cd "${DIR_QA_ASSETS}"
+      echo "Using qa-assets repo from commit ..."
+      git log -1
+    )
+  fi
 elif [ "$RUN_UNIT_TESTS" = "true" ] || [ "$RUN_UNIT_TESTS_SEQUENTIAL" = "true" ]; then
   export DIR_UNIT_TEST_DATA=${DIR_QA_ASSETS}/unit_test_data/
   if [ ! -d "$DIR_UNIT_TEST_DATA" ]; then
     mkdir -p "$DIR_UNIT_TEST_DATA"
-    ${CI_RETRY_EXE} curl --location --fail https://github.com/bitcoin-core/qa-assets/raw/main/unit_test_data/script_assets_test.json -o "${DIR_UNIT_TEST_DATA}/script_assets_test.json"
+    # ${CI_RETRY_EXE} curl --location --fail https://qa-assets.federationcoin.org/unit_test_data/script_assets_test.json -o "${DIR_UNIT_TEST_DATA}/script_assets_test.json"
+    # not yet provisioned
+    echo "qa-assets.federationcoin.org is not yet provisioned; not fetching unit_test_data"
   fi
 fi
 
@@ -107,7 +113,9 @@ if [ -z "$NO_DEPENDS" ]; then
   bash -c "$SHELL_OPTS make $MAKEJOBS -C depends HOST=$HOST $DEP_OPTS LOG=1"
 fi
 if [ "$DOWNLOAD_PREVIOUS_RELEASES" = "true" ]; then
-  test/get_previous_releases.py -b -t "$PREVIOUS_RELEASES_DIR"
+  # test/get_previous_releases.py -b -t "$PREVIOUS_RELEASES_DIR"
+  # https://bin.federationcoin.org -- not yet provisioned
+  echo "bin.federationcoin.org is not yet provisioned; not downloading previous releases"
 fi
 
 BITCOIN_CONFIG_ALL="-DBUILD_BENCH=ON -DBUILD_FUZZ_BINARY=ON"

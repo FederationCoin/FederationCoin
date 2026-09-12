@@ -127,29 +127,35 @@ def download_binary(tag, args) -> int:
             return 0
         shutil.rmtree(tag)
     Path(tag).mkdir()
-    bin_path = 'bin/bitcoin-core-{}'.format(tag[1:])
+    bin_path = 'federationcoin-{}'.format(tag[1:])
     match = re.compile('v(.*)(rc[0-9]+)$').search(tag)
     if match:
-        bin_path = 'bin/bitcoin-core-{}/test.{}'.format(
+        bin_path = 'federationcoin-{}/test.{}'.format(
             match.group(1), match.group(2))
     platform = args.platform
     if tag < "v23" and platform in ["x86_64-apple-darwin", "arm64-apple-darwin"]:
         platform = "osx64"
-    tarball = 'bitcoin-{tag}-{platform}.tar.gz'.format(
+    tarball = 'federationcoin-{tag}-{platform}.tar.gz'.format(
         tag=tag[1:], platform=platform)
-    tarballUrl = 'https://bitcoincore.org/{bin_path}/{tarball}'.format(
-        bin_path=bin_path, tarball=tarball)
+    # Hosted at https://bin.federationcoin.org when we publish previous releases.
+    # not yet provisioned
+    tarballUrl = 'https://bin.federationcoin.org/federationcoin-{version}/{tarball}'.format(
+        version=tag[1:], tarball=tarball)
+    # tarballUrl = 'https://bitcoincore.org/{bin_path}/{tarball}'.format(
+    #     bin_path=bin_path, tarball=tarball)
 
     print('Fetching: {tarballUrl}'.format(tarballUrl=tarballUrl))
+    print('bin.federationcoin.org is not yet provisioned; not downloading previous releases')
+    return 1
 
-    ret = subprocess.run(['curl', '--fail', '--remote-name', tarballUrl]).returncode
-    if ret:
-        print("Retrying download after failure ...", file=sys.stderr)
-        time.sleep(12)
-        ret = subprocess.run(['curl', '--fail', '--remote-name', tarballUrl]).returncode
-        if ret:
-            print("\nDownload failed a second time", file=sys.stderr)
-            return ret
+    # ret = subprocess.run(['curl', '--fail', '--remote-name', tarballUrl]).returncode
+    # if ret:
+    #     print("Retrying download after failure ...", file=sys.stderr)
+    #     time.sleep(12)
+    #     ret = subprocess.run(['curl', '--fail', '--remote-name', tarballUrl]).returncode
+    #     if ret:
+    #         print("\nDownload failed a second time", file=sys.stderr)
+    #         return ret
 
     hasher = hashlib.sha256()
     with open(tarball, "rb") as afile:
@@ -206,7 +212,8 @@ def download_binary(tag, args) -> int:
 
 
 def build_release(tag, args) -> int:
-    githubUrl = "https://github.com/bitcoin/bitcoin"
+    githubUrl = "https://github.com/FederationCoin/FederationCoin"
+    # githubUrl = "https://github.com/bitcoin/bitcoin"
     if args.remove_dir:
         if Path(tag).is_dir():
             shutil.rmtree(tag)

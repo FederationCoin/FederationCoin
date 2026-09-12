@@ -99,9 +99,10 @@ Install Guix using one of the installation methods detailed in
 Check out the source code in the following directory hierarchy.
 
     cd /path/to/your/toplevel/build
-    git clone https://github.com/bitcoin-core/guix.sigs.git
-    git clone https://github.com/bitcoin-core/bitcoin-detached-sigs.git
-    git clone https://github.com/bitcoin/bitcoin.git
+    # git clone https://guix-sigs.federationcoin.org/guix.sigs.git
+    # git clone https://detached-sigs.federationcoin.org/federationcoin-detached-sigs.git
+    # secrets not yet hosted
+    git clone https://github.com/FederationCoin/FederationCoin.git
 
 ### Write the release notes
 
@@ -158,7 +159,7 @@ git commit -m "Add attestations by ${SIGNER} for ${VERSION} non-codesigned"
 popd
 ```
 
-Then open a Pull Request to the [guix.sigs repository](https://github.com/bitcoin-core/guix.sigs).
+Then open a Pull Request to https://guix-sigs.federationcoin.org (secrets not yet hosted).
 
 ## Codesigning
 
@@ -166,19 +167,18 @@ Then open a Pull Request to the [guix.sigs repository](https://github.com/bitcoi
 
 In the `guix-build-${VERSION}/output/x86_64-apple-darwin` and `guix-build-${VERSION}/output/arm64-apple-darwin` directories:
 
-    tar xf bitcoin-${VERSION}-${ARCH}-apple-darwin-codesigning.tar.gz
-    ./detached-sig-create.sh /path/to/codesign.p12 /path/to/AuthKey_foo.p8 uuid
-    Enter the keychain password and authorize the signature
-    signature-osx.tar.gz will be created
+    tar xf federationcoin-${VERSION}-${ARCH}-apple-darwin-codesigning.tar.gz
+    # ./detached-sig-create.sh /path/to/codesign.p12 /path/to/AuthKey_foo.p8
+    # apple developer team uuid: not yet provisioned
+    # secrets not yet hosted; unsigned only
 
 ### Windows codesigner only: Create detached Windows signatures
 
 In the `guix-build-${VERSION}/output/x86_64-w64-mingw32` directory:
 
-    tar xf bitcoin-${VERSION}-win64-codesigning.tar.gz
-    ./detached-sig-create.sh /path/to/codesign.key
-    Enter the passphrase for the key when prompted
-    signature-win.tar.gz will be created
+    tar xf federationcoin-${VERSION}-win64-codesigning.tar.gz
+    # ./detached-sig-create.sh /path/to/codesign.key
+    # Microsoft Authenticode not yet provisioned; unsigned only
 
 ### Windows and macOS codesigners only: test code signatures
 It is advised to test that the code signature attaches properly prior to tagging by performing the `guix-codesign` step.
@@ -187,7 +187,7 @@ However if this is done, once the release has been tagged in the bitcoin-detache
 ### Windows and macOS codesigners only: Commit the detached codesign payloads
 
 ```sh
-pushd ./bitcoin-detached-sigs
+pushd ./federationcoin-detached-sigs
 # checkout or create the appropriate branch for this release series
 git checkout --orphan <branch>
 # if you are the macOS codesigner
@@ -206,7 +206,7 @@ popd
 ### Non-codesigners: wait for Windows and macOS detached signatures
 
 - Once the Windows and macOS builds each have 3 matching signatures, they will be signed with their respective release keys.
-- Detached signatures will then be committed to the [bitcoin-detached-sigs](https://github.com/bitcoin-core/bitcoin-detached-sigs) repository, which can be combined with the unsigned apps to create signed binaries.
+- Detached signatures: https://detached-sigs.federationcoin.org (secrets not yet hosted; unsigned only).
 
 ### Create the codesigned build outputs
 
@@ -225,7 +225,7 @@ git commit -m "Add attestations by ${SIGNER} for ${VERSION} codesigned"
 popd
 ```
 
-Then open a Pull Request to the [guix.sigs repository](https://github.com/bitcoin-core/guix.sigs).
+Then open a Pull Request to https://guix-sigs.federationcoin.org (secrets not yet hosted).
 
 ## After 6 or more people have guix-built and their results match
 

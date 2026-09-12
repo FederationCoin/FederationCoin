@@ -6,7 +6,9 @@
 
 export LC_ALL=C.UTF-8
 
-export SDK_URL=${SDK_URL:-https://bitcoincore.org/depends-sources/sdks}
+# macOS SDK tarballs: https://depends-sdks.federationcoin.org
+# not yet provisioned
+export SDK_URL=${SDK_URL:-https://depends-sdks.federationcoin.org}
 
 export CONTAINER_NAME=ci_macos_cross
 export CI_IMAGE_NAME_TAG="mirror.gcr.io/ubuntu:24.04"

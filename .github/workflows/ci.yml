@@ -6,10 +6,12 @@ name: CI
 on:
   # See: https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request.
   pull_request:
+    branches:
+      - '29.x-federationcoin'
   # See: https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#push.
   push:
     branches:
-      - '**'
+      - '29.x-federationcoin'
     tags-ignore:
       - '**'
 
@@ -19,7 +21,8 @@ concurrency:
 
 env:
   CI_FAILFAST_TEST_LEAVE_DANGLING: 1  # GHA does not care about dangling processes and setting this variable avoids killing the CI script itself on error
-  REPO_USE_WARP_RUNNERS: 'bitcoin/bitcoin' # Use warp runners for this repo, instead of falling back to the slow GHA runners
+  # Warp is not yet provisioned for FederationCoin/FederationCoin. Do not use bitcoin/bitcoin Warp.
+  REPO_USE_WARP_RUNNERS: 'FederationCoin/FederationCoin'
 
 jobs:
   runners:
@@ -30,13 +33,17 @@ jobs:
     steps:
       - id: runners
         run: |
-          if [[ "${REPO_USE_WARP_RUNNERS}" == "${{ github.repository }}" ]]; then
-            echo "provider=warp" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Runner Selection::Using Warp Runners"
-          else
-            echo "use-warp-runners=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Runner Selection::Using GitHub-hosted runners"
-          fi
+          # Warp: REPO_USE_WARP_RUNNERS is FederationCoin/FederationCoin.
+          # not yet provisioned
+          echo "use-warp-runners=false" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Runner Selection::Using GitHub-hosted runners (Warp not yet provisioned)"
+          # if [[ "${REPO_USE_WARP_RUNNERS}" == "${{ github.repository }}" ]]; then
+          #   echo "provider=warp" >> "$GITHUB_OUTPUT"
+          #   echo "::notice title=Runner Selection::Using Warp Runners"
+          # else
+          #   echo "use-warp-runners=false" >> "$GITHUB_OUTPUT"
+          #   echo "::notice title=Runner Selection::Using GitHub-hosted runners"
+          # fi
 
   test-each-commit:
     name: 'test each commit'
@@ -102,7 +109,8 @@ jobs:
     # one for the branch push and one for the pull request.
     # This can be avoided by setting SKIP_BRANCH_PUSH=true as a custom env variable
     # in Github repository settings.
-    if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
+    # Fuzz needs https://qa-assets.federationcoin.org (not yet provisioned).
+    if: ${{ (vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request') && matrix.job-type != 'fuzz' }}
 
     timeout-minutes: 120
 
@@ -114,6 +122,7 @@ jobs:
           - job-type: standard
             file-env: './ci/test/00_setup_env_mac_native.sh'
             job-name: 'macOS 14 native, arm64, no depends, sqlite only, gui'
+          # not yet provisioned: https://qa-assets.federationcoin.org
           - job-type: fuzz
             file-env: './ci/test/00_setup_env_mac_native_fuzz.sh'
             job-name: 'macOS 14 native, arm64, fuzz'
@@ -177,7 +186,8 @@ jobs:
     # See: https://github.com/actions/runner-images#available-images.
     runs-on: windows-2022
 
-    if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
+    # Fuzz needs https://qa-assets.federationcoin.org (not yet provisioned).
+    if: ${{ (vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request') && matrix.job-type != 'fuzz' }}
 
     env:
       PYTHONUTF8: 1
@@ -264,24 +274,26 @@ jobs:
         if: matrix.job-type == 'standard'
         working-directory: build
         env:
-          BITCOIND: '${{ github.workspace }}\build\bin\Release\bitcoind.exe'
-          BITCOINCLI: '${{ github.workspace }}\build\bin\Release\bitcoin-cli.exe'
-          BITCOINUTIL: '${{ github.workspace }}\build\bin\Release\bitcoin-util.exe'
-          BITCOINWALLET: '${{ github.workspace }}\build\bin\Release\bitcoin-wallet.exe'
+          FEDERATIONCOIND: '${{ github.workspace }}\build\bin\Release\federationcoind.exe'
+          FEDERATIONCOINCLI: '${{ github.workspace }}\build\bin\Release\federationcoin-cli.exe'
+          FEDERATIONCOINUTIL: '${{ github.workspace }}\build\bin\Release\federationcoin-util.exe'
+          FEDERATIONCOINWALLET: '${{ github.workspace }}\build\bin\Release\federationcoin-wallet.exe'
           TEST_RUNNER_EXTRA: ${{ github.event_name != 'pull_request' && '--extended' || '' }}
         shell: cmd
         run: py -3 test\functional\test_runner.py --jobs %NUMBER_OF_PROCESSORS% --ci --quiet --tmpdirprefix=%RUNNER_TEMP% --combinedlogslen=99999999 --timeout-factor=%TEST_RUNNER_TIMEOUT_FACTOR% %TEST_RUNNER_EXTRA%
 
       - name: Clone corpora
-        if: matrix.job-type == 'fuzz'
+        # https://qa-assets.federationcoin.org -- not yet provisioned
+        if: false
         run: |
-          git clone --depth=1 https://github.com/bitcoin-core/qa-assets "$env:RUNNER_TEMP\qa-assets"
+          git clone --depth=1 https://qa-assets.federationcoin.org "$env:RUNNER_TEMP\qa-assets"
           Set-Location "$env:RUNNER_TEMP\qa-assets"
           Write-Host "Using qa-assets repo from commit ..."
           git log -1
 
       - name: Run fuzz tests
-        if: matrix.job-type == 'fuzz'
+        # needs qa-assets.federationcoin.org -- not yet provisioned
+        if: false
         working-directory: build
         env:
           BITCOINFUZZ: '${{ github.workspace }}\build\bin\Release\fuzz.exe'
@@ -293,7 +305,7 @@ jobs:
     name: ${{ matrix.name }}
     needs: runners
     runs-on: ${{ needs.runners.outputs.provider == 'warp' && matrix.warp-runner || matrix.fallback-runner }}
-    if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
+    if: ${{ (vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request') && matrix.skip != true }}
     timeout-minutes: ${{ matrix.timeout-minutes }}
 
     env:
@@ -322,11 +334,13 @@ jobs:
             timeout-minutes: 120
             file-env: './ci/test/00_setup_env_native_asan.sh'
 
+          # depends-sdks.federationcoin.org -- not yet provisioned
           - name: 'macOS-cross, gui, no tests'
             warp-runner: 'warp-ubuntu-latest-x64-4x'
             fallback-runner: 'ubuntu-latest'
             timeout-minutes: 120
             file-env: './ci/test/00_setup_env_mac_cross.sh'
+            skip: true
 
           - name: 'No wallet, libbitcoinkernel'
             warp-runner: 'warp-ubuntu-latest-x64-4x'
@@ -340,17 +354,21 @@ jobs:
             timeout-minutes: 120
             file-env: './ci/test/00_setup_env_i686_multiprocess.sh'
 
+          # qa-assets.federationcoin.org -- not yet provisioned
           - name: 'fuzzer,address,undefined,integer, no depends'
             warp-runner: 'warp-ubuntu-latest-x64-16x'
             fallback-runner: 'ubuntu-latest'
             timeout-minutes: 240
             file-env: './ci/test/00_setup_env_native_fuzz.sh'
+            skip: true
 
+          # bin.federationcoin.org -- not yet provisioned
           - name: 'previous releases, depends DEBUG'
             warp-runner: 'warp-ubuntu-latest-x64-8x'
             fallback-runner: 'ubuntu-latest'
             timeout-minutes: 120
             file-env: './ci/test/00_setup_env_native_previous_releases.sh'
+            skip: true
 
           - name: 'CentOS, depends, gui'
             warp-runner: 'warp-ubuntu-latest-x64-16x'
@@ -415,7 +433,7 @@ jobs:
     if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
     timeout-minutes: 20
     env:
-      CONTAINER_NAME: "bitcoin-linter"
+      CONTAINER_NAME: "federationcoin-linter"
     steps:
       - name: Checkout
         uses: actions/checkout@v6

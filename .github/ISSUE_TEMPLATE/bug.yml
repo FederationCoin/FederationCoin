@@ -5,12 +5,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        ## This issue tracker is only for technical issues related to Bitcoin Knots.
+        ## This issue tracker is only for technical issues related to FederationCoin.
 
-        * General bitcoin questions and/or support requests should use Bitcoin StackExchange at https://bitcoin.stackexchange.com.
-        * For reporting security issues, please read instructions at https://bitcoinknots.org/contact/
+        * For reporting security issues, open a private report at https://github.com/FederationCoin/FederationCoin/security/advisories
         * If the node is "stuck" during sync or giving "block checksum mismatch" errors, please ensure your hardware is stable by running `memtest` and observe CPU temperature with a load-test tool such as `linpack` before creating an issue.
-        * If your issue also affects Bitcoin Core, report it at https://github.com/bitcoin/bitcoin/issues/new?labels=bug&template=bug.yml
 
         ----
   - type: checkboxes
@@ -51,14 +49,14 @@ body:
       description: |
         Please copy and paste any relevant log output or attach a debug log file.
 
-        You can find the debug.log in your [data dir.](https://github.com/bitcoin/bitcoin/blob/master/doc/files.md#data-directory-location)
+        You can find the debug.log in your [data dir.](https://github.com/FederationCoin/FederationCoin/blob/29.x-federationcoin/doc/files.md)
 
         Please be aware that the debug log might contain personally identifying information.
     validations:
       required: false
   - type: dropdown
     attributes:
-      label: How did you obtain Bitcoin Knots
+      label: How did you obtain FederationCoin
       multiple: false
       options:
         - Compiled from source

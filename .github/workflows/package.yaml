@@ -1,0 +1,259 @@
+# Unsigned node installers for a human-created git tag.
+# Tag shape matches Knots (v29.4.1.knots20260508), with federationcoin + YYYYMMDD:
+#   vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD
+# optional: .alpha / .alphaN / .beta / .betaN / .rcN
+# CI (ci.yml) does not create tags and does not run on tag push (tags-ignore).
+# Not Guix. mac-cross stays disabled (depends-sdks.federationcoin.org not provisioned).
+# Apple Developer ID / Microsoft Authenticode: not yet provisioned.
+name: Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag (vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD, optional .alpha/.beta/.rcN)
+        required: true
+        type: string
+
+concurrency:
+  group: package-${{ inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require FederationCoin node tag with no existing Release
+        run: |
+          set -euo pipefail
+          # Knots: v29.4.1.knots20260508. Ours: v29.4.1.federationcoin20260911
+          # optional .<ext>: .alpha .alpha1 .beta .beta2 .rc1 .rc2
+          if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+\.federationcoin[0-9]{8}(\.(alpha[0-9]*|beta[0-9]*|rc[0-9]+))?$'; then
+            echo "tag must match vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD with optional .alpha/.beta/.rcN (got: ${TAG})" >&2
+            echo "example: v29.4.1.federationcoin20260911 or v29.4.1.federationcoin20260911.rc1" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release already exists for ${TAG}; will not overwrite" >&2
+            exit 1
+          fi
+          echo "tag ${TAG} is present and has no GitHub Release"
+
+  linux:
+    needs: gate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkgconf python3 \
+            libevent-dev libboost-dev libsqlite3-dev \
+            libminiupnpc-dev libzmq3-dev libqrencode-dev \
+            qtbase5-dev qttools5-dev qttools5-dev-tools qtwayland5 \
+            librsvg2-bin imagemagick
+      - name: Build unsigned tarball
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) gnu_arch=x86_64-linux-gnu ;;
+            aarch64) gnu_arch=aarch64-linux-gnu ;;
+            *)
+              echo "unsupported arch $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+          prefix="${TAG}-${gnu_arch}"
+          cmake -B build -G Ninja \
+            -DBUILD_GUI=ON \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_TX=ON \
+            -DBUILD_UTIL=ON \
+            -DWITH_ZMQ=ON \
+            -DWITH_MINIUPNPC=ON \
+            -DREDUCE_EXPORTS=ON
+          cmake --build build
+          cmake --install build --prefix "${PWD}/stage/${prefix}" --strip
+          tar -C stage -czf "${prefix}.tar.gz" "${prefix}"
+          mkdir -p dist
+          mv "${prefix}.tar.gz" dist/
+          ls -la dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ runner.arch }}
+          path: dist/
+          if-no-files-found: error
+
+  win64:
+    needs: gate
+    # mingw + NSIS via existing CI env (GOAL=deploy). Not native VS (BUILD_GUI=OFF).
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      DANGER_CI_ON_HOST_FOLDERS: 1
+      FILE_ENV: ./ci/test/00_setup_env_win64.sh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Configure environment
+        uses: ./.github/actions/configure-environment
+      - name: Configure Docker
+        uses: ./.github/actions/configure-docker
+        with:
+          use-warp: 'false'
+      - name: CI script
+        run: ./ci/test_run_all.sh
+      - name: Stage Win64 installer
+        run: |
+          set -euo pipefail
+          exe="${BASE_BUILD_DIR}/federationcoin-win64-setup.exe"
+          if [ ! -f "$exe" ]; then
+            echo "missing ${exe}" >&2
+            find "${BASE_BUILD_DIR}" -name '*win64-setup.exe' >&2 || true
+            exit 1
+          fi
+          cp -a "$exe" federationcoin-win64-setup.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win64
+          path: federationcoin-win64-setup.exe
+          if-no-files-found: error
+
+  macos:
+    needs: gate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+          - os: macos-15-intel
+    env:
+      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Xcode
+        if: ${{ matrix.os == 'macos-14' }}
+        run: sudo xcode-select --switch /Applications/Xcode_15.0.app
+      - name: Install Homebrew packages
+        run: |
+          brew install --quiet python@3 || brew link --overwrite python@3
+          brew install --quiet cmake ninja pkgconf boost libevent miniupnpc zeromq qt@5 qrencode imagemagick libicns librsvg
+      - name: Build unsigned zip
+        run: |
+          set -euo pipefail
+          cmake -B build -G Ninja \
+            -DBUILD_GUI=ON \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_TX=ON \
+            -DBUILD_UTIL=ON \
+            -DWITH_ZMQ=ON \
+            -DWITH_MINIUPNPC=ON \
+            -DREDUCE_EXPORTS=ON
+          cmake --build build --target deploy
+          zip="build/Federation-Coin.zip"
+          if [ ! -f "$zip" ]; then
+            echo "missing ${zip}" >&2
+            ls -la build/*.zip >&2 || true
+            exit 1
+          fi
+          dest="${TAG}-$(uname -m)-unsigned.zip"
+          mkdir -p dist
+          cp -a "$zip" "dist/${dest}"
+          ls -la dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ runner.arch }}
+          path: dist/
+          if-no-files-found: error
+
+  checksums:
+    needs: [linux, win64, macos]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Generate SHA256SUMS
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find artifacts -type f \
+            \( -name '*.tar.gz' -o -name '*.exe' -o -name '*.zip' \) | LC_ALL=C sort)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No release binaries found in any artifact" >&2
+            exit 1
+          fi
+          duplicates=$(printf '%s\n' "${files[@]##*/}" | LC_ALL=C sort | uniq -d)
+          if [ -n "$duplicates" ]; then
+            echo "The same filename appears in more than one artifact:" >&2
+            echo "$duplicates" >&2
+            exit 1
+          fi
+          for file in "${files[@]}"; do
+            ( cd "$(dirname "$file")" && sha256sum "$(basename "$file")" )
+          done | LC_ALL=C sort -k 2 > SHA256SUMS
+          echo "$(wc -l < SHA256SUMS) entries"
+          cat SHA256SUMS
+      - name: Verify the manifest covers every platform
+        run: ./.github/scripts/verify-package-manifest.sh SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SHA256SUMS
+          path: SHA256SUMS
+          if-no-files-found: error
+
+  draft:
+    needs: checksums
+    if: ${{ success() }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create draft GitHub Release
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find artifacts -type f \
+            \( -name '*.tar.gz' -o -name '*.exe' -o -name '*.zip' -o -name 'SHA256SUMS' \) | LC_ALL=C sort)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No assets to attach" >&2
+            exit 1
+          fi
+          gh release create "$TAG" --draft --title "$TAG" \
+            --notes "unsigned; not a Guix/Sparrow-signed release" \
+            "${files[@]}"

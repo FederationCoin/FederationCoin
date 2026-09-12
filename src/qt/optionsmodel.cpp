@@ -201,7 +201,7 @@ static const QString fontchoice_str_custom_prefix{QStringLiteral("custom, ")};
 static const std::map<OutputType, std::pair<const char*, const char*>> UntranslatedOutputTypeDescriptions{
     {OutputType::LEGACY, {
         QT_TRANSLATE_NOOP("Output type name", "Base58 (Legacy)"),
-        QT_TRANSLATE_NOOP("Output type description", "Widest compatibility and best for health of the Bitcoin network, but may result in higher fees later. Recommended."),
+        QT_TRANSLATE_NOOP("Output type description", "Widest compatibility and best for health of the Federation Coin network, but may result in higher fees later. Recommended."),
     }},
     {OutputType::P2SH_SEGWIT, {
         QT_TRANSLATE_NOOP("Output type name", "Base58 (P2SH Segwit)"),

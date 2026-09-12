@@ -33,7 +33,6 @@ SplashScreen::SplashScreen(const NetworkStyle* networkStyle)
     // set reference point, paddings
     int paddingRight            = 50;
     int titleVersionVSpace      = 17;
-    int titleCopyrightVSpace    = 40;
 
     float fontFactor            = 1.0;
     float devicePixelRatio      = 1.0;
@@ -42,7 +41,7 @@ SplashScreen::SplashScreen(const NetworkStyle* networkStyle)
     // define text to place
     QString titleText       = CLIENT_NAME;
     QString versionText     = QString("Version %1").arg(QString::fromStdString(FormatFullVersion()));
-    QString copyrightText   = QString::fromUtf8(CopyrightHolders(strprintf("\xc2\xA9 %u-%u ", 2009, COPYRIGHT_YEAR)).c_str());
+    QString aboutHint       = tr("Upstream copyright notices are in Help -> About");
     const QString& titleAddText    = networkStyle->getTitleAddText();
 
     QString font            = GUIUtil::fixedPitchFont(/*use_embedded_font=*/ true).toString();
@@ -128,16 +127,13 @@ SplashScreen::SplashScreen(const NetworkStyle* networkStyle)
     titleVersionVSpace = fm.lineSpacing() * 2;
     pixPaint.drawText(nonstatus_centre.x() + 10, nonstatus_centre.y() + titleVersionVSpace, versionText);
 
-    // draw copyright stuff
-    {
-        pixPaint.setFont(QFont(QApplication::font().toString(), 10*fontFactor));
-        fm = pixPaint.fontMetrics();
-        titleCopyrightVSpace = titleVersionVSpace + (fm.lineSpacing() * (2 + copyrightText.count('\n')));
-        const int x = nonstatus_centre.x() + 10;
-        const int y = nonstatus_centre.y() + titleCopyrightVSpace;
-        QRect copyrightRect(x, y, pixmap.width() - x, pixmap.height() - y);
-        pixPaint.drawText(copyrightRect, Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, copyrightText);
-    }
+    pixPaint.setPen(QColor(0x55, 0x55, 0x55));
+    pixPaint.setFont(QFont(QApplication::font().toString(), 8 * fontFactor));
+    fm = pixPaint.fontMetrics();
+    pixPaint.drawText(nonstatus_centre.x() + 10,
+                      nonstatus_centre.y() + titleVersionVSpace + fm.lineSpacing() + 4,
+                      aboutHint);
+    pixPaint.setPen(QColor(0x17, 0x17, 0x17));
 
     // draw additional text if special network
     if(!titleAddText.isEmpty()) {

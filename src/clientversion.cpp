@@ -90,9 +90,7 @@ std::string LicenseInfo()
 {
     const std::string URL_SOURCE_CODE = "<https://github.com/FederationCoin/FederationCoin>";
 
-    return CopyrightHolders(strprintf(_("Copyright (C) %i-%i"), 2009, COPYRIGHT_YEAR).translated + " ") + "\n" +
-           "\n" +
-           strprintf(_("Please contribute if you find %s useful. "
+    return strprintf(_("Please contribute if you find %s useful. "
                        "Visit %s for further information about the software."),
                      CLIENT_NAME, "<" CLIENT_URL ">")
                .translated +
@@ -100,9 +98,13 @@ std::string LicenseInfo()
            strprintf(_("The source code is available from %s."), URL_SOURCE_CODE).translated +
            "\n" +
            "\n" +
-           _("This is experimental software.") + "\n" +
+           std::string{_("This is experimental software.")} + "\n" +
            strprintf(_("Distributed under the MIT software license, see the accompanying file %s or %s"), "COPYING", "<https://opensource.org/licenses/MIT>").translated +
-           "\n";
+           "\n" +
+           "\n" +
+           std::string{_("Upstream copyright notices")} + "\n" +
+           CopyrightHolders(strprintf(_("Copyright (C) %i-%i"), 2009, COPYRIGHT_YEAR).translated + " ") + "\n" +
+           std::string{_("Based on Bitcoin Knots.")} + "\n";
 }
 
 int64_t g_software_expiry{DEFAULT_SOFTWARE_EXPIRY};

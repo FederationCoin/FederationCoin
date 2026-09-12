@@ -568,7 +568,7 @@ void SendCoinsDialog::sendButtonClicked([[maybe_unused]] bool checked)
         }
 
         reuse_question.append("<br /><br /><span style='font-size:10pt;'>");
-        reuse_question.append(tr("Bitcoin addresses are intended to only be used once, for a single payment. Sending to the same address again will harm the recipient's security, as well as the privacy of all Bitcoin users!"));
+        reuse_question.append(tr("Federation Coin addresses are intended to only be used once, for a single payment. Sending to the same address again will harm the recipient's security, as well as the privacy of all Federation Coin users!"));
         reuse_question.append("</span>");
 
         SendConfirmationDialog confirmation_dialog(tr("Already paid"), reuse_question, "", reuse_details, ADDRESS_REUSE_OVERRIDE_DELAY, /*enable_send=*/true, /*always_show_unsigned=*/false, this);
@@ -1097,7 +1097,7 @@ void SendCoinsDialog::coinControlChangeEdited(const QString& text)
         }
         else if (!IsValidDestination(dest)) // Invalid address
         {
-            ui->labelCoinControlChangeLabel->setText(tr("Warning: Invalid Bitcoin address"));
+            ui->labelCoinControlChangeLabel->setText(tr("Warning: Invalid Federation Coin address"));
         }
         else // Valid address
         {

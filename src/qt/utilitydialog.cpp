@@ -14,12 +14,15 @@
 #include <common/args.h>
 #include <init.h>
 #include <util/strencodings.h>
+#include <util/translation.h>
 
 #include <cstdio>
 
 #include <QCloseEvent>
+#include <QColor>
 #include <QLabel>
 #include <QMainWindow>
+#include <QPalette>
 #include <QRegularExpression>
 #include <QString>
 #include <QTextCursor>
@@ -41,26 +44,46 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, bool about) :
 
         std::string licenseInfo = LicenseInfo();
         /// HTML-format the license message from the core
-        QString licenseInfoHTML = QString::fromStdString(LicenseInfo());
+        QString licenseInfoHTML = QString::fromStdString(licenseInfo);
         // Make URLs clickable
         QRegularExpression uri(QStringLiteral("<(.*)>"), QRegularExpression::InvertedGreedinessOption);
         licenseInfoHTML.replace(uri, QStringLiteral("<a href=\"\\1\">\\1</a>"));
         // Replace newlines with HTML breaks
         licenseInfoHTML.replace("\n", "<br>");
 
+        const QString upstreamHeading = QString::fromStdString(std::string{_("Upstream copyright notices")});
+        const int upstreamAt = licenseInfoHTML.indexOf(upstreamHeading);
+        QString productHtml = licenseInfoHTML;
+        QString upstreamHtml;
+        if (upstreamAt >= 0) {
+            productHtml = licenseInfoHTML.left(upstreamAt);
+            upstreamHtml = licenseInfoHTML.mid(upstreamAt);
+        }
+
+        const QString midColor = palette().color(QPalette::Mid).name();
+        QString aboutHtml = version + "<br><br>" + productHtml;
+        if (!upstreamHtml.isEmpty()) {
+            aboutHtml += QStringLiteral(
+                             "<hr style=\"border:none;border-top:1px solid %1;margin:1.25em 0 0.6em 0;\">"
+                             "<div style=\"font-size:10pt;color:%1;margin-left:1em;\">"
+                             "<small>%2</small></div>")
+                             .arg(midColor, upstreamHtml);
+        }
+
         ui->aboutMessage->setTextFormat(Qt::RichText);
         ui->scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-        text = version + "\n" + QString::fromStdString(FormatParagraph(licenseInfo));
-        ui->aboutMessage->setText(version + "<br><br>" + licenseInfoHTML);
+        text = version + "\n" + QString::fromStdString(licenseInfo);
+        ui->aboutMessage->setText(aboutHtml);
         ui->aboutMessage->setWordWrap(true);
         ui->helpMessage->setVisible(false);
+        ui->aboutLogo->setVisible(false);
     } else {
         setWindowTitle(tr("Command-line options"));
-        QString header = "The bitcoin-qt application provides a graphical interface for interacting with " CLIENT_NAME ".\n\n"
-                         "It combines the core functionalities of bitcoind with a user-friendly interface for wallet management, transaction history, and network statistics.\n\n"
+        QString header = "The federationcoin-qt application provides a graphical interface for interacting with " CLIENT_NAME ".\n\n"
+                         "It combines the core functionalities of federationcoind with a user-friendly interface for wallet management, transaction history, and network statistics.\n\n"
                          "It is suitable for users who prefer a graphical over a command-line interface.\n\n"
                          "You can optionally specify a payment [URI], in e.g. the BIP20 or BIP21 URI formats.\n\n"
-                         "Usage: bitcoin-qt [options] [URI]\n\n";
+                         "Usage: federationcoin-qt [options] [URI]\n\n";
         QTextCursor cursor(ui->helpMessage->document());
         cursor.insertText(version);
         cursor.insertBlock();

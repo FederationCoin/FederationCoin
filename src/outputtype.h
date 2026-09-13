@@ -14,6 +14,10 @@
 #include <string>
 #include <vector>
 
+namespace Consensus {
+struct Params;
+}
+
 enum class OutputType {
     LEGACY,
     P2SH_SEGWIT,
@@ -33,6 +37,7 @@ std::optional<OutputType> ParseOutputType(const std::string& type);
 const std::string& FormatOutputType(OutputType type);
 /** False for bech32m while Taproot is parked (DeploymentEnabled). */
 bool OutputTypeIsAllowed(OutputType type);
+bool OutputTypeIsAllowed(OutputType type, const Consensus::Params& consensus);
 
 /**
  * Get a destination of the requested type (if possible) to the specified key.

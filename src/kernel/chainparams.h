@@ -204,4 +204,7 @@ protected:
 
 std::optional<ChainType> GetNetworkForMagic(const MessageStartChars& pchMessageStart);
 
+/** Dummy MAIN is not live; AppInit warns when this is true. */
+inline bool DummyMainNeedsWarning(ChainType chain) { return chain == ChainType::MAIN; }
+
 #endif // BITCOIN_KERNEL_CHAINPARAMS_H

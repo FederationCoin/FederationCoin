@@ -56,7 +56,7 @@ This repo's [root README](/README.md) contains relevant information on the chain
 - [Developer Notes](developer-notes.md)
 - [Productivity Notes](productivity.md)
 - [Release Process](release-process.md)
-- [Source Code Documentation (External Link)](https://doxygen.bitcoincore.org/)
+- [Source Code Documentation](https://github.com/FederationCoin/FederationCoin) (generate Doxygen locally; do not use Core hosted docs)
 - [Translation Process](translation_process.md)
 - [Translation Strings Policy](translation_strings_policy.md)
 - [JSON-RPC Interface](JSON-RPC-interface.md)

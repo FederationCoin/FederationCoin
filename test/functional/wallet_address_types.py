@@ -380,9 +380,9 @@ class AddressTypeTest(BitcoinTestFramework):
         self.test_address(4, self.nodes[4].getrawchangeaddress('bech32'), multisig=False, typ='bech32')
 
         if self.options.descriptors:
-            self.log.info("Descriptor wallets have bech32m addresses")
-            self.test_address(4, self.nodes[4].getnewaddress("", "bech32m"), multisig=False, typ="bech32m")
-            self.test_address(4, self.nodes[4].getrawchangeaddress("bech32m"), multisig=False, typ="bech32m")
+            self.log.info("Descriptor wallets cannot make bech32m addresses while Taproot is parked")
+            assert_raises_rpc_error(-5, "Bech32m / Taproot addresses are not valid on this chain.", self.nodes[4].getnewaddress, "", "bech32m")
+            assert_raises_rpc_error(-5, "Bech32m / Taproot addresses are not valid on this chain.", self.nodes[4].getrawchangeaddress, "bech32m")
         else:
             self.log.info("Legacy wallets cannot make bech32m addresses")
             assert_raises_rpc_error(-8, "Legacy wallets cannot provide bech32m addresses", self.nodes[0].getnewaddress, "", "bech32m")

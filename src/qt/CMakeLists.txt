@@ -184,7 +184,40 @@ add_custom_command(
   COMMENT "Generating ${testnet_ico} from badged images"
   VERBATIM
 )
-add_custom_target(generate_ico DEPENDS "${bitcoin_ico}" "${testnet_ico}")
+# Signet PE icon: same hue/sat as networkstyle.cpp SIGNET (35, 15).
+# ImageMagick -modulate brightness,saturation,hue: 100 is identity.
+# hue 119 ≈ +35°; saturation 94 ≈ Qt sat minus 15/255.
+set(signet_ico "${ICON_PATH}/bitcoin_signet.ico")
+set(SIGNET_ICO_SRC_FILES)
+foreach(size IN LISTS ICO_SPECS)
+  set(src_png "${ICON_PATH}/bitcoin${size}.png")
+  set(sg_png "${ICON_PATH}/bitcoin${size}_signet.png")
+  add_custom_command(
+    OUTPUT ${sg_png}
+    COMMAND "${IMAGEMAGICK_CONVERT}" "${src_png}" -modulate 100,94,119 "${sg_png}"
+    DEPENDS ${src_png}
+    COMMENT "Generating ${sg_png} with signet hue"
+    VERBATIM
+  )
+  list(APPEND SIGNET_ICO_SRC_FILES "${sg_png}")
+endforeach()
+set(signet_gif "${ICON_PATH}/bitcoin32_signetd8.gif")
+add_custom_command(
+  OUTPUT "${signet_gif}"
+  COMMAND "${IMAGEMAGICK_CONVERT}" "${ICON_PATH}/bitcoin32_signet.png" -colors 256 -channel A -threshold 50% "${signet_gif}"
+  DEPENDS "${ICON_PATH}/bitcoin32_signet.png"
+  COMMENT "Generating ${signet_gif} from signet PNG"
+  VERBATIM
+)
+list(PREPEND SIGNET_ICO_SRC_FILES "${signet_gif}")
+add_custom_command(
+  OUTPUT "${signet_ico}"
+  COMMAND "${IMAGEMAGICK_CONVERT}" ${SIGNET_ICO_SRC_FILES} "${signet_ico}"
+  DEPENDS ${SIGNET_ICO_SRC_FILES}
+  COMMENT "Generating ${signet_ico} from hue-shifted images"
+  VERBATIM
+)
+add_custom_target(generate_ico DEPENDS "${bitcoin_ico}" "${testnet_ico}" "${signet_ico}")
 
 set(logo_svg "res/src/bitcoinknots-logo.svg")
 set(png "${ICON_PATH}/bitcoinknots-logo.png")

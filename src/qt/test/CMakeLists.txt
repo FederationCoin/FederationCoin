@@ -7,12 +7,13 @@ set(CMAKE_AUTOMOC_MOC_OPTIONS "-p${CMAKE_CURRENT_SOURCE_DIR}")
 add_executable(test_bitcoin-qt
   apptests.cpp
   bitcoinunits_tests.cpp
+  networkstyle_tests.cpp
   optiontests.cpp
   rpcnestedtests.cpp
   test_main.cpp
   uritests.cpp
   util.cpp
-  ../../init/bitcoin-qt.cpp
+  ../../init/federationcoin-qt.cpp
 )
 
 target_link_libraries(test_bitcoin-qt

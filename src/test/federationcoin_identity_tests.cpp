@@ -3,19 +3,26 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <addresstype.h>
+#include <chain.h>
 #include <chainparams.h>
+#include <chainparamsbase.h>
 #include <clientversion.h>
 #include <common/args.h>
 #include <consensus/params.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
+#include <deploymentstatus.h>
 #include <key_io.h>
+#include <outputtype.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
 #include <script/script.h>
 #include <script/script_error.h>
+#include <sync.h>
 #include <test/util/setup_common.h>
+#include <uint256.h>
 #include <util/chaintype.h>
+#include <validation.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -41,6 +48,7 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
     };
     for (const ChainType chain : chains) {
         const auto params{CreateChainParams(ArgsManager{}, chain)};
+        const auto base{CreateBaseChainParams(chain)};
         const Consensus::Params& c{params->GetConsensus()};
         BOOST_CHECK_EQUAL(c.BIP34Height, 1);
         BOOST_CHECK_EQUAL(c.BIP65Height, 1);
@@ -49,18 +57,101 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
         BOOST_CHECK_EQUAL(c.SegwitHeight, 1);
         BOOST_CHECK_EQUAL(params->Checkpoints().GetHeight(), 0);
         BOOST_CHECK_EQUAL(c.Blake2bHeight, 1);
+        BOOST_CHECK_EQUAL(c.Blake2bTargetShift, 0);
         BOOST_CHECK_EQUAL(c.RdtsExpiryTime, 1819756800);
         BOOST_CHECK(c.Blake2bHeadline.size() == headline.size());
         BOOST_CHECK(std::equal(headline.begin(), headline.end(), c.Blake2bHeadline.begin()));
         BOOST_CHECK_EQUAL(c.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime,
                           Consensus::BIP9Deployment::NEVER_ACTIVE);
         BOOST_CHECK(params->GenesisBlock().vtx[0]->vout[0].scriptPubKey == genesis_spk);
-        if (chain == ChainType::TESTNET) {
+        BOOST_CHECK(params->FixedSeeds().empty());
+        BOOST_CHECK(GetNetworkForMagic(params->MessageStart()) == chain);
+
+        switch (chain) {
+        case ChainType::MAIN:
+            BOOST_CHECK_EQUAL(params->GetDefaultPort(), 4095);
+            BOOST_CHECK_EQUAL(base->RPCPort(), 4094);
+            BOOST_CHECK_EQUAL(params->Bech32HRP(), "fcn");
+            BOOST_CHECK_EQUAL(params->MessageStart()[0], 0x00);
+            BOOST_CHECK_EQUAL(params->MessageStart()[1], 0x00);
+            BOOST_CHECK_EQUAL(params->MessageStart()[2], 0x00);
+            BOOST_CHECK_EQUAL(params->MessageStart()[3], 0x00);
+            BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1e00ffff);
+            BOOST_CHECK(c.powLimit == uint256{"000000ffff000000000000000000000000000000000000000000000000000000"});
+            BOOST_CHECK(params->DNSSeeds().empty());
+            BOOST_CHECK(DummyMainNeedsWarning(chain));
+            break;
+        case ChainType::TESTNET:
             BOOST_CHECK_EQUAL(params->GetDefaultPort(), 35333);
+            BOOST_CHECK_EQUAL(base->RPCPort(), 35332);
+            BOOST_CHECK_EQUAL(params->Bech32HRP(), "tfcn");
+            BOOST_CHECK_EQUAL(params->MessageStart()[0], 0xfc);
+            BOOST_CHECK_EQUAL(params->MessageStart()[1], 0xe3);
+            BOOST_CHECK_EQUAL(params->MessageStart()[2], 0x1e);
+            BOOST_CHECK_EQUAL(params->MessageStart()[3], 0xc3);
+            BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1d00ffff);
+            BOOST_CHECK(c.powLimit == uint256{"000000ffff000000000000000000000000000000000000000000000000000000"});
             BOOST_REQUIRE_EQUAL(params->DNSSeeds().size(), 1U);
             BOOST_CHECK_EQUAL(params->DNSSeeds().front(), "seed.testnet.federationcoin.org.");
+            BOOST_CHECK(!DummyMainNeedsWarning(chain));
+            break;
+        case ChainType::TESTNET4:
+            BOOST_CHECK_EQUAL(params->GetDefaultPort(), 45333);
+            BOOST_CHECK_EQUAL(base->RPCPort(), 45332);
+            BOOST_CHECK_EQUAL(params->Bech32HRP(), "tfcn");
+            BOOST_CHECK_EQUAL(params->MessageStart()[0], 0xfc);
+            BOOST_CHECK_EQUAL(params->MessageStart()[1], 0xe4);
+            BOOST_CHECK_EQUAL(params->MessageStart()[2], 0x1e);
+            BOOST_CHECK_EQUAL(params->MessageStart()[3], 0xc4);
+            BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1d00ffff);
+            BOOST_CHECK(params->DNSSeeds().empty());
+            BOOST_CHECK(!DummyMainNeedsWarning(chain));
+            break;
+        case ChainType::SIGNET:
+            BOOST_CHECK_EQUAL(params->GetDefaultPort(), 26333);
+            BOOST_CHECK_EQUAL(base->RPCPort(), 26332);
+            BOOST_CHECK_EQUAL(params->Bech32HRP(), "tfcn");
+            BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1e0377ae);
+            BOOST_CHECK(c.powLimit == uint256{"00000377ae000000000000000000000000000000000000000000000000000000"});
+            BOOST_CHECK(params->DNSSeeds().empty());
+            BOOST_CHECK(!DummyMainNeedsWarning(chain));
+            break;
+        case ChainType::REGTEST:
+            BOOST_CHECK_EQUAL(params->GetDefaultPort(), 25444);
+            BOOST_CHECK_EQUAL(base->RPCPort(), 25443);
+            BOOST_CHECK_EQUAL(params->Bech32HRP(), "fcnrt");
+            BOOST_CHECK_EQUAL(params->MessageStart()[0], 0xfc);
+            BOOST_CHECK_EQUAL(params->MessageStart()[1], 0xe7);
+            BOOST_CHECK_EQUAL(params->MessageStart()[2], 0x1e);
+            BOOST_CHECK_EQUAL(params->MessageStart()[3], 0xc7);
+            BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x207fffff);
+            BOOST_CHECK(c.powLimit == uint256{"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"});
+            BOOST_CHECK(params->DNSSeeds().empty());
+            BOOST_CHECK(!DummyMainNeedsWarning(chain));
+            break;
         }
     }
+
+    const MessageStartChars unknown{0xff, 0xfe, 0xfd, 0xfc};
+    BOOST_CHECK(!GetNetworkForMagic(unknown));
+}
+
+BOOST_AUTO_TEST_CASE(output_type_is_allowed_forks)
+{
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::LEGACY));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::P2SH_SEGWIT));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::UNKNOWN));
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M));
+
+    const auto parked{CreateChainParams(ArgsManager{}, ChainType::REGTEST)};
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M, parked->GetConsensus()));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32, parked->GetConsensus()));
+
+    Consensus::Params taproot_on{parked->GetConsensus()};
+    taproot_on.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32M, taproot_on));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32, taproot_on));
 }
 
 BOOST_AUTO_TEST_CASE(format_subversion_true_equals_false)
@@ -122,6 +213,18 @@ BOOST_AUTO_TEST_CASE(v1_outputs_rejected_unless_taproot_enabled)
     mtx_v0.vout[0].scriptPubKey = CScript() << OP_0 << std::vector<unsigned char>(WITNESS_V0_KEYHASH_SIZE, 0x03);
     TxValidationState state_v0;
     BOOST_CHECK(Consensus::CheckTaprootDisabledOutputs(CTransaction{mtx_v0}, parked->GetConsensus(), state_v0));
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_FIXTURE_TEST_SUITE(federationcoin_identity_chainman_tests, TestingSetup)
+
+BOOST_AUTO_TEST_CASE(taproot_not_active_so_block_flags_omit_it)
+{
+    LOCK(::cs_main);
+    const CBlockIndex* genesis{Assert(m_node.chainman)->ActiveChain().Genesis()};
+    BOOST_REQUIRE(genesis);
+    BOOST_CHECK(!DeploymentActiveAt(*genesis, *m_node.chainman, Consensus::DEPLOYMENT_TAPROOT));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

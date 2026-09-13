@@ -153,8 +153,9 @@ public:
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 0;
 
-        // Dummy MAIN; not launched. At announcement, Blake2b nBits should be
-        // 100x Bitcoin genesis: 0x1d00ffff target / 100, compact 0x1c028f59.
+        // Dummy MAIN; not launched. Easy placeholder 0x1e00ffff. At
+        // announcement, Blake2b nBits is ~70,000× Bitcoin genesis
+        // (10 miners × 50 GH/s, 10-minute blocks), compact 0x1b00efab.
         // Do not remine this placeholder until then.
         // nTime is LOCKTIME_THRESHOLD so timestamp-lock tests still mean timestamps.
         genesis = CreateGenesisBlock("UNLAUNCHED FederationCoin placeholder; not main", UnspendableGenesisScript(), LOCKTIME_THRESHOLD, 3586848, 0x1e00ffff, 1, 50 * COIN);

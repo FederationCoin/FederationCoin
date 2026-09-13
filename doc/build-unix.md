@@ -192,11 +192,12 @@ Setup and Build Example: Arch Linux
 This example lists the steps necessary to setup and build a command line only distribution of the latest changes on Arch Linux:
 
     pacman --sync --needed cmake boost gcc git libevent make python sqlite librsvg imagemagick
-    git clone https://github.com/bitcoinknots/bitcoin.git
-    cd bitcoin/
+    git clone --branch 29.x-federationcoin --single-branch \
+      https://github.com/FederationCoin/FederationCoin.git
+    cd FederationCoin
     cmake -B build
     cmake --build build
     ctest --test-dir build
-    ./build/bin/bitcoind
+    ./build/bin/federationcoind -testnet
 
 If you intend to work with legacy Berkeley DB wallets, see [Berkeley DB](#berkeley-db) section.

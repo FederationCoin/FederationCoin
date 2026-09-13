@@ -1615,7 +1615,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         return false;
     }
 
-    if (chainparams.GetChainType() == ChainType::MAIN) {
+    if (DummyMainNeedsWarning(chainparams.GetChainType())) {
         InitWarning(_("This binary's default main network uses placeholder genesis, magic, and ports. They will be replaced at announcement. Do not treat this as launched main. Mine and peer on -testnet."));
     }
 

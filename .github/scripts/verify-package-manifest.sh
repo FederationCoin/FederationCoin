@@ -14,18 +14,18 @@ if [ ! -r "$manifest" ]; then
     exit 1
 fi
 
-# extension:count, one entry per class of artifact the matrix produces
+# filename pattern:count, one entry per class of artifact the matrix produces
 required=(
-    '\.tar\.gz$:2'   # linux x86_64 + aarch64
-    '\.exe$:1'       # win64 NSIS (mingw GOAL=deploy)
-    '\.zip$:2'       # macos arm64 + intel unsigned
+    'linux-gnu\.tar\.gz$:2'               # linux x86_64 + aarch64
+    'win64-setup\.exe$:1'                  # win64 NSIS (mingw GOAL=deploy)
+    'apple-darwin-unsigned\.zip$:2'        # macos arm64 + intel unsigned
 )
 
 short=0
 for spec in "${required[@]}"; do
     pattern="${spec%:*}"
     expected="${spec##*:}"
-    actual=$(grep -cE "$pattern" "$manifest") || [ $? -eq 1 ] || exit 1
+    actual=$(grep -cE -- "$pattern" "$manifest") || [ $? -eq 1 ] || exit 1
     if [ "$actual" -ne "$expected" ]; then
         echo "manifest carries $actual file(s) matching ${pattern}, expected ${expected}" >&2
         short=1

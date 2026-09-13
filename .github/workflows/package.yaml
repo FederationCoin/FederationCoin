@@ -181,7 +181,7 @@ jobs:
             ls -la build/*.zip >&2 || true
             exit 1
           fi
-          dest="${TAG}-$(uname -m)-unsigned.zip"
+          dest="${TAG}-$(uname -m)-apple-darwin-unsigned.zip"
           mkdir -p dist
           cp -a "$zip" "dist/${dest}"
           ls -la dist/

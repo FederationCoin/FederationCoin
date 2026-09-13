@@ -90,6 +90,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 else()
   set(bitcoin_svg "res/src/bitcoin.svg")
 endif()
+set(SEAL_PNG "${CMAKE_CURRENT_SOURCE_DIR}/res/src/federation-seal.png")
+# Keep in sync with src/qt/networkstyle.cpp OverlayTestnetTriangle:
+# navy #001F5C, right-angle triangle, 45% of edge, min 7px.
+set(TESTNET_TRIANGLE_PCT 45)
+set(TESTNET_TRIANGLE_MIN 7)
+set(TESTNET_NAVY "#001F5C")
 
 set(ICON_SPECS ${ICO_SPECS} ${ICNS_SPECS} ${EXTRA_ICON_SPECS})
 list(REMOVE_DUPLICATES ICON_SPECS)
@@ -99,7 +105,7 @@ foreach(size IN LISTS ICON_SPECS)
   add_custom_command(
     OUTPUT ${png}
     COMMAND "${RSVG_CONVERT}" -f png -d ${size} -p ${size} --output "${png}" "${CMAKE_CURRENT_SOURCE_DIR}/${bitcoin_svg}"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${bitcoin_svg}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${bitcoin_svg}" "${SEAL_PNG}"
     COMMENT "Generating ${png} from ${bitcoin_svg}"
     VERBATIM
   )
@@ -141,11 +147,41 @@ add_custom_command(
   VERBATIM
 )
 set(testnet_ico "${ICON_PATH}/bitcoin_testnet.ico")
+set(TESTNET_ICO_SRC_FILES)
+foreach(size IN LISTS ICO_SPECS)
+  set(src_png "${ICON_PATH}/bitcoin${size}.png")
+  set(tn_png "${ICON_PATH}/bitcoin${size}_testnet.png")
+  math(EXPR t "${size} * ${TESTNET_TRIANGLE_PCT} / 100")
+  if(t LESS TESTNET_TRIANGLE_MIN)
+    set(t ${TESTNET_TRIANGLE_MIN})
+  endif()
+  math(EXPR x1 "${size} - 1")
+  math(EXPR y1 "${size} - 1")
+  math(EXPR y2 "${size} - 1 - ${t}")
+  math(EXPR x3 "${size} - 1 - ${t}")
+  add_custom_command(
+    OUTPUT ${tn_png}
+    COMMAND "${IMAGEMAGICK_CONVERT}" "${src_png}" -fill "${TESTNET_NAVY}" -draw "polygon ${x1},${y1} ${x1},${y2} ${x3},${y1}" "${tn_png}"
+    DEPENDS ${src_png}
+    COMMENT "Generating ${tn_png} with testnet badge"
+    VERBATIM
+  )
+  list(APPEND TESTNET_ICO_SRC_FILES "${tn_png}")
+endforeach()
+set(testnet_gif "${ICON_PATH}/bitcoin32_testnetd8.gif")
+add_custom_command(
+  OUTPUT "${testnet_gif}"
+  COMMAND "${IMAGEMAGICK_CONVERT}" "${ICON_PATH}/bitcoin32_testnet.png" -colors 256 -channel A -threshold 50% "${testnet_gif}"
+  DEPENDS "${ICON_PATH}/bitcoin32_testnet.png"
+  COMMENT "Generating ${testnet_gif} from testnet PNG"
+  VERBATIM
+)
+list(PREPEND TESTNET_ICO_SRC_FILES "${testnet_gif}")
 add_custom_command(
   OUTPUT "${testnet_ico}"
-  COMMAND "${IMAGEMAGICK_CONVERT}" ${bitcoin_ico} -modulate 100,100,138.9 -colorspace HSL -channel G -evaluate subtract "11.76%" +channel -colorspace sRGB "${testnet_ico}"
-  DEPENDS ${bitcoin_ico}
-  COMMENT "Generating ${testnet_ico} from ${bitcoin_ico}"
+  COMMAND "${IMAGEMAGICK_CONVERT}" ${TESTNET_ICO_SRC_FILES} "${testnet_ico}"
+  DEPENDS ${TESTNET_ICO_SRC_FILES}
+  COMMENT "Generating ${testnet_ico} from badged images"
   VERBATIM
 )
 add_custom_target(generate_ico DEPENDS "${bitcoin_ico}" "${testnet_ico}")
@@ -156,7 +192,7 @@ set(size 960)
 add_custom_command(
   OUTPUT ${png}
   COMMAND "${RSVG_CONVERT}" -f png -d ${size} -p ${size} --output "${png}" "${CMAKE_CURRENT_SOURCE_DIR}/${logo_svg}"
-  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${logo_svg}"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${logo_svg}" "${SEAL_PNG}"
   COMMENT "Generating ${png} from ${logo_svg}"
   VERBATIM
 )
@@ -172,11 +208,11 @@ add_custom_command(
 )
 set(nsis_header_input "res/src/nsis-header.svg")
 set(nsis_header_bmp "${ICON_PATH}/nsis-header.bmp")
-set(ABS_FONT_DIR ${CMAKE_CURRENT_BINARY_DIR}/res/fonts)
 add_custom_command(
   OUTPUT "${nsis_header_bmp}"
-  COMMAND echo <fontconfig><dir>${ABS_FONT_DIR}</dir></fontconfig> > res/fonts/fonts.conf && FONTCONFIG_PATH=${ABS_FONT_DIR} ${RSVG_CONVERT} -f png -d 57 -p 57 ${CMAKE_CURRENT_SOURCE_DIR}/${nsis_header_input} | ${IMAGEMAGICK_CONVERT} - -background white -alpha remove BMP3:${nsis_header_bmp}
-  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${nsis_header_input}" "${FONT_PATH}"
+  COMMAND "${RSVG_CONVERT}" -f png -d 57 -p 57 --output "${ICON_PATH}/nsis-header.png" "${CMAKE_CURRENT_SOURCE_DIR}/${nsis_header_input}"
+  COMMAND "${IMAGEMAGICK_CONVERT}" "${ICON_PATH}/nsis-header.png" -background white -alpha remove -gravity West -extent 150x57 -strip BMP3:${nsis_header_bmp}
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${nsis_header_input}" "${SEAL_PNG}"
   COMMENT "Generating ${nsis_header_bmp} from ${nsis_header_input}"
   VERBATIM
 )

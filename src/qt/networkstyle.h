@@ -27,7 +27,7 @@ public:
     const std::pair<int, int> m_colour_shift;
 
 private:
-    NetworkStyle(const QString &appName, const int iconColorHueShift, const int iconColorSaturationReduction, const char *titleAddText);
+    NetworkStyle(const QString &appName, const int iconColorHueShift, const int iconColorSaturationReduction, const char *titleAddText, bool testnetBadge = false);
 
     QString appName;
     QIcon appIcon;

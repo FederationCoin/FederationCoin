@@ -1,42 +1,45 @@
-Bitcoin Knots
-=============
+FederationCoin
+==============
 
 Setup
 ---------------------
-Bitcoin Knots is the original Bitcoin client and it builds the backbone of the network. It downloads and, by default, stores the entire history of Bitcoin transactions, which requires several hundred gigabytes or more of disk space. Depending on the speed of your computer and network connection, the synchronization process can take anywhere from a few hours to several days or more.
+FederationCoin is a new Blake2b UTXO chain for sending money. Fresh genesis, no inherited coins. Not Bitcoin. Not Knots. Not a CBDC. Experimental. No price promise. Confirmations stay weak until hashrate is expensive.
 
-To download Bitcoin Knots, visit [bitcoinknots.org](https://bitcoinknots.org/).
+This tree is the node (`federationcoind`, `federationcoin-qt`, and related tools), based on Bitcoin Knots `v29.4.1.knots20260508`. **Main is not launched.** The default network is a placeholder. Mine and peer on **`-testnet`**.
+
+Downloads and the constitution: [federationcoin.org](https://federationcoin.org). Testnet explorer: [mempool.federationcoin.org](https://mempool.federationcoin.org). Source: [github.com/FederationCoin/FederationCoin](https://github.com/FederationCoin/FederationCoin).
 
 Running
 ---------------------
-The following are some helpful notes on how to run Bitcoin Knots on your native platform.
+The following are some helpful notes on how to run FederationCoin on your native platform.
 
 ### Unix
 
 Unpack the files into a directory and run:
 
-- `bin/bitcoin-qt` (GUI) or
-- `bin/bitcoind` (headless)
+- `bin/federationcoin-qt` (GUI) or
+- `bin/federationcoind` (headless)
+
+Add `-testnet` for the public test chain (P2P 35333, RPC 35332, HRP `tfcn`).
 
 ### Windows
 
-Unpack the files into a directory, and then run bitcoin-qt.exe.
+Unpack the files into a directory, or use the installer, then run `federationcoin-qt.exe`. Use the Start Menu "Federation Coin (testnet)" shortcut, or `federationcoin-qt.exe -testnet`. See [README_windows.txt](README_windows.txt).
 
 ### macOS
 
-Drag Bitcoin Knots to your applications folder, and then run Bitcoin Knots.
+Drag Federation Coin to your applications folder, and then run Federation Coin. Pass `-testnet` for the public test chain.
 
 ### Need Help?
 
-* See the documentation at the [Bitcoin Wiki](https://en.bitcoin.it/wiki/Main_Page)
-for help and more information.
-* Ask for help on [Bitcoin StackExchange](https://bitcoin.stackexchange.com).
-* Ask for help on #bitcoin on Libera Chat. If you don't have an IRC client, you can use [web.libera.chat](https://web.libera.chat/#bitcoin).
-* Ask for help on the [BitcoinTalk](https://bitcointalk.org/) forums, in the [Technical Support board](https://bitcointalk.org/index.php?board=4.0).
+* [federationcoin.org](https://federationcoin.org) — what this chain is, testnet, and how to build
+* [mempool.federationcoin.org](https://mempool.federationcoin.org) — testnet explorer
+* [FederationCoin/FederationCoin](https://github.com/FederationCoin/FederationCoin) — source, issues, and the tree README
+* Build notes in this `doc/` directory (Unix, Windows, macOS)
 
 Building
 ---------------------
-The following are developer notes on how to build Bitcoin Knots on your native platform. They are not complete guides, but include notes on the necessary libraries, compile flags, etc.
+The following are developer notes on how to build FederationCoin on your native platform. They are not complete guides, but include notes on the necessary libraries, compile flags, etc.
 
 - [Dependencies](dependencies.md)
 - [macOS Build Notes](build-osx.md)
@@ -48,7 +51,7 @@ The following are developer notes on how to build Bitcoin Knots on your native p
 
 Development
 ---------------------
-The Bitcoin repo's [root README](/README.md) contains relevant information on the development process and automated testing.
+This repo's [root README](/README.md) contains relevant information on the chain, dummy main vs testnet, and how we build.
 
 - [Developer Notes](developer-notes.md)
 - [Productivity Notes](productivity.md)
@@ -65,8 +68,8 @@ The Bitcoin repo's [root README](/README.md) contains relevant information on th
 - [Internal Design Docs](design/)
 
 ### Resources
-* Discuss on the [BitcoinTalk](https://bitcointalk.org/) forums, in the [Development & Technical Discussion board](https://bitcointalk.org/index.php?board=6.0).
-* Discuss project-specific development on #bitcoin-core-dev on Libera Chat. If you don't have an IRC client, you can use [web.libera.chat](https://web.libera.chat/#bitcoin-core-dev).
+* [federationcoin.org](https://federationcoin.org)
+* [github.com/FederationCoin/FederationCoin](https://github.com/FederationCoin/FederationCoin) (`29.x-federationcoin`)
 
 ### Miscellaneous
 - [Assets Attribution](assets-attribution.md)

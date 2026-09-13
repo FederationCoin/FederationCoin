@@ -13,6 +13,7 @@ function(generate_setup_nsi)
   set(BITCOIN_TX_NAME "federationcoin-tx")
   set(BITCOIN_WALLET_TOOL_NAME "federationcoin-wallet")
   set(BITCOIN_TEST_NAME "test_bitcoin")
+  # NSIS copies this as test_federationcoin.exe (see share/setup.nsi.in).
   set(EXEEXT ${CMAKE_EXECUTABLE_SUFFIX})
   configure_file(${PROJECT_SOURCE_DIR}/share/setup.nsi.in ${PROJECT_BINARY_DIR}/federationcoin-win64-setup.nsi USE_SOURCE_PERMISSIONS @ONLY)
 endfunction()

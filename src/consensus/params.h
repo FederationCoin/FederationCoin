@@ -138,6 +138,12 @@ struct Params {
     uint256 powLimit;
     bool fPowAllowMinDifficultyBlocks;
     /**
+     * If non-zero, testnet min-difficulty blocks and the first Blake2b block
+     * use this compact target instead of powLimit (easier genesis may remain).
+     * Testnet3: 0x1b095cae (~10 miners at 5 GH/s, 10-minute blocks).
+     */
+    uint32_t nMinDifficultyBits{0};
+    /**
       * Enforce BIP94 timewarp attack mitigation. On testnet4 this also enforces
       * the block storm mitigation.
       */

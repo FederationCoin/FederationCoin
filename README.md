@@ -19,7 +19,7 @@ will be replaced at announcement. Do not mine default main as if it were
 the product chain.
 
 **Testnet is the public net.** `federationcoind -testnet` (P2P **35333**,
-RPC **35332**, HRP `tfcn`). Explorer:
+RPC **35332**, HRP `tgfcn`). Explorer:
 [mempool.federationcoin.org](https://mempool.federationcoin.org).
 
 Testnet DNS seed hostname: `seed.testnet.federationcoin.org` (no records
@@ -35,7 +35,7 @@ multiplier. COIN is not a ticker. Overlay token/asset protocols
 (`-rejecttokens`) are unrelated to this native unit.
 
 Taproot is **parked** on every network (`nStartTime = NEVER_ACTIVE`). Witness
-v1 spends **hard-fail** (not anyone-can-spend). Bech32m / `fcn1p…` addresses
+v1 spends **hard-fail** (not anyone-can-spend). Bech32m / `gfcn1p…` addresses
 are not valid destinations while it is parked. This is not a post-quantum
 script rewrite; tapscript code stays in the tree.
 

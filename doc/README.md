@@ -5,7 +5,7 @@ FederationCoin
 
 FederationCoin is a new Blake2b UTXO chain for sending money. Fresh genesis, no inherited coins. Not Bitcoin. Not Knots. Not a CBDC. Experimental. No price promise. Confirmations stay weak until hashrate is expensive.
 
-This tree is the node (`federationcoind`, `federationcoin-qt`, and related tools). **Main is not launched.** The default network is a placeholder. Mine and peer on **`-testnet`** (P2P 35333, RPC 35332, HRP `tfcn`).
+This tree is the node (`federationcoind`, `federationcoin-qt`, and related tools). **Main is not launched.** The default network is a placeholder. Mine and peer on **`-testnet`** (P2P 35333, RPC 35332, HRP `tgfcn`).
 
 Downloads and the constitution: [federationcoin.org](https://federationcoin.org). Testnet explorer: [mempool.federationcoin.org](https://mempool.federationcoin.org). Source: [github.com/FederationCoin/FederationCoin](https://github.com/FederationCoin/FederationCoin).
 

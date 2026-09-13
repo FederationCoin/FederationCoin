@@ -24,7 +24,7 @@ Menu shortcut, or:
 
   federationcoin-qt.exe -testnet
 
-Testnet uses P2P port 35333, RPC 35332, and address HRP tfcn.
+Testnet uses P2P port 35333, RPC 35332, and address HRP tgfcn.
 
 Site:     https://federationcoin.org
 Explorer: https://mempool.federationcoin.org

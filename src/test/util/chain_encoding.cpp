@@ -121,7 +121,7 @@ std::string RecodeKeyOrAddressForActiveChain(const std::string& encoded)
     const std::string lower = ToLower(encoded);
     if (lower.find('1') != std::string::npos &&
         (lower.starts_with("bc1") || lower.starts_with("tb1") || lower.starts_with("bcrt1") ||
-         lower.starts_with("fcn1") || lower.starts_with("tfcn1") || lower.starts_with("fcnrt1"))) {
+         lower.starts_with("gfcn1") || lower.starts_with("tgfcn1") || lower.starts_with("gfcnrt1"))) {
         std::string recoded = RecodeBech32Address(encoded);
         if (recoded != encoded) return recoded;
     }

@@ -37,11 +37,11 @@ jobs:
       - name: Require FederationCoin node tag with no existing Release
         run: |
           set -euo pipefail
-          # Knots: v29.4.1.knots20260508. Ours: v29.4.1.federationcoin20260911
+          # Knots: v29.4.1.knots20260508. Ours: v29.5.0.federationcoinYYYYMMDD
           # optional .<ext>: .alpha .alpha1 .beta .beta2 .rc1 .rc2
           if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+\.federationcoin[0-9]{8}(\.(alpha[0-9]*|beta[0-9]*|rc[0-9]+))?$'; then
             echo "tag must match vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD with optional .alpha/.beta/.rcN (got: ${TAG})" >&2
-            echo "example: v29.4.1.federationcoin20260911 or v29.4.1.federationcoin20260911.rc1" >&2
+            echo "example: v29.5.0.federationcoin20260913 or v29.5.0.federationcoin20260913.rc1" >&2
             exit 1
           fi
           git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"

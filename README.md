@@ -99,7 +99,7 @@ tags. Tags (human, on origin mainline, before Package):
     vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD
     vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD.<ext>
 
-Example: `v29.4.1.federationcoin20260911` or `.rc1`. The binary string may
+Example: `v29.5.0.federationcoin20260913` or `.rc1`. The binary string may
 still end with `.federation0`; that is not the git tag. Package may open a
 **draft** GitHub Release only. No public Docker. Unsigned macOS and Windows.
 Process: [golive notes](https://github.com/ldelarua/workspace-FederationCoin/blob/master/docs/golive-notes.md).

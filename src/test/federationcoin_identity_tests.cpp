@@ -14,6 +14,8 @@
 #include <deploymentstatus.h>
 #include <key_io.h>
 #include <outputtype.h>
+#include <pow.h>
+#include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
 #include <script/script.h>
@@ -71,12 +73,13 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
         case ChainType::MAIN:
             BOOST_CHECK_EQUAL(params->GetDefaultPort(), 4095);
             BOOST_CHECK_EQUAL(base->RPCPort(), 4094);
-            BOOST_CHECK_EQUAL(params->Bech32HRP(), "fcn");
+            BOOST_CHECK_EQUAL(params->Bech32HRP(), "gfcn");
             BOOST_CHECK_EQUAL(params->MessageStart()[0], 0x00);
             BOOST_CHECK_EQUAL(params->MessageStart()[1], 0x00);
             BOOST_CHECK_EQUAL(params->MessageStart()[2], 0x00);
             BOOST_CHECK_EQUAL(params->MessageStart()[3], 0x00);
             BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1e00ffff);
+            BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0U);
             BOOST_CHECK(c.powLimit == uint256{"000000ffff000000000000000000000000000000000000000000000000000000"});
             BOOST_CHECK(params->DNSSeeds().empty());
             BOOST_CHECK(DummyMainNeedsWarning(chain));
@@ -84,12 +87,13 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
         case ChainType::TESTNET:
             BOOST_CHECK_EQUAL(params->GetDefaultPort(), 35333);
             BOOST_CHECK_EQUAL(base->RPCPort(), 35332);
-            BOOST_CHECK_EQUAL(params->Bech32HRP(), "tfcn");
+            BOOST_CHECK_EQUAL(params->Bech32HRP(), "tgfcn");
             BOOST_CHECK_EQUAL(params->MessageStart()[0], 0xfc);
             BOOST_CHECK_EQUAL(params->MessageStart()[1], 0xe3);
             BOOST_CHECK_EQUAL(params->MessageStart()[2], 0x1e);
             BOOST_CHECK_EQUAL(params->MessageStart()[3], 0xc3);
             BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1d00ffff);
+            BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0x1b095caeU);
             BOOST_CHECK(c.powLimit == uint256{"000000ffff000000000000000000000000000000000000000000000000000000"});
             BOOST_REQUIRE_EQUAL(params->DNSSeeds().size(), 1U);
             BOOST_CHECK_EQUAL(params->DNSSeeds().front(), "seed.testnet.federationcoin.org.");
@@ -98,20 +102,22 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
         case ChainType::TESTNET4:
             BOOST_CHECK_EQUAL(params->GetDefaultPort(), 45333);
             BOOST_CHECK_EQUAL(base->RPCPort(), 45332);
-            BOOST_CHECK_EQUAL(params->Bech32HRP(), "tfcn");
+            BOOST_CHECK_EQUAL(params->Bech32HRP(), "tgfcn");
             BOOST_CHECK_EQUAL(params->MessageStart()[0], 0xfc);
             BOOST_CHECK_EQUAL(params->MessageStart()[1], 0xe4);
             BOOST_CHECK_EQUAL(params->MessageStart()[2], 0x1e);
             BOOST_CHECK_EQUAL(params->MessageStart()[3], 0xc4);
             BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1d00ffff);
+            BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0U);
             BOOST_CHECK(params->DNSSeeds().empty());
             BOOST_CHECK(!DummyMainNeedsWarning(chain));
             break;
         case ChainType::SIGNET:
             BOOST_CHECK_EQUAL(params->GetDefaultPort(), 26333);
             BOOST_CHECK_EQUAL(base->RPCPort(), 26332);
-            BOOST_CHECK_EQUAL(params->Bech32HRP(), "tfcn");
+            BOOST_CHECK_EQUAL(params->Bech32HRP(), "tgfcn");
             BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1e0377ae);
+            BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0U);
             BOOST_CHECK(c.powLimit == uint256{"00000377ae000000000000000000000000000000000000000000000000000000"});
             BOOST_CHECK(params->DNSSeeds().empty());
             BOOST_CHECK(!DummyMainNeedsWarning(chain));
@@ -119,12 +125,13 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
         case ChainType::REGTEST:
             BOOST_CHECK_EQUAL(params->GetDefaultPort(), 25444);
             BOOST_CHECK_EQUAL(base->RPCPort(), 25443);
-            BOOST_CHECK_EQUAL(params->Bech32HRP(), "fcnrt");
+            BOOST_CHECK_EQUAL(params->Bech32HRP(), "gfcnrt");
             BOOST_CHECK_EQUAL(params->MessageStart()[0], 0xfc);
             BOOST_CHECK_EQUAL(params->MessageStart()[1], 0xe7);
             BOOST_CHECK_EQUAL(params->MessageStart()[2], 0x1e);
             BOOST_CHECK_EQUAL(params->MessageStart()[3], 0xc7);
             BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x207fffff);
+            BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0U);
             BOOST_CHECK(c.powLimit == uint256{"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"});
             BOOST_CHECK(params->DNSSeeds().empty());
             BOOST_CHECK(!DummyMainNeedsWarning(chain));
@@ -134,6 +141,25 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
 
     const MessageStartChars unknown{0xff, 0xfe, 0xfd, 0xfc};
     BOOST_CHECK(!GetNetworkForMagic(unknown));
+}
+
+BOOST_AUTO_TEST_CASE(testnet_blake2b_floor)
+{
+    const auto params{CreateChainParams(ArgsManager{}, ChainType::TESTNET)};
+    const Consensus::Params& c{params->GetConsensus()};
+    BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0x1b095caeU);
+
+    CBlockIndex genesis;
+    genesis.nHeight = 0;
+    genesis.nBits = params->GenesisBlock().nBits;
+    genesis.nTime = params->GenesisBlock().nTime;
+
+    CBlockHeader next;
+    next.nTime = genesis.nTime + 60;
+    BOOST_CHECK_EQUAL(GetNextWorkRequired(&genesis, &next, c), 0x1b095caeU);
+
+    next.nTime = genesis.nTime + 21 * 60;
+    BOOST_CHECK_EQUAL(GetNextWorkRequired(&genesis, &next, c), 0x1b095caeU);
 }
 
 BOOST_AUTO_TEST_CASE(output_type_is_allowed_forks)

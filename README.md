@@ -7,20 +7,36 @@ FederationCoin is a new Blake2b UTXO chain for sending money. Fresh genesis,
 no inherited coins. Not Bitcoin. Not Knots. Not a CBDC. Confirmations stay
 weak until hashrate is expensive. Experimental. No price promise.
 
-This repository is the node: **`federationcoind`**, plus `federationcoin-cli`
-and related tools. The default branch is `29.x-federationcoin`. Based on
-Bitcoin Knots `v29.4.1.knots20260508` (`8c85b1585d`); that parent is pinned.
+## For users
+
+This repository is the node: **`federationcoind`**, plus `federationcoin-cli`,
+`federationcoin-qt`, and related tools.
 
 **Main is not launched.** Default `federationcoind` (no flags) uses
-**placeholder** genesis, magic (`00000000`), and ports (P2P **4095**, RPC
+placeholder genesis, magic (`00000000`), and ports (P2P **4095**, RPC
 **4094**). The node prints a startup warning on default main. Those values
 will be replaced at announcement. Do not mine default main as if it were
-the product chain. Mine and peer on **`-testnet`** for testing and
-exploration (P2P **35333**, RPC **35332**, HRP `tfcn`).
+the product chain.
 
-Testnet DNS seed hostname: `seed.testnet.federationcoin.org` (no records
-yet). Until that name resolves, start one always-on `-testnet` node and
-`addnode <ip>:35333 add`. Peers do not discover each other from zero.
+**Testnet is the public net.** `federationcoind -testnet` (P2P **35333**,
+RPC **35332**, HRP `tgfcn`). Explorer:
+[mempool.federationcoin.org](https://mempool.federationcoin.org).
+
+Testnet DNS seed: `seed.testnet.federationcoin.org` (P2P **35333**,
+NLB). Core also queries `x10000009.seed.testnet.federationcoin.org` (same
+NLB). `addnode seed.testnet.federationcoin.org:35333` is backup. Dummy
+MAIN has no seeds.
+
+Laptop outbound-only:
+
+    ./build/bin/federationcoind -testnet \
+      -datadir=/tmp/fc-laptop-testnet \
+      -listen=0 \
+      -dnsseed=1 \
+      -addnode=seed.testnet.federationcoin.org:35333
+
+Default datadir is `~/.federationcoin` (Windows:
+`%LOCALAPPDATA%\FederationCoin`). Config file is `federationcoin.conf`.
 
 The atomic unit is the **token**. **1 COIN = 100 million tokens**
 (`COIN` in consensus). `MAX_MONEY` uses a 21 000 000 COIN
@@ -28,30 +44,12 @@ multiplier. COIN is not a ticker. Overlay token/asset protocols
 (`-rejecttokens`) are unrelated to this native unit.
 
 Taproot is **parked** on every network (`nStartTime = NEVER_ACTIVE`). Witness
-v1 spends **hard-fail** (not anyone-can-spend). Bech32m / `fcn1p…` addresses
+v1 spends **hard-fail** (not anyone-can-spend). Bech32m / `gfcn1p…` addresses
 are not valid destinations while it is parked. This is not a post-quantum
 script rewrite; tapscript code stays in the tree.
 
-Build
------
-
-Use CMake (see [doc/build-unix.md](doc/build-unix.md) for dependencies). From
-the source tree:
-
-    cmake -B build -DBUILD_GUI=OFF
-    cmake --build build -j$(nproc)
-
-Binaries land in `build/bin/` (`federationcoind`, `federationcoin-cli`).
-
-Smoke
------
-
-Default datadir is `~/.federationcoin` (Windows: `%LOCALAPPDATA%\FederationCoin`).
-Config file is `federationcoin.conf`.
-
-Placeholder main (not launched; 0 peers unless you addnode):
-
-    ./build/bin/federationcoind
+A Bitcoin or Knots node on 8333 is a different chain and must not appear as a
+peer.
 
 Two local **testnet** nodes, generate, send (until DNS seeds exist):
 
@@ -70,16 +68,51 @@ Regtest (instant blocks, local only):
 
     ./build/bin/federationcoind -regtest -datadir=/tmp/fc-rt -daemon
 
-A Bitcoin or Knots node on 8333 is a different chain and must not appear as a
-peer.
+Released under the MIT license. See [COPYING](COPYING).
 
-License
--------
+## For developers
 
-Released under the MIT license. See [COPYING](COPYING). Copyright headers and
-historical Bitcoin/Knots comments are left in place on purpose.
-
-User agent
-----------
+Based on Bitcoin Knots `v29.4.1.knots20260508` (`8c85b1585d`); that parent is
+pinned. Do not merge later Knots unless we re-open the pin. Origin is
+`git@github.com:FederationCoin/FederationCoin.git`. Mainline is
+`29.x-federationcoin`. GitHub is detached from that fork; **never push**
+`upstream` (`bitcoinknots/bitcoin`).
 
 Peer handshake uses `/Sumer:29.x/` (not Satoshi, not the product name).
+Copyright headers and historical Bitcoin/Knots comments are left in place
+on purpose.
+
+### Clone and build
+
+Use CMake (see [doc/build-unix.md](doc/build-unix.md) for dependencies). From
+the source tree:
+
+    cmake -B build -DBUILD_GUI=OFF
+    cmake --build build -j$(nproc)
+
+Binaries land in `build/bin/` (`federationcoind`, `federationcoin-cli`).
+
+Platform notes: [doc/README.md](doc/README.md).
+
+### Branching
+
+Work on a branch off `29.x-federationcoin`. Open a same-repo pull request; a
+human merges. Do not push straight to mainline. Current work branch for this
+tree: `get-to-mainnet`. Knots pin `8c85b1585d` stays the ancestor gate.
+
+### Release
+
+`CLIENT_VERSION` in [CMakeLists.txt](CMakeLists.txt) is independent of git
+tags. Tags (human, on origin mainline, before Package):
+
+    vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD
+    vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD.<ext>
+
+Example: `v29.5.0.federationcoin20260913` or `.rc1`. The binary string may
+still end with `.federation0`; that is not the git tag. Package may open a
+**draft** GitHub Release only. No public Docker. Unsigned macOS and Windows.
+Process: [golive notes](https://github.com/ldelarua/workspace-FederationCoin/blob/master/docs/golive-notes.md).
+
+### Quality
+
+Code quality checks and metrics will be added over time.

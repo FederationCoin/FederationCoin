@@ -172,7 +172,7 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x88, 0xFC, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x88, 0xFC, 0xE4};
 
-        bech32_hrp = "fcn";
+        bech32_hrp = "gfcn";
 
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
@@ -210,6 +210,10 @@ public:
         consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
         consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = true;
+        // Blake2b floor ~10 miners at 5 GH/s, 10-minute blocks. Compact is
+        // 0x1b00efab (MAIN launch, 50 GH/s each) with mantissa * 10.
+        // SHA256d genesis stays 0x1d00ffff; a 7000x genesis grind is not done.
+        consensus.nMinDifficultyBits = 0x1b095cae;
         consensus.enforce_BIP94 = false;
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains
@@ -231,10 +235,9 @@ public:
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 0;
 
-        // Blake2b from height 1 inherits genesis nBits: Blake2bTargetShift is 0,
-        // so GetNextWorkRequired does not change the compact target at Blake2bHeight.
-        // Height 0 is still SHA256d (v1 header). Those bits live on genesis so Blake2b
-        // matches Bitcoin launch difficulty (0x1d00ffff) without a second policy.
+        // Height 0 is SHA256d (v1 header) at Bitcoin launch bits 0x1d00ffff.
+        // Blake2bTargetShift is 0. From height 1, nMinDifficultyBits 0x1b095cae
+        // is the Blake2b floor (min-diff returns it; GetNextWorkRequired clamps).
         genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin testnet3: time is the unit, not the state", UnspendableGenesisScript(), 1788912001, 926009097, 0x1d00ffff, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         assert(consensus.hashGenesisBlock == uint256{"000000007b820d7dd6173e5c91ac6c5851a5a914bbe228d20b99e94cdd2d7733"});
@@ -250,7 +253,7 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0xFC, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0xFC, 0xE4};
 
-        bech32_hrp = "tfcn";
+        bech32_hrp = "tgfcn";
 
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
@@ -324,7 +327,7 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0xFC, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0xFC, 0xE4};
 
-        bech32_hrp = "tfcn";
+        bech32_hrp = "tgfcn";
 
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
@@ -428,7 +431,7 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0xFC, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0xFC, 0xE4};
 
-        bech32_hrp = "tfcn";
+        bech32_hrp = "tgfcn";
 
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
@@ -562,7 +565,7 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0xFC, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0xFC, 0xE4};
 
-        bech32_hrp = "fcnrt";
+        bech32_hrp = "gfcnrt";
     }
 };
 

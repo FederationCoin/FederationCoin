@@ -11,6 +11,20 @@
 #include <uint256.h>
 #include <util/check.h>
 
+/** Compact bits used for testnet min-difficulty blocks.
+ *
+ * When nMinDifficultyBits is set (testnet3 Blake2b floor), min-diff drops to
+ * that floor rather than powLimit. Shared with the walk-back that skips
+ * min-diff headers.
+ */
+static unsigned int MinDifficultyNBits(const Consensus::Params& params)
+{
+    if (params.nMinDifficultyBits != 0) {
+        return params.nMinDifficultyBits;
+    }
+    return UintToArith256(params.powLimit).GetCompact();
+}
+
 /** One-off target shift applied to the first block under a new PoW algorithm.
  *
  * Shared by GetNextWorkRequired and PermittedDifficultyTransition so the value
@@ -30,9 +44,25 @@ static unsigned int ApplyBlake2bTargetShift(unsigned int nBits, const Consensus:
     return bnNew.GetCompact();
 }
 
+/** Do not ease past nMinDifficultyBits (smaller target = harder). */
+static unsigned int ApplyMinDifficultyFloor(unsigned int nBits, const Consensus::Params& params)
+{
+    if (params.nMinDifficultyBits == 0) {
+        return nBits;
+    }
+    arith_uint256 bn;
+    bn.SetCompact(nBits);
+    arith_uint256 floor_target;
+    floor_target.SetCompact(params.nMinDifficultyBits);
+    if (bn > floor_target) {
+        return params.nMinDifficultyBits;
+    }
+    return nBits;
+}
+
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params)
 {
-    unsigned int nProofOfWorkLimit = UintToArith256(params.powLimit).GetCompact();
+    unsigned int nMinDiffBits = MinDifficultyNBits(params);
 
     unsigned int nBits;
 
@@ -45,12 +75,12 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
             // If the new block's timestamp is more than 2* 10 minutes
             // then allow mining of a min-difficulty block.
             if (pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing*2)
-                return nProofOfWorkLimit;
+                return nMinDiffBits;
             else
             {
                 // Look back to the last non-special-min-difficulty-rules-block
                 const CBlockIndex* pindex = pindexLast;
-                while (pindex->pprev && pindex->nHeight % params.DifficultyAdjustmentInterval() != 0 && pindex->nBits == nProofOfWorkLimit)
+                while (pindex->pprev && pindex->nHeight % params.DifficultyAdjustmentInterval() != 0 && pindex->nBits == nMinDiffBits)
                     pindex = pindex->pprev;
                 nBits = pindex->nBits;
             }
@@ -72,7 +102,7 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
         nBits = ApplyBlake2bTargetShift(nBits, params);
     }
 
-    return nBits;
+    return ApplyMinDifficultyFloor(nBits, params);
 }
 
 unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nFirstBlockTime, const Consensus::Params& params)
@@ -109,6 +139,14 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
     if (bnNew > bnPowLimit)
         bnNew = bnPowLimit;
 
+    if (params.nMinDifficultyBits != 0) {
+        arith_uint256 bnFloor;
+        bnFloor.SetCompact(params.nMinDifficultyBits);
+        if (bnNew > bnFloor) {
+            bnNew = bnFloor;
+        }
+    }
+
     return bnNew.GetCompact();
 }
 
@@ -123,7 +161,7 @@ bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t heig
     // usual limits below apply to the change on top of it, rather than
     // rejecting the shift itself.
     if (height == params.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)) {
-        old_nbits = ApplyBlake2bTargetShift(old_nbits, params);
+        old_nbits = ApplyMinDifficultyFloor(ApplyBlake2bTargetShift(old_nbits, params), params);
     }
 
     if (height % params.DifficultyAdjustmentInterval() == 0) {

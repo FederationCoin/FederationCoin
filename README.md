@@ -22,9 +22,18 @@ the product chain.
 RPC **35332**, HRP `tgfcn`). Explorer:
 [mempool.federationcoin.org](https://mempool.federationcoin.org).
 
-Testnet DNS seed hostname: `seed.testnet.federationcoin.org` (no records
-yet). Until that name resolves, start one always-on `-testnet` node and
-`addnode <ip>:35333 add`. Peers do not discover each other from zero.
+Testnet DNS seed: `seed.testnet.federationcoin.org` (P2P **35333**,
+NLB). Core also queries `x10000009.seed.testnet.federationcoin.org` (same
+NLB). `addnode seed.testnet.federationcoin.org:35333` is backup. Dummy
+MAIN has no seeds.
+
+Laptop outbound-only:
+
+    ./build/bin/federationcoind -testnet \
+      -datadir=/tmp/fc-laptop-testnet \
+      -listen=0 \
+      -dnsseed=1 \
+      -addnode=seed.testnet.federationcoin.org:35333
 
 Default datadir is `~/.federationcoin` (Windows:
 `%LOCALAPPDATA%\FederationCoin`). Config file is `federationcoin.conf`.

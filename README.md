@@ -22,9 +22,13 @@ the product chain.
 RPC **35332**, HRP `tgfcn`). Explorer:
 [mempool.federationcoin.org](https://mempool.federationcoin.org).
 
-Testnet DNS seed: `seed.testnet.federationcoin.org` (P2P **35333**,
-NLB). Core also queries `x10000009.seed.testnet.federationcoin.org` (same
-NLB). `addnode seed.testnet.federationcoin.org:35333` is backup. Dummy
+Testnet DNS seed **name** (compiled `vSeeds`):
+`seed.testnet.federationcoin.org`. Core looks that up for bootstrap
+IPs; it also queries `x10000009.seed.testnet.federationcoin.org`.
+Today both names alias to the P2P NLB in front of two always-on
+`federationcoind` nodes. That is not `bitcoin-seeder`
+([docs/seeds.md](../docs/seeds.md) in the workspace dump).
+`addnode seed.testnet.federationcoin.org:35333` is backup. Dummy
 MAIN has no seeds.
 
 Laptop outbound-only:

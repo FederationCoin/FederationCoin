@@ -138,9 +138,8 @@ struct Params {
     uint256 powLimit;
     bool fPowAllowMinDifficultyBlocks;
     /**
-     * If non-zero, testnet min-difficulty blocks and the first Blake2b block
-     * use this compact target instead of powLimit (easier genesis may remain).
-     * Testnet3: 0x1b095cae (~10 miners at 5 GH/s, 10-minute blocks).
+     * If non-zero, testnet min-difficulty blocks use this compact target
+     * instead of powLimit. Testnet3/4: 0x1c03a830 (genesis and floor).
      */
     uint32_t nMinDifficultyBits{0};
     /**

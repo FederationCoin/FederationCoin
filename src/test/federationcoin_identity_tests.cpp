@@ -58,14 +58,16 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
         BOOST_CHECK_EQUAL(c.CSVHeight, 1);
         BOOST_CHECK_EQUAL(c.SegwitHeight, 1);
         BOOST_CHECK_EQUAL(params->Checkpoints().GetHeight(), 0);
-        BOOST_CHECK_EQUAL(c.Blake2bHeight, 1);
+        BOOST_CHECK_EQUAL(c.Blake2bHeight, 0);
         BOOST_CHECK_EQUAL(c.Blake2bTargetShift, 0);
         BOOST_CHECK_EQUAL(c.RdtsExpiryTime, 1819756800);
         BOOST_CHECK(c.Blake2bHeadline.size() == headline.size());
         BOOST_CHECK(std::equal(headline.begin(), headline.end(), c.Blake2bHeadline.begin()));
         BOOST_CHECK_EQUAL(c.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime,
                           Consensus::BIP9Deployment::NEVER_ACTIVE);
-        BOOST_CHECK(params->GenesisBlock().vtx[0]->vout[0].scriptPubKey == genesis_spk);
+        BOOST_CHECK(params->GenesisBlock().m_header_v2);
+        BOOST_CHECK_EQUAL(params->GenesisBlock().m_height, 0);
+        BOOST_CHECK_EQUAL(params->GenesisBlock().m_txcount, 1);
         BOOST_CHECK(params->FixedSeeds().empty());
         BOOST_CHECK(GetNetworkForMagic(params->MessageStart()) == chain);
 
@@ -92,8 +94,8 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
             BOOST_CHECK_EQUAL(params->MessageStart()[1], 0xe3);
             BOOST_CHECK_EQUAL(params->MessageStart()[2], 0x1e);
             BOOST_CHECK_EQUAL(params->MessageStart()[3], 0xc3);
-            BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1d00ffff);
-            BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0x1b095caeU);
+            BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1c03a830);
+            BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0x1c03a830U);
             BOOST_CHECK(c.powLimit == uint256{"000000ffff000000000000000000000000000000000000000000000000000000"});
             BOOST_REQUIRE_EQUAL(params->DNSSeeds().size(), 1U);
             BOOST_CHECK_EQUAL(params->DNSSeeds().front(), "seed.testnet.federationcoin.org.");
@@ -107,8 +109,8 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
             BOOST_CHECK_EQUAL(params->MessageStart()[1], 0xe4);
             BOOST_CHECK_EQUAL(params->MessageStart()[2], 0x1e);
             BOOST_CHECK_EQUAL(params->MessageStart()[3], 0xc4);
-            BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1d00ffff);
-            BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0U);
+            BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1c03a830);
+            BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0x1c03a830U);
             BOOST_CHECK(params->DNSSeeds().empty());
             BOOST_CHECK(!DummyMainNeedsWarning(chain));
             break;
@@ -147,7 +149,7 @@ BOOST_AUTO_TEST_CASE(testnet_blake2b_floor)
 {
     const auto params{CreateChainParams(ArgsManager{}, ChainType::TESTNET)};
     const Consensus::Params& c{params->GetConsensus()};
-    BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0x1b095caeU);
+    BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0x1c03a830U);
 
     CBlockIndex genesis;
     genesis.nHeight = 0;
@@ -156,10 +158,10 @@ BOOST_AUTO_TEST_CASE(testnet_blake2b_floor)
 
     CBlockHeader next;
     next.nTime = genesis.nTime + 60;
-    BOOST_CHECK_EQUAL(GetNextWorkRequired(&genesis, &next, c), 0x1b095caeU);
+    BOOST_CHECK_EQUAL(GetNextWorkRequired(&genesis, &next, c), 0x1c03a830U);
 
     next.nTime = genesis.nTime + 21 * 60;
-    BOOST_CHECK_EQUAL(GetNextWorkRequired(&genesis, &next, c), 0x1b095caeU);
+    BOOST_CHECK_EQUAL(GetNextWorkRequired(&genesis, &next, c), 0x1c03a830U);
 }
 
 BOOST_AUTO_TEST_CASE(output_type_is_allowed_forks)

@@ -12,6 +12,7 @@
 #include <consensus/consensus.h>
 #include <consensus/params.h>
 #include <consensus/validation.h>
+#include <cstdio>
 #include <crypto/sha256.h>
 #include <init.h>
 #include <init/common.h>
@@ -363,8 +364,8 @@ TestChain100Setup::TestChain100Setup(
 
     {
         LOCK(::cs_main);
-        Assert(m_node.chainman->ActiveChain().Tip()->GetBlockHash().ToString() ==
-               "4b9ef63ecaeb1446b7a01c277232cb27db02fd3d2a00c000f38788200364b332");
+        const std::string tip_hash{m_node.chainman->ActiveChain().Tip()->GetBlockHash().ToString()};
+        Assert(tip_hash == "7090073de1976e738aafd0f197e6055894ae5cc0ae1a160d7903e856b1cdfe14");
     }
 }
 

@@ -170,16 +170,7 @@ BOOST_AUTO_TEST_CASE(test_assumeutxo)
     }
 
     const auto out110 = params->AssumeutxoForHeight(110);
-    BOOST_REQUIRE(out110.has_value());
-    BOOST_CHECK_EQUAL(out110->hash_serialized.ToString(), "289909189a8e60dd0759ca4fa222eeaa7c109bee1d307213bec1be6dbe0202d2");
-    BOOST_CHECK_EQUAL(out110->m_chain_tx_count, 111U);
-    BOOST_CHECK_EQUAL(out110->blockhash.ToString(), "5d195e9d96c551feddabec553524177c0650669c6ae046798d9b24e9191c9990");
-
-    const auto out110_2 = params->AssumeutxoForBlockhash(uint256{"5d195e9d96c551feddabec553524177c0650669c6ae046798d9b24e9191c9990"});
-    BOOST_REQUIRE(out110_2.has_value());
-    BOOST_CHECK_EQUAL(out110_2->hash_serialized.ToString(), out110->hash_serialized.ToString());
-    BOOST_CHECK_EQUAL(out110_2->m_chain_tx_count, 111U);
-    BOOST_CHECK_EQUAL(out110_2->blockhash.ToString(), out110->blockhash.ToString());
+    BOOST_CHECK(!out110);
 }
 
 BOOST_AUTO_TEST_CASE(block_malleation)

@@ -39,13 +39,21 @@ auto consteval_ctor(auto&& input) { return input; }
 #define consteval_ctor(input) (input)
 #endif
 
-static CBlock CreateGenesisBlock(const char* pszTimestamp, const CScript& genesisOutputScript, uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
+static constexpr std::string_view kFederationHeadline = "09/Sep/2026 FederationCoin: time is the unit, not the state";
+// Testnet3/4 genesis and min-diff floor. Two orders of magnitude easier than
+// 0x1b095cae so localhost GPU automation can find a block. Dummy MAIN stays
+// 0x1e00ffff; MAIN launch compact remains 0x1b00efab.
+static constexpr uint32_t kTestnetBlake2bBits = 0x1c03a830;
+
+static CBlock CreateGenesisBlock([[maybe_unused]] const char* pszTimestamp, const CScript& genesisOutputScript, uint32_t nTime, uint32_t nNonce, uint32_t nNonce2, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
     CMutableTransaction txNew;
     txNew.version = 1;
     txNew.vin.resize(1);
     txNew.vout.resize(1);
-    txNew.vin[0].scriptSig = CScript() << 486604799 << CScriptNum(4) << std::vector<unsigned char>((const unsigned char*)pszTimestamp, (const unsigned char*)pszTimestamp + strlen(pszTimestamp));
+    // Headline only: timestamp-plus-headline overflowed the 100-byte coinbase scriptSig limit.
+    txNew.vin[0].scriptSig = CScript() << 486604799 << CScriptNum(4)
+        << std::vector<unsigned char>(kFederationHeadline.begin(), kFederationHeadline.end());
     txNew.vout[0].nValue = genesisReward;
     txNew.vout[0].scriptPubKey = genesisOutputScript;
 
@@ -54,6 +62,10 @@ static CBlock CreateGenesisBlock(const char* pszTimestamp, const CScript& genesi
     genesis.nBits    = nBits;
     genesis.nNonce   = nNonce;
     genesis.nVersion = nVersion;
+    genesis.m_header_v2 = true;
+    genesis.m_height = 0;
+    genesis.m_txcount = 1;
+    genesis.m_nonce2 = nNonce2;
     genesis.vtx.push_back(MakeTransactionRef(std::move(txNew)));
     genesis.hashPrevBlock.SetNull();
     genesis.hashMerkleRoot = BlockMerkleRoot(genesis);
@@ -92,12 +104,9 @@ static void SetFederationBuriedBips(Consensus::Params& consensus)
 
 static void SetFederationBlake2bAndRdts(Consensus::Params& consensus)
 {
-    consensus.Blake2bHeight = 1;
+    consensus.Blake2bHeight = 0;
     consensus.Blake2bTargetShift = 0;
-    {
-        constexpr std::string_view headline = "09/Sep/2026 FederationCoin: time is the unit, not the state";
-        consensus.Blake2bHeadline.assign(headline.begin(), headline.end());
-    }
+    consensus.Blake2bHeadline.assign(kFederationHeadline.begin(), kFederationHeadline.end());
     consensus.RdtsExpiryTime = 1819756800; // September 1st, 2027 00:00 UTC (Knots value this pass)
 }
 
@@ -158,10 +167,10 @@ public:
         // (10 miners × 50 GH/s, 10-minute blocks), compact 0x1b00efab.
         // Do not remine this placeholder until then.
         // nTime is LOCKTIME_THRESHOLD so timestamp-lock tests still mean timestamps.
-        genesis = CreateGenesisBlock("UNLAUNCHED FederationCoin placeholder; not main", UnspendableGenesisScript(), LOCKTIME_THRESHOLD, 3586848, 0x1e00ffff, 1, 50 * COIN);
+        genesis = CreateGenesisBlock("UNLAUNCHED FederationCoin placeholder; not main", UnspendableGenesisScript(), LOCKTIME_THRESHOLD, 6995098, 0, 0x1e00ffff, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256{"0000002df35a11022728c1c1e0eedc4fd2aa586ed18b5b8e959a1f305d8ffbe6"});
-        assert(genesis.hashMerkleRoot == uint256{"afac624c7141d875152c8e8f74b7c6138b2ddf6fb8611f5c7d49518ce3f3447e"});
+        assert(consensus.hashGenesisBlock == uint256{"000000a33f3356996804bbe8bee34a543d712c484b60a9dd9952f44183aaa590"});
+        assert(genesis.hashMerkleRoot == uint256{"48b1813ae1ccc93c2ae1e82e6766babb3b4997b40d358745d68bf53cc524a346"});
 
         vSeeds.clear();
         vFixedSeeds.clear();
@@ -210,10 +219,10 @@ public:
         consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
         consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = true;
-        // Blake2b floor ~10 miners at 5 GH/s, 10-minute blocks. Compact is
-        // 0x1b00efab (MAIN launch, 50 GH/s each) with mantissa * 10.
-        // SHA256d genesis stays 0x1d00ffff; a 7000x genesis grind is not done.
-        consensus.nMinDifficultyBits = 0x1b095cae;
+        // Blake2b from height 0. Floor is two orders of magnitude easier than
+        // 0x1b095cae so a laptop GPU can find a block in localhost suites.
+        // CI never searches for a block; it only checks compiled-in PoW.
+        consensus.nMinDifficultyBits = kTestnetBlake2bBits;
         consensus.enforce_BIP94 = false;
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains
@@ -235,13 +244,11 @@ public:
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 0;
 
-        // Height 0 is SHA256d (v1 header) at Bitcoin launch bits 0x1d00ffff.
-        // Blake2bTargetShift is 0. From height 1, nMinDifficultyBits 0x1b095cae
-        // is the Blake2b floor (min-diff returns it; GetNextWorkRequired clamps).
-        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin testnet3: time is the unit, not the state", UnspendableGenesisScript(), 1788912001, 926009097, 0x1d00ffff, 1, 50 * COIN);
+        // Blake2b v2 genesis. nBits matches nMinDifficultyBits (no min-diff ease-off).
+        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin testnet3: time is the unit, not the state", UnspendableGenesisScript(), 1789600816, 2678975391, 232, kTestnetBlake2bBits, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256{"000000007b820d7dd6173e5c91ac6c5851a5a914bbe228d20b99e94cdd2d7733"});
-        assert(genesis.hashMerkleRoot == uint256{"657a6ec8479f3691139773b02986e6941fb1a7e951e30b8e3676d062e78b0e9f"});
+        assert(consensus.hashGenesisBlock == uint256{"0000000002407773e5e3fc8289f00235f3dc7dd12a7eedbb60e16f38eff34f64"});
+        assert(genesis.hashMerkleRoot == uint256{"48b1813ae1ccc93c2ae1e82e6766babb3b4997b40d358745d68bf53cc524a346"});
 
         vFixedSeeds.clear();
         vSeeds.clear();
@@ -291,6 +298,7 @@ public:
         consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
         consensus.nPowTargetSpacing = 10 * 60;
         consensus.fPowAllowMinDifficultyBlocks = true;
+        consensus.nMinDifficultyBits = kTestnetBlake2bBits;
         consensus.enforce_BIP94 = true;
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = 1512; // 75% for testchains
@@ -312,11 +320,11 @@ public:
         m_assumed_blockchain_size = 1;
         m_assumed_chain_state_size = 0;
 
-        // Same nBits as testnet3: Blake2b inherits genesis compact bits (shift 0).
-        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin testnet4: time is the unit, not the state", UnspendableGenesisScript(), 1788912002, 5926862, 0x1d00ffff, 1, 50 * COIN);
+        // Same nBits as testnet3; floor equals genesis so min-diff cannot ease to powLimit.
+        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin testnet4: time is the unit, not the state", UnspendableGenesisScript(), 1789600817, 1502062509, 10, kTestnetBlake2bBits, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256{"00000000518588d27956912b3e6c5a310067c1d43a95290bd84b5d4f732d1622"});
-        assert(genesis.hashMerkleRoot == uint256{"46ebc78e97f6f0293a7e542d61da1ae9928204cc8e09721326cc92d6ae3d0e31"});
+        assert(consensus.hashGenesisBlock == uint256{"00000000017c20aa7d1f3af2bf025a0d6dcf8d0a6483f4d2ff171e8ff564c26e"});
+        assert(genesis.hashMerkleRoot == uint256{"48b1813ae1ccc93c2ae1e82e6766babb3b4997b40d358745d68bf53cc524a346"});
 
         vFixedSeeds.clear();
         vSeeds.clear();
@@ -417,10 +425,10 @@ public:
         nDefaultPort = 26333;
         nPruneAfterHeight = 1000;
 
-        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin signet: time is the unit, not the state", UnspendableGenesisScript(), 1788912003, 7283474, 0x1e0377ae, 1, 50 * COIN);
+        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin signet: time is the unit, not the state", UnspendableGenesisScript(), 1789600818, 10837744, 0, 0x1e0377ae, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256{"000001157c04349393694e070e3fc59e8b18e57dc13bea6d5568a1849bd2c4a6"});
-        assert(genesis.hashMerkleRoot == uint256{"10a567d0a1c45207d19024fac1a955e8021be0cda560fe31bd3bda5547d3d7c5"});
+        assert(consensus.hashGenesisBlock == uint256{"000001e7209f5488417bb4dcc98567233da38d48cb553bd649cd3dd87ae586da"});
+        assert(genesis.hashMerkleRoot == uint256{"48b1813ae1ccc93c2ae1e82e6766babb3b4997b40d358745d68bf53cc524a346"});
 
         m_assumeutxo_data = {
         };
@@ -528,10 +536,10 @@ public:
             consensus.vDeployments[deployment_pos].threshold = version_bits_params.threshold;
         }
 
-        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin regtest: time is the unit, not the state", UnspendableGenesisScript(), 1788912004, 0, 0x207fffff, 1, 50 * COIN);
+        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin regtest: time is the unit, not the state", UnspendableGenesisScript(), 1789600819, 4948480, 0, 0x207fffff, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256{"7540675e579ae63ff4628473bab9e7098d1e30d24c344f59855785989677dbc1"});
-        assert(genesis.hashMerkleRoot == uint256{"aa24b4644d39b44ed8cc3f1957b070b26d85c3c04f03833487f915dd71a9f609"});
+        assert(consensus.hashGenesisBlock == uint256{"751a65c1c058cce240ab96f65b5f1bc91783fcdeade3079f1240d64d1929bd30"});
+        assert(genesis.hashMerkleRoot == uint256{"48b1813ae1ccc93c2ae1e82e6766babb3b4997b40d358745d68bf53cc524a346"});
 
         vFixedSeeds.clear();
         vSeeds.clear();
@@ -545,12 +553,6 @@ public:
         };
 
         m_assumeutxo_data = {
-            {
-                .height = 110,
-                .hash_serialized = AssumeutxoHash{uint256{"289909189a8e60dd0759ca4fa222eeaa7c109bee1d307213bec1be6dbe0202d2"}},
-                .m_chain_tx_count = 111,
-                .blockhash = consteval_ctor(uint256{"5d195e9d96c551feddabec553524177c0650669c6ae046798d9b24e9191c9990"}),
-            },
         };
 
         chainTxData = ChainTxData{

@@ -19,6 +19,11 @@ required=(
     'linux-gnu\.tar\.gz$:2'               # linux x86_64 + aarch64
     'win64-setup\.exe$:1'                  # win64 NSIS (mingw GOAL=deploy)
     'apple-darwin-unsigned\.zip$:2'        # macos arm64 + intel unsigned
+    'federationcoind-linux-x64\.zip$:1'   # mill extra
+    'federationcoind-linux-arm64\.zip$:1'
+    'federationcoind-win-x64\.zip$:1'
+    'federationcoind-macos-arm64\.zip$:1'
+    'federationcoind-macos-x64\.zip$:1'
 )
 
 short=0

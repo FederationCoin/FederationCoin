@@ -44,6 +44,7 @@ add_executable(test_bitcoin
   descriptor_tests.cpp
   disconnected_transactions.cpp
   feefrac_tests.cpp
+  federationcoin_identity_chainman_tests.cpp
   federationcoin_identity_tests.cpp
   flatfile_tests.cpp
   fs_tests.cpp

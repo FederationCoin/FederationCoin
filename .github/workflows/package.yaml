@@ -2,9 +2,12 @@
 # Tag shape matches Knots (v29.4.1.knots20260508), with federationcoin + YYYYMMDD:
 #   vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD
 # optional: .alpha / .alphaN / .beta / .betaN / .rcN
+# Also attaches daemon-only federationcoind zips for mill extras (five mill OS).
+# Cannot overwrite an existing tag's Release; same-commit retag if that hash already shipped.
 # CI (ci.yml) does not create tags and does not run on tag push (tags-ignore).
 # Not Guix. mac-cross stays disabled (depends-sdks.federationcoin.org not provisioned).
 # Apple Developer ID / Microsoft Authenticode: not yet provisioned.
+# Dummy MAIN unused. Never CONVOY.
 name: Package
 
 on:
@@ -95,8 +98,22 @@ jobs:
           cmake --build build
           cmake --install build --prefix "${PWD}/stage/${prefix}" --strip
           tar -C stage -czf "${prefix}.tar.gz" "${prefix}"
+          case "$(uname -m)" in
+            x86_64) mill=linux-x64 ;;
+            aarch64) mill=linux-arm64 ;;
+            *)
+              echo "unsupported mill arch $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+          daemon="stage/${prefix}/bin/federationcoind"
+          if [ ! -x "$daemon" ]; then
+            echo "missing ${daemon}" >&2
+            exit 1
+          fi
           mkdir -p dist
           mv "${prefix}.tar.gz" dist/
+          python3 .github/scripts/zip-one.py "$daemon" "dist/federationcoind-${mill}.zip"
           ls -la dist/
       - uses: actions/upload-artifact@v4
         with:
@@ -124,7 +141,7 @@ jobs:
           use-warp: 'false'
       - name: CI script
         run: ./ci/test_run_all.sh
-      - name: Stage Win64 installer
+      - name: Stage Win64 installer and mill daemon
         run: |
           set -euo pipefail
           exe="${BASE_BUILD_DIR}/federationcoin-win64-setup.exe"
@@ -133,11 +150,23 @@ jobs:
             find "${BASE_BUILD_DIR}" -name '*win64-setup.exe' >&2 || true
             exit 1
           fi
-          cp -a "$exe" federationcoin-win64-setup.exe
+          daemon="${BASE_BUILD_DIR}/release/federationcoind.exe"
+          if [ ! -f "$daemon" ]; then
+            daemon="${BASE_BUILD_DIR}/bin/federationcoind.exe"
+          fi
+          if [ ! -f "$daemon" ]; then
+            echo "missing federationcoind.exe under ${BASE_BUILD_DIR}" >&2
+            find "${BASE_BUILD_DIR}" -name 'federationcoind.exe' >&2 || true
+            exit 1
+          fi
+          mkdir -p dist
+          cp -a "$exe" dist/federationcoin-win64-setup.exe
+          python3 .github/scripts/zip-one.py "$daemon" dist/federationcoind-win-x64.zip
+          ls -la dist/
       - uses: actions/upload-artifact@v4
         with:
           name: win64
-          path: federationcoin-win64-setup.exe
+          path: dist/
           if-no-files-found: error
 
   macos:
@@ -182,8 +211,24 @@ jobs:
             exit 1
           fi
           dest="${TAG}-$(uname -m)-apple-darwin-unsigned.zip"
+          daemon="build/bin/federationcoind"
+          if [ ! -x "$daemon" ]; then
+            echo "missing ${daemon}" >&2
+            ls -la build/bin >&2 || true
+            exit 1
+          fi
+          case "$(uname -m)" in
+            arm64) mill=macos-arm64 ;;
+            x86_64) mill=macos-x64 ;;
+            *)
+              echo "unsupported mill arch $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+          strip -x "$daemon"
           mkdir -p dist
           cp -a "$zip" "dist/${dest}"
+          python3 .github/scripts/zip-one.py "$daemon" "dist/federationcoind-${mill}.zip"
           ls -la dist/
       - uses: actions/upload-artifact@v4
         with:

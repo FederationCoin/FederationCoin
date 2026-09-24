@@ -13,7 +13,6 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include <cctype>
 #include <optional>
 #include <string>
 #include <vector>
@@ -101,17 +100,22 @@ std::string UseHInsteadOfApostrophe(const std::string& desc)
     return ret;
 }
 
+static bool AsciiAlnum(unsigned char c)
+{
+    return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+
 // Count the number of times the string "xpub" appears in a descriptor string
 static size_t CountXpubs(const std::string& desc)
 {
     size_t count = 0;
     for (size_t i = 0; i < desc.size();) {
-        if (!std::isalnum(static_cast<unsigned char>(desc[i])) && desc[i] != '0') {
+        if (!AsciiAlnum(static_cast<unsigned char>(desc[i])) && desc[i] != '0') {
             ++i;
             continue;
         }
         size_t j = i;
-        while (j < desc.size() && (std::isalnum(static_cast<unsigned char>(desc[j])) || desc[j] == '0')) ++j;
+        while (j < desc.size() && (AsciiAlnum(static_cast<unsigned char>(desc[j])) || desc[j] == '0')) ++j;
         CExtPubKey xpub = DecodeExtPubKey(desc.substr(i, j - i));
         if (xpub.pubkey.IsValid()) ++count;
         i = j;

@@ -284,7 +284,7 @@ jobs:
 
       - name: Clone corpora
         # https://qa-assets.federationcoin.org -- not yet provisioned
-        if: false
+        if: ${{ false }}
         run: |
           git clone --depth=1 https://qa-assets.federationcoin.org "$env:RUNNER_TEMP\qa-assets"
           Set-Location "$env:RUNNER_TEMP\qa-assets"
@@ -293,7 +293,7 @@ jobs:
 
       - name: Run fuzz tests
         # needs qa-assets.federationcoin.org -- not yet provisioned
-        if: false
+        if: ${{ false }}
         working-directory: build
         env:
           BITCOINFUZZ: '${{ github.workspace }}\build\bin\Release\fuzz.exe'

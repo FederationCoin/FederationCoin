@@ -82,9 +82,9 @@ MAX_OP_RETURN_RELAY = 83
 DEFAULT_MEMPOOL_EXPIRY_HOURS = 336  # hours
 
 MAGIC_BYTES = {
-    "mainnet": b"\xf9\xbe\xb4\xd9",   # mainnet
-    "testnet3": b"\x0b\x11\x09\x07",  # testnet3
-    "regtest": b"\xfa\xbf\xb5\xda",   # regtest
+    "mainnet": b"\x00\x00\x00\x00",   # dummy main, not launched
+    "testnet3": b"\xfc\xe3\x1e\xc3",  # testnet
+    "regtest": b"\xfc\xe7\x1e\xc7",   # regtest
     "signet": b"\x0a\x03\xcf\x40",    # signet
 }
 
@@ -982,6 +982,8 @@ class CBlock(CBlockHeader):
         return True
 
     def solve(self):
+        if self.m_header_v2:
+            self.m_txcount = len(self.vtx)
         self.rehash()
         target = uint256_from_compact(self.nBits)
         while self.sha256 > target:

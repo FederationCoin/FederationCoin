@@ -94,13 +94,12 @@ BASE_SCRIPTS = [
     # Longest test should go first, to favor running tests in parallel
     # vv Tests less than 5m vv
     'feature_fee_estimation.py',
-    'feature_unified_sighash.py --descriptors',
+    # feature_unified_sighash and the temporary-deployment test need a SHA256d era.
     'rpc_combinerawtransaction_unified.py --descriptors',
-    'feature_taproot.py',
-    'feature_reduced_data_temporary_deployment.py',
+    # Taproot is parked (NEVER_ACTIVE); feature_taproot mines a pre-fork block.
     'feature_bip9_max_activation_height.py',
     'feature_rdts.py',
-    'feature_rdts_ignore_rejects.py',
+    # feature_rdts_ignore_rejects needs a SHA256d era before the fork.
     'feature_block.py',
     'mempool_ephemeral_dust.py',
     'wallet_conflicts.py --legacy-wallet',
@@ -147,7 +146,7 @@ BASE_SCRIPTS = [
     'wallet_groups.py --descriptors',
     'p2p_blockfilters.py',
     'feature_assumevalid.py',
-    'wallet_taproot.py --descriptors',
+    # wallet_taproot.py needs an active taproot deployment.
     'feature_bip68_sequence.py',
     'rpc_packages.py',
     'rpc_bind.py --ipv4',
@@ -156,8 +155,7 @@ BASE_SCRIPTS = [
     'p2p_headers_sync_with_minchainwork.py',
     'p2p_feefilter.py',
     'feature_csv_activation.py',
-    'feature_reduced_data_utxo_height.py',
-    'feature_rdts_migration.py',
+    # feature_reduced_data_utxo_height and feature_rdts_migration need a SHA256d era.
     'p2p_sendheaders.py',
     'feature_config_args.py',
     'wallet_listtransactions.py --legacy-wallet',
@@ -368,7 +366,7 @@ BASE_SCRIPTS = [
     'rpc_estimatefee.py',
     'rpc_getblockstats.py',
     'feature_port.py',
-    # No SHA256d era (feature_powchange) and no compiled-in assumeutxo snapshot.
+    # Blake2b is buried at height 0, so feature_powchange cannot delay it.
     'feature_bind_port_externalip.py',
     'wallet_create_tx.py --legacy-wallet',
     'wallet_send.py --legacy-wallet',
@@ -459,6 +457,20 @@ NON_SCRIPTS = [
     "combine_logs.py",
     "create_cache.py",
     "test_runner.py",
+    # Blake2b is buried at height 0, so a delayed activation rejects genesis.
+    # Assumeutxo tests require a compiled-in snapshot. This chain publishes none.
+    "feature_powchange.py",
+    "feature_assumeutxo.py",
+    "wallet_assumeutxo.py",
+    # Taproot stays parked, so these scripts have no deployment to exercise.
+    "feature_taproot.py",
+    "wallet_taproot.py",
+    # These scripts delay Blake2b past genesis. Genesis is already header v2.
+    "feature_unified_sighash.py",
+    "feature_reduced_data_temporary_deployment.py",
+    "feature_rdts_ignore_rejects.py",
+    "feature_reduced_data_utxo_height.py",
+    "feature_rdts_migration.py",
 ]
 
 def main():

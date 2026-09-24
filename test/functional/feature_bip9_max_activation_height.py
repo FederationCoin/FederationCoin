@@ -64,7 +64,7 @@ class MaxActivationHeightTest(BitcoinTestFramework):
             height = node.getblockcount() + 1
             tip_header = node.getblockheader(tip)
             block_time = tip_header['time'] + 1
-            block = create_block(int(tip, 16), create_coinbase(height), ntime=block_time)
+            block = create_block(int(tip, 16), create_coinbase(height), ntime=block_time, height=height)
             if signal:
                 block.nVersion = VERSIONBITS_TOP_BITS | (1 << TESTDUMMY_BIT)
             add_witness_commitment(block)

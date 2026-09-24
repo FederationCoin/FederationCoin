@@ -34,7 +34,8 @@ CreateAndActivateUTXOSnapshot(
     TestingSetup* fixture,
     F malleation = NoMalleation,
     bool reset_chainstate = false,
-    bool in_memory_chainstate = false)
+    bool in_memory_chainstate = false,
+    bool recognize_snapshot = false)
 {
     node::NodeContext& node = fixture->m_node;
     fs::path root = fixture->m_path_root;
@@ -61,6 +62,18 @@ CreateAndActivateUTXOSnapshot(
     AutoFile auto_infile{infile};
     node::SnapshotMetadata metadata{node.chainman->GetParams().MessageStart()};
     auto_infile >> metadata;
+
+    if (recognize_snapshot && !node.chainman->GetParams().AssumeutxoForBlockhash(metadata.m_base_blockhash)) {
+        // Published chain params include no assumeutxo snapshot. This test
+        // recognizes only the snapshot it just wrote, in this process.
+        auto& params = const_cast<CChainParams&>(node.chainman->GetParams());
+        params.AddAssumeutxoForTest(AssumeutxoData{
+            .height = result["base_height"].getInt<int>(),
+            .hash_serialized = AssumeutxoHash{uint256::FromHex(result["txoutset_hash"].get_str()).value()},
+            .m_chain_tx_count = result["nchaintx"].getInt<uint64_t>(),
+            .blockhash = uint256::FromHex(result["base_hash"].get_str()).value(),
+        });
+    }
 
     malleation(auto_infile, metadata);
 

@@ -312,7 +312,7 @@ struct SnapshotTestSetup : TestChain100Setup {
                 metadata.m_base_blockhash = uint256::ONE;
         }));
 
-        BOOST_REQUIRE(CreateAndActivateUTXOSnapshot(this));
+        BOOST_REQUIRE(CreateAndActivateUTXOSnapshot(this, NoMalleation, /*reset_chainstate=*/false, /*in_memory_chainstate=*/false, /*recognize_snapshot=*/true));
         BOOST_CHECK(fs::exists(*node::FindSnapshotChainstateDir(chainman.m_options.datadir)));
 
         // Ensure our active chain is the snapshot chainstate.
@@ -485,12 +485,13 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_loadblockindex, TestChain100Setup)
     const int last_assumed_valid_idx{111};
     const int assumed_valid_start_idx = last_assumed_valid_idx - expected_assumed_valid;
 
-    // Mine to height 120, past the hardcoded regtest assumeutxo snapshot at
-    // height 110
+    // Mine to height 120. Chain params publish no assumeutxo snapshot; this
+    // test registers height 110 after the blocks exist.
     mineBlocks(20);
 
     CBlockIndex* validated_tip{nullptr};
     CBlockIndex* assumed_base{nullptr};
+    uint64_t base_chain_txs{0};
     CBlockIndex* assumed_tip{WITH_LOCK(chainman.GetMutex(), return chainman.ActiveChain().Tip())};
     BOOST_CHECK_EQUAL(assumed_tip->nHeight, 120);
 
@@ -518,6 +519,16 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_loadblockindex, TestChain100Setup)
         LOCK(::cs_main);
         auto index = cs1.m_chain[i];
 
+        // Note the last fully-validated block as the expected validated tip.
+        if (i == (assumed_valid_start_idx - 1)) {
+            validated_tip = index;
+        }
+        // Note the snapshot base before clearing its chain-tx count.
+        if (i == last_assumed_valid_idx - 1) {
+            base_chain_txs = index->m_chain_tx_count;
+            assumed_base = index;
+        }
+
         // Blocks with heights in range [91, 110] are marked as missing data.
         if (i < last_assumed_valid_idx && i >= assumed_valid_start_idx) {
             index->nStatus = BlockStatus::BLOCK_VALID_TREE;
@@ -526,15 +537,18 @@ BOOST_FIXTURE_TEST_CASE(chainstatemanager_loadblockindex, TestChain100Setup)
         }
 
         ++num_indexes;
+    }
 
-        // Note the last fully-validated block as the expected validated tip.
-        if (i == (assumed_valid_start_idx - 1)) {
-            validated_tip = index;
-        }
-        // Note the last assumed valid block as the snapshot base
-        if (i == last_assumed_valid_idx - 1) {
-            assumed_base = index;
-        }
+    // This chain publishes no assumeutxo snapshot. The test names the base
+    // block it mined so LoadBlockIndex can treat that height as the snapshot.
+    {
+        auto& params = const_cast<CChainParams&>(chainman.GetParams());
+        params.AddAssumeutxoForTest(AssumeutxoData{
+            .height = assumed_base->nHeight,
+            .hash_serialized = AssumeutxoHash{uint256{}},
+            .m_chain_tx_count = base_chain_txs,
+            .blockhash = *assumed_base->phashBlock,
+        });
     }
 
     // Note: cs2's tip is not set when ActivateExistingSnapshot is called.

@@ -48,7 +48,8 @@ static void DeserializeAndCheckBlockTest(benchmark::Bench& bench)
     const CBlock genesis{chainParams->GenesisBlock()};
 
     bench.unit("block").run([&] {
-        CBlock block{genesis}; // CBlock caches its checked state, so recreate it here
+        CBlock block{genesis};
+        block.fChecked = false; // CheckBlock caches this; keep the cache off the shared genesis
         BlockValidationState validationState;
         bool checked = CheckBlock(block, validationState, chainParams->GetConsensus());
         assert(checked);

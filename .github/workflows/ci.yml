@@ -12,8 +12,6 @@ on:
   push:
     branches:
       - '29.x-federationcoin'
-    tags-ignore:
-      - '**'
 
 concurrency:
   group: ${{ github.event_name != 'pull_request' && github.run_id || github.ref }}

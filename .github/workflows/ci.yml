@@ -107,23 +107,19 @@ jobs:
     # one for the branch push and one for the pull request.
     # This can be avoided by setting SKIP_BRANCH_PUSH=true as a custom env variable
     # in Github repository settings.
-    # Fuzz needs https://qa-assets.federationcoin.org (not yet provisioned).
-    if: ${{ (vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request') && matrix.job-type != 'fuzz' }}
+    # macOS fuzz stays out until https://qa-assets.federationcoin.org exists.
+    # matrix is not available in a job-level if, so the fuzz row is omitted.
+    if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
 
     timeout-minutes: 120
 
     strategy:
       fail-fast: false
       matrix:
-        job-type: [standard, fuzz]
         include:
           - job-type: standard
             file-env: './ci/test/00_setup_env_mac_native.sh'
             job-name: 'macOS 14 native, arm64, no depends, sqlite only, gui'
-          # not yet provisioned: https://qa-assets.federationcoin.org
-          - job-type: fuzz
-            file-env: './ci/test/00_setup_env_mac_native_fuzz.sh'
-            job-name: 'macOS 14 native, arm64, fuzz'
 
     env:
       DANGER_RUN_CI_ON_HOST: 1
@@ -184,8 +180,8 @@ jobs:
     # See: https://github.com/actions/runner-images#available-images.
     runs-on: windows-2022
 
-    # Fuzz needs https://qa-assets.federationcoin.org (not yet provisioned).
-    if: ${{ (vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request') && matrix.job-type != 'fuzz' }}
+    # Win64 fuzz stays out until https://qa-assets.federationcoin.org exists.
+    if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
 
     env:
       PYTHONUTF8: 1
@@ -194,14 +190,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        job-type: [standard, fuzz]
         include:
           - job-type: standard
             generate-options: '-DBUILD_GUI=OFF -DWITH_BDB=ON -DWITH_MINIUPNPC=ON -DWITH_ZMQ=ON -DBUILD_BENCH=ON -DWERROR=ON'
             job-name: 'Win64 native, VS 2022'
-          - job-type: fuzz
-            generate-options: '-DVCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON -DVCPKG_MANIFEST_FEATURES="sqlite" -DBUILD_GUI=OFF -DBUILD_FOR_FUZZING=ON -DWERROR=ON'
-            job-name: 'Win64 native fuzz, VS 2022'
 
     steps:
       - *CHECKOUT
@@ -280,30 +272,13 @@ jobs:
         shell: cmd
         run: py -3 test\functional\test_runner.py --jobs %NUMBER_OF_PROCESSORS% --ci --quiet --tmpdirprefix=%RUNNER_TEMP% --combinedlogslen=99999999 --timeout-factor=%TEST_RUNNER_TIMEOUT_FACTOR% %TEST_RUNNER_EXTRA%
 
-      - name: Clone corpora
-        # https://qa-assets.federationcoin.org -- not yet provisioned
-        if: ${{ false }}
-        run: |
-          git clone --depth=1 https://qa-assets.federationcoin.org "$env:RUNNER_TEMP\qa-assets"
-          Set-Location "$env:RUNNER_TEMP\qa-assets"
-          Write-Host "Using qa-assets repo from commit ..."
-          git log -1
-
-      - name: Run fuzz tests
-        # needs qa-assets.federationcoin.org -- not yet provisioned
-        if: ${{ false }}
-        working-directory: build
-        env:
-          BITCOINFUZZ: '${{ github.workspace }}\build\bin\Release\fuzz.exe'
-        shell: cmd
-        run: |
-          py -3 test\fuzz\test_runner.py --par %NUMBER_OF_PROCESSORS% --loglevel DEBUG %RUNNER_TEMP%\qa-assets\fuzz_corpora
-
   ci-matrix:
     name: ${{ matrix.name }}
     needs: runners
     runs-on: ${{ needs.runners.outputs.provider == 'warp' && matrix.warp-runner || matrix.fallback-runner }}
-    if: ${{ (vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request') && matrix.skip != true }}
+    # depends-sdks, qa-assets, and previous-release bins are not hosted yet,
+    # so those rows are omitted. matrix is not available in a job-level if.
+    if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
     timeout-minutes: ${{ matrix.timeout-minutes }}
 
     env:
@@ -332,14 +307,6 @@ jobs:
             timeout-minutes: 120
             file-env: './ci/test/00_setup_env_native_asan.sh'
 
-          # depends-sdks.federationcoin.org -- not yet provisioned
-          - name: 'macOS-cross, gui, no tests'
-            warp-runner: 'warp-ubuntu-latest-x64-4x'
-            fallback-runner: 'ubuntu-latest'
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_mac_cross.sh'
-            skip: true
-
           - name: 'No wallet, libbitcoinkernel'
             warp-runner: 'warp-ubuntu-latest-x64-4x'
             fallback-runner: 'ubuntu-latest'
@@ -351,22 +318,6 @@ jobs:
             fallback-runner: 'ubuntu-latest'
             timeout-minutes: 120
             file-env: './ci/test/00_setup_env_i686_multiprocess.sh'
-
-          # qa-assets.federationcoin.org -- not yet provisioned
-          - name: 'fuzzer,address,undefined,integer, no depends'
-            warp-runner: 'warp-ubuntu-latest-x64-16x'
-            fallback-runner: 'ubuntu-latest'
-            timeout-minutes: 240
-            file-env: './ci/test/00_setup_env_native_fuzz.sh'
-            skip: true
-
-          # bin.federationcoin.org -- not yet provisioned
-          - name: 'previous releases, depends DEBUG'
-            warp-runner: 'warp-ubuntu-latest-x64-8x'
-            fallback-runner: 'ubuntu-latest'
-            timeout-minutes: 120
-            file-env: './ci/test/00_setup_env_native_previous_releases.sh'
-            skip: true
 
           - name: 'CentOS, depends, gui'
             warp-runner: 'warp-ubuntu-latest-x64-16x'

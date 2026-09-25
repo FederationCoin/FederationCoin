@@ -67,8 +67,11 @@ class MaxUploadTest(BitcoinTestFramework):
 
         # Before we connect anything, we first set the time on the node
         # to be in the past, otherwise things break because the CNode
-        # time counters can't be reset backward after initialization
-        old_time = int(time.time() - 2*60*60*24*7)
+        # time counters can't be reset backward after initialization.
+        # Genesis is only days old, so two weeks before wall-clock is before
+        # the chain can timestamp a block.
+        genesis_time = self.nodes[0].getblockheader(self.nodes[0].getblockhash(0))["time"]
+        old_time = max(int(time.time() - 2 * 60 * 60 * 24 * 7), genesis_time + 1)
         self.nodes[0].setmocktime(old_time)
 
         # Generate some old blocks
@@ -92,8 +95,11 @@ class MaxUploadTest(BitcoinTestFramework):
         old_block_size = self.nodes[0].getblock(big_old_block, True)['size']
         big_old_block = int(big_old_block, 16)
 
-        # Advance to two days ago
-        self.nodes[0].setmocktime(int(time.time()) - 2*60*60*24)
+        # A block is historical when the tip is more than a week ahead of it.
+        # Two days before wall-clock is not a week after genesis.
+        # Mined blocks walk forward one second at a time, so the tip must
+        # clear a week after the last of those, not after the start time.
+        self.nodes[0].setmocktime(old_time + 7 * 24 * 60 * 60 + 2 * 60 * 60)
 
         # Mine one more block, so that the prior block looks old
         mine_large_block(self, self.wallet, self.nodes[0])
@@ -133,10 +139,11 @@ class MaxUploadTest(BitcoinTestFramework):
         self.assert_uploadtarget_state(target_reached=False, serve_historical_blocks=False)
 
         # Requesting the current block on p2p_conns[1] should succeed indefinitely,
-        # even when over the max upload target.
-        # We'll try 800 times
+        # even when over the max upload target. A reduced-data block is much
+        # smaller than 1MB, so keep going until the daily target is passed.
         getdata_request.inv = [CInv(MSG_BLOCK, big_new_block)]
-        for i in range(800):
+        new_block_size = self.nodes[0].getblock(self.nodes[0].getbestblockhash())["size"]
+        for i in range(max(800, max_bytes_per_day // new_block_size + 1)):
             p2p_conns[1].send_and_ping(getdata_request)
             assert_equal(p2p_conns[1].block_receive_map[big_new_block], i+1)
 
@@ -158,7 +165,8 @@ class MaxUploadTest(BitcoinTestFramework):
 
         # If we advance the time by 24 hours, then the counters should reset,
         # and p2p_conns[2] should be able to retrieve the old block.
-        self.nodes[0].setmocktime(int(time.time()))
+        # Counters reset after the upload cycle (24 hours) advances.
+        self.nodes[0].setmocktime(old_time + 8 * 24 * 60 * 60 + 2 * 60 * 60 + 1)
         p2p_conns[2].sync_with_ping()
         p2p_conns[2].send_and_ping(getdata_request)
         assert_equal(p2p_conns[2].block_receive_map[big_old_block], 1)

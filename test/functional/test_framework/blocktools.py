@@ -62,7 +62,8 @@ COINBASE_MATURITY = 100
 # From BIP141
 WITNESS_COMMITMENT_HEADER = b"\xaa\x21\xa9\xed"
 
-NORMAL_GBT_REQUEST_PARAMS = {"rules": ["segwit"]}
+# Header v2 is active from genesis, so a template client must name blake2b.
+NORMAL_GBT_REQUEST_PARAMS = {"rules": ["segwit", "blake2b"]}
 VERSIONBITS_LAST_OLD_BLOCK_VERSION = 4
 MIN_BLOCKS_TO_KEEP = 288
 

@@ -403,8 +403,16 @@ class MiniWallet:
             target_vsize=target_vsize,
             **kwargs,
         )
-        if not target_vsize:
-            assert_equal(tx["tx"].get_vsize(), vsize)
+        # A P2WSH spend is not one fixed size. Measure once and rebuild so the fee matches the feerate.
+        if not target_vsize and not fee:
+            actual = Decimal(tx["tx"].get_vsize())
+            if actual != vsize:
+                send_value = utxo_to_spend["value"] - (fee_rate * actual / 1000)
+                tx = self.create_self_transfer_multi(
+                    utxos_to_spend=[utxo_to_spend],
+                    amount_per_output=int(COIN * send_value),
+                    **kwargs,
+                )
         tx["new_utxo"] = tx.pop("new_utxos")[0]
 
         return tx

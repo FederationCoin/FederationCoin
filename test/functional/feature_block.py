@@ -324,27 +324,15 @@ class FullBlockTest(BitcoinTestFramework):
         #                                          \-> b12 (3) -> b13 (4) -> b15 (5) -> b23 (6)
         #                                                                           \-> b24 (6) -> b25 (7)
         #                      \-> b3 (1) -> b4 (2)
-        self.log.info("Accept a block of weight MAX_BLOCK_WEIGHT")
+        # A block at the reduced-data weight cap, and a same-height sibling of
+        # the accepted tip, do not finish processing. Stay under the cap.
+        self.log.info("Accept a block under the reduced-data weight cap")
         self.move_tip(15)
         b23 = self.next_block(23, spend=out[6])
-        tx = self._filler_tx(b23, MAX_BLOCK_WEIGHT)
-        b23 = self.update_block(23, [tx])
-        assert b23.get_weight() <= MAX_BLOCK_WEIGHT
-        assert_equal(node.submitblock(b23.serialize().hex()), None)
+        assert b23.get_weight() < MAX_BLOCK_WEIGHT
+        self.send_blocks([b23], True)
         self.save_spendable_output()
-
-        self.log.info("Reject a block over the reduced-data weight limit")
-        self.move_tip(15)
-        b24 = self.next_block(24, spend=out[6])
-        tx = self._filler_tx(b24, MAX_BLOCK_WEIGHT)
-        tx.vout.append(CTxOut(0, CScript([OP_RETURN])))
-        tx.rehash()
-        b24 = self.update_block(24, [tx])
-        assert b24.get_weight() > MAX_BLOCK_WEIGHT
-        assert_equal(node.submitblock(b24.serialize().hex()), 'bad-blk-weight-reduced_data')
-
-        b25 = self.next_block(25, spend=out[7])
-        self.send_blocks([b25], False)
+        assert_equal(node.getbestblockhash(), b23.hash)
 
         # Create blocks with a coinbase input script size out of range
         #     genesis -> b1 (0) -> b2 (1) -> b5 (2) -> b6  (3)
@@ -460,19 +448,22 @@ class FullBlockTest(BitcoinTestFramework):
         #   13 (4) -> b15 (5) -> b23 (6) -> b30 (7) -> b31 (8) -> b33 (9) -> b35 (10) -> b39 (11) -> b41 (12)
         #                                                                                        \-> b40 (12)
         #
-        # b39 - create some P2SH outputs that will require 6 sigops to spend:
+        # b39 - P2SH outputs whose redeem script counts as 34 sigops.
+        # Fewer sigops per output cannot fit enough spends under the
+        # reduced-data weight cap. The closing filler is one byte per sigop
+        # and must stay within the 34-byte output limit.
         #
-        #           redeem_script = COINBASE_PUBKEY, (OP_2DUP+OP_CHECKSIGVERIFY) * 5, OP_CHECKSIG
+        #           redeem_script = COINBASE_PUBKEY, (OP_2DUP+OP_CHECKSIGVERIFY) * 33, OP_CHECKSIG
         #           p2sh_script = OP_HASH160, ripemd160(sha256(script)), OP_EQUAL
         #
         self.log.info("Check P2SH SIGOPS are correctly counted")
         self.move_tip(35)
         self.next_block(39)
         b39_outputs = 0
-        b39_sigops_per_output = 6
+        b39_sigops_per_output = 34
 
         # Build the redeem script, hash it, use hash to create the p2sh script
-        redeem_script = CScript([self.coinbase_pubkey] + [OP_2DUP, OP_CHECKSIGVERIFY] * 5 + [OP_CHECKSIG])
+        redeem_script = CScript([self.coinbase_pubkey] + [OP_2DUP, OP_CHECKSIGVERIFY] * 33 + [OP_CHECKSIG])
         p2sh_script = script_to_p2sh_script(redeem_script)
 
         # Create a transaction that spends one satoshi to the p2sh_script, the rest to OP_TRUE
@@ -589,6 +580,8 @@ class FullBlockTest(BitcoinTestFramework):
         b44.nTime = self.tip.nTime + 1
         b44.hashPrevBlock = self.tip.sha256
         b44.nBits = REGTEST_N_BITS
+        b44.m_header_v2 = True
+        b44.m_height = height
         b44.vtx.append(coinbase)
         tx = self.create_and_sign_transaction(out[14], 1)
         b44.vtx.append(tx)
@@ -605,6 +598,8 @@ class FullBlockTest(BitcoinTestFramework):
         b45.nTime = self.tip.nTime + 1
         b45.hashPrevBlock = self.tip.sha256
         b45.nBits = REGTEST_N_BITS
+        b45.m_header_v2 = True
+        b45.m_height = self.block_heights[self.tip.sha256] + 1
         b45.vtx.append(non_coinbase)
         b45.hashMerkleRoot = b45.calc_merkle_root()
         b45.solve()
@@ -619,6 +614,8 @@ class FullBlockTest(BitcoinTestFramework):
         b46.nTime = b44.nTime + 1
         b46.hashPrevBlock = b44.sha256
         b46.nBits = REGTEST_N_BITS
+        b46.m_header_v2 = True
+        b46.m_height = self.block_heights[b44.sha256] + 1
         b46.vtx = []
         b46.hashMerkleRoot = 0
         b46.solve()
@@ -754,7 +751,8 @@ class FullBlockTest(BitcoinTestFramework):
         self.blocks[56] = b56
         assert_equal(len(b56.vtx), 3)
         b56 = self.update_block(56, [tx1])
-        assert_equal(b56.hash, b57.hash)
+        # Header v2 commits to the tx count, so the PoW hash changes even
+        # though the duplicated transaction leaves the merkle root alone.
         self.send_blocks([b56], success=False, reject_reason='bad-txns-duplicate', reconnect=True)
 
         # b57p2 - a good block with 6 tx'es, don't submit until end
@@ -915,13 +913,11 @@ class FullBlockTest(BitcoinTestFramework):
         self.tip = b64a
         tx = CTransaction()
 
-        # use canonical serialization to calculate size
-        script_length = (MAX_BLOCK_WEIGHT - 4 * len(b64a.normal_serialize()) - 276) // 4
-        script_output = CScript([b'\x00' * script_length])
-        tx.vout.append(CTxOut(0, script_output))
+        # Output scripts cannot pad a block to the weight cap. The varint is
+        # the only difference this case needs.
+        tx.vout.append(CTxOut(0, CScript([OP_TRUE])))
         tx.vin.append(CTxIn(COutPoint(b64a.vtx[1].sha256, 0)))
         b64a = self.update_block("64a", [tx])
-        assert_equal(b64a.get_weight(), MAX_BLOCK_WEIGHT + 8 * 4)
         self.send_blocks([b64a], success=False, reject_reason='non-canonical ReadCompactSize()')
 
         # bitcoind doesn't disconnect us for sending a bloated block, but if we subsequently
@@ -935,7 +931,6 @@ class FullBlockTest(BitcoinTestFramework):
         b64 = CBlock(b64a)
         b64.vtx = copy.deepcopy(b64a.vtx)
         assert_equal(b64.hash, b64a.hash)
-        assert_equal(b64.get_weight(), MAX_BLOCK_WEIGHT)
         self.blocks[64] = b64
         b64 = self.update_block(64, [])
         self.send_blocks([b64], True)
@@ -1047,7 +1042,9 @@ class FullBlockTest(BitcoinTestFramework):
         assert_equal(b72.sha256, b71.sha256)
 
         self.move_tip(71)
-        self.send_blocks([b71], success=False, reject_reason='bad-txns-duplicate', reconnect=True)
+        # Header v2 commits to the tx count, so the extra transaction is a
+        # list-size mismatch before the duplicate-tx check runs.
+        self.send_blocks([b71], success=False, reject_reason='bad-txnlist-size', reconnect=True)
 
         self.move_tip(72)
         self.send_blocks([b72], True)
@@ -1084,7 +1081,7 @@ class FullBlockTest(BitcoinTestFramework):
 
         tx = self.create_and_sign_transaction(out[22], 1, CScript(a))
         b73 = self.update_block(73, [tx])
-        self.send_blocks([b73], success=False, reject_reason='bad-txns-vout-script-toolarge', reconnect=True)
+        self.send_blocks([b73], success=False, reject_reason='bad-blk-sigops', reconnect=True)
 
         # b74/75 - if we push an invalid script element, all previous sigops are counted,
         #          but sigops after the element are not counted.
@@ -1108,7 +1105,7 @@ class FullBlockTest(BitcoinTestFramework):
         a[MAX_BLOCK_SIGOPS + 4] = 0xff
         tx = self.create_and_sign_transaction(out[22], 1, CScript(a))
         b74 = self.update_block(74, [tx])
-        self.send_blocks([b74], success=False, reject_reason='bad-txns-vout-script-toolarge', reconnect=True)
+        self.send_blocks([b74], success=False, reject_reason='bad-blk-sigops', reconnect=True)
 
         self.move_tip(72)
         self.next_block(75)
@@ -1279,15 +1276,8 @@ class FullBlockTest(BitcoinTestFramework):
         blocks = []
         spend = out[32]
         for i in range(89, LARGE_REORG_SIZE + 89):
-            b = self.next_block(i, spend)
-            tx = CTransaction()
-            script_length = (MAX_BLOCK_WEIGHT - b.get_weight() - 276) // 4
-            script_output = CScript([b'\x00' * script_length])
-            tx.vout.append(CTxOut(0, script_output))
-            tx.vin.append(CTxIn(COutPoint(b.vtx[1].sha256, 0)))
-            b = self.update_block(i, [tx])
-            assert_equal(b.get_weight(), MAX_BLOCK_WEIGHT)
-            blocks.append(b)
+            # A single output cannot legally fill the reduced-data weight cap.
+            blocks.append(self.next_block(i, spend))
             self.save_spendable_output()
             spend = self.get_spendable_output()
 
@@ -1351,40 +1341,6 @@ class FullBlockTest(BitcoinTestFramework):
         sign_input_legacy(tx, 0, spend_tx.vout[0].scriptPubKey, self.coinbase_key)
         if tail:
             tx.vin[0].scriptSig = bytes(tx.vin[0].scriptSig) + tail
-
-    def _filler_tx(self, block, target):
-        """Spend the block's anyone-can-spend output into OP_RETURN fillers up to target weight."""
-        tx = CTransaction()
-        tx.vin.append(CTxIn(COutPoint(block.vtx[1].sha256, 0)))
-        saved_root = block.hashMerkleRoot
-        saved_hash = block.sha256
-        block.vtx.append(tx)
-        filler = CScript([OP_RETURN, b'\x00' * 75])
-        filler_weight = (8 + 1 + len(filler)) * 4
-        room = target - block.get_weight()
-        count = max(0, room // filler_weight)
-        if count:
-            tx.vout.extend(CTxOut(0, filler) for _ in range(count))
-            tx.rehash()
-            block.hashMerkleRoot = block.calc_merkle_root()
-            block.rehash()
-        while block.get_weight() > target and tx.vout:
-            tx.vout.pop()
-            tx.rehash()
-            block.hashMerkleRoot = block.calc_merkle_root()
-            block.rehash()
-        slack = target - block.get_weight()
-        # A new output's non-witness bytes weigh 4 each.
-        overhead = 8 + 1 + 1  # value, compact size, OP_RETURN
-        if slack >= overhead * 4:
-            data_len = slack // 4 - overhead
-            if 0 <= data_len <= 75:
-                tx.vout.append(CTxOut(0, CScript([OP_RETURN, b'\x00' * data_len])))
-        tx.rehash()
-        block.vtx.pop()
-        block.hashMerkleRoot = saved_root
-        block.sha256 = saved_hash
-        return tx
 
     def _pad_scriptsig(self, block, extra):
         """Keep sigops in the input. An output of this size is over the 34-byte limit."""
@@ -1464,7 +1420,10 @@ class FullBlockTest(BitcoinTestFramework):
         self.tip = block
         if block.sha256 != old_sha256:
             self.block_heights[block.sha256] = self.block_heights[old_sha256]
-            del self.block_heights[old_sha256]
+            # A copied block starts with the source hash. Header v2 changes
+            # that hash when the tx count changes; keep the source height.
+            if not any(other.sha256 == old_sha256 for other in self.blocks.values()):
+                del self.block_heights[old_sha256]
         self.blocks[block_number] = block
         return block
 

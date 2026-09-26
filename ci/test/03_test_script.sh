@@ -118,7 +118,8 @@ if [ "$DOWNLOAD_PREVIOUS_RELEASES" = "true" ]; then
   echo "bin.federationcoin.org is not yet provisioned; not downloading previous releases"
 fi
 
-BITCOIN_CONFIG_ALL="-DBUILD_BENCH=ON -DBUILD_FUZZ_BINARY=ON"
+# Bench and fuzz binaries are not executed in CI. Fuzz corpora are not hosted.
+BITCOIN_CONFIG_ALL="-DBUILD_BENCH=OFF -DBUILD_FUZZ_BINARY=OFF"
 if [ -z "$NO_DEPENDS" ]; then
   BITCOIN_CONFIG_ALL="${BITCOIN_CONFIG_ALL} -DCMAKE_TOOLCHAIN_FILE=$DEPENDS_DIR/$HOST/toolchain.cmake"
 fi

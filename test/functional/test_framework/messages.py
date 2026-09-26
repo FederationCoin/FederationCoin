@@ -33,6 +33,9 @@ from test_framework.util import assert_equal
 
 MAX_LOCATOR_SZ = 101
 MAX_BLOCK_WEIGHT = 4000000
+# Block weight while Knots RDTS is active. This chain buries Blake2b at
+# genesis, so mined blocks are held to this cap, not MAX_BLOCK_WEIGHT.
+REDUCED_DATA_MAX_BLOCK_WEIGHT = 800000
 DEFAULT_BLOCK_RESERVED_WEIGHT = 8000
 MINIMUM_BLOCK_RESERVED_WEIGHT = 2000
 MAX_BLOOM_FILTER_SIZE = 36000

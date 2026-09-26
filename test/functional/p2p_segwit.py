@@ -22,7 +22,7 @@ from test_framework.messages import (
     CTxInWitness,
     CTxOut,
     CTxWitness,
-    MAX_BLOCK_WEIGHT,
+    REDUCED_DATA_MAX_BLOCK_WEIGHT,
     MSG_BLOCK,
     MSG_TX,
     MSG_WITNESS_FLAG,
@@ -842,7 +842,7 @@ class SegWitTest(BitcoinTestFramework):
         block.solve()
 
         block.vtx[0].wit.vtxinwit[0].scriptWitness.stack.append(b'a' * 5000000)
-        assert block.get_weight() > MAX_BLOCK_WEIGHT
+        assert block.get_weight() > REDUCED_DATA_MAX_BLOCK_WEIGHT
 
         # We can't send over the p2p network, because this is too big to relay
         # TODO: repeat this test with a block that can be relayed
@@ -851,7 +851,7 @@ class SegWitTest(BitcoinTestFramework):
         assert self.nodes[0].getbestblockhash() != block.hash
 
         block.vtx[0].wit.vtxinwit[0].scriptWitness.stack.pop()
-        assert block.get_weight() < MAX_BLOCK_WEIGHT
+        assert block.get_weight() < REDUCED_DATA_MAX_BLOCK_WEIGHT
         assert_equal(None, self.nodes[0].submitblock(block.serialize().hex()))
 
         assert self.nodes[0].getbestblockhash() == block.hash

@@ -44,6 +44,8 @@ static void DuplicateInputs(benchmark::Bench& bench)
     block.nBits = GetNextWorkRequired(pindexPrev, &block, chainparams.GetConsensus());
     block.nNonce = 0;
     auto nHeight = pindexPrev->nHeight + 1;
+    block.m_header_v2 = chainparams.GetConsensus().IsBlake2bHeight(nHeight);
+    block.m_height = nHeight;
 
     // Make a coinbase TX
     coinbaseTx.vin.resize(1);

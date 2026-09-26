@@ -136,6 +136,12 @@ public:
         return FindFirst(m_assumeutxo_data, [&](const auto& d) { return d.blockhash == blockhash; });
     }
 
+    /** Test process only. Does not change the snapshots a node ships. */
+    void AddAssumeutxoForTest(AssumeutxoData data)
+    {
+        m_assumeutxo_data.push_back(std::move(data));
+    }
+
     const ChainTxData& TxData() const { return chainTxData; }
 
     /**

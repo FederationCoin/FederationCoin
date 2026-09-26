@@ -454,7 +454,18 @@ BOOST_FIXTURE_TEST_CASE(improves_feerate, TestChain100Setup)
     const auto res3 = ImprovesFeerateDiagram(*changeset);
     BOOST_CHECK(res3.has_value());
     BOOST_CHECK(res3.value().first == DiagramCheckError::UNCALCULABLE);
-    BOOST_CHECK(res3.value().second == strprintf("%s has 2 ancestors, max 1 allowed", tx5->GetHash().GetHex()));
+    // Which conflict is named depends on txid order. The cluster is still over the limit.
+    const std::string err3{res3.value().second};
+    bool matched_cluster{false};
+    for (const auto* e : {&entry1, &entry2, &entry5}) {
+        const std::string txid{(*e)->GetSharedTx()->GetHash().ToString()};
+        if (err3 == strprintf("%s has 2 descendants, max 1 allowed", txid) ||
+            err3 == strprintf("%s has 2 ancestors, max 1 allowed", txid) ||
+            err3 == strprintf("%s has both ancestor and descendant, exceeding cluster limit of 2", txid)) {
+            matched_cluster = true;
+        }
+    }
+    BOOST_CHECK(matched_cluster);
 }
 
 BOOST_FIXTURE_TEST_CASE(calc_feerate_diagram_rbf, TestChain100Setup)

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+export LC_ALL=C
 #
 # Fails unless SHA256SUMS covers every unsigned node package artifact.
 #

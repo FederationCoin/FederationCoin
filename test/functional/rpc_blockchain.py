@@ -105,8 +105,15 @@ class BlockchainTest(BitcoinTestFramework):
         assert self.nodes[0].verifychain(4, 0)
 
     def mine_chain(self):
+        global TIME_RANGE_MTP, TIME_RANGE_TIP, TIME_RANGE_END
+        genesis_time = self.nodes[0].getblockheader(self.nodes[0].getblockhash(0))["time"]
+        # This chain's genesis is not the Bitcoin regtest timestamp. Start one step after it.
+        start = genesis_time + TIME_RANGE_STEP
+        TIME_RANGE_END = start + HEIGHT * TIME_RANGE_STEP
+        TIME_RANGE_TIP = start + (HEIGHT - 1) * TIME_RANGE_STEP
+        TIME_RANGE_MTP = start + (HEIGHT - 6) * TIME_RANGE_STEP
         self.log.info(f"Generate {HEIGHT} blocks after the genesis block in ten-minute steps")
-        for t in range(TIME_GENESIS_BLOCK, TIME_RANGE_END, TIME_RANGE_STEP):
+        for t in range(start, TIME_RANGE_END, TIME_RANGE_STEP):
             self.nodes[0].setmocktime(t)
             self.generate(self.wallet, 1)
         assert_equal(self.nodes[0].getblockchaininfo()['blocks'], HEIGHT)
@@ -240,20 +247,14 @@ class BlockchainTest(BitcoinTestFramework):
                 },
                 'active': False
             },
-            'taproot': {
-                'type': 'bip9',
-                'bip9': {
-                    'start_time': -1,
-                    'timeout': 9223372036854775807,
-                    'min_activation_height': 0,
-                    'status': 'active',
-                    'status_next': 'active',
-                    'since': 0,
-                },
+            'reduced_data': {
+                'type': 'flagday',
                 'height': 0,
-                'active': True
-            }
-          }
+                'expiry_time': 1819756800,
+                'active': True,
+            },
+          },
+          'blake2b': {'height': 0, 'active': True},
         })
 
     def _test_getdeploymentinfo(self):
@@ -603,7 +604,7 @@ class BlockchainTest(BitcoinTestFramework):
         fork_block = node.getblock(fork_hash)
 
         def solve_and_send_block(prevhash, height, time):
-            b = create_block(prevhash, create_coinbase(height), time)
+            b = create_block(prevhash, create_coinbase(height), time, height=height)
             b.solve()
             peer.send_and_ping(msg_block(b))
             return b
@@ -715,7 +716,7 @@ class BlockchainTest(BitcoinTestFramework):
         self.log.info("Test getblock when only header is known")
         current_height = node.getblock(node.getbestblockhash())['height']
         block_time = node.getblock(node.getbestblockhash())['time'] + 1
-        block = create_block(int(blockhash, 16), create_coinbase(current_height + 1, nValue=100), block_time)
+        block = create_block(int(blockhash, 16), create_coinbase(current_height + 1, nValue=100), block_time, height=current_height + 1)
         block.solve()
         node.submitheader(block.serialize().hex())
         assert_raises_rpc_error(-1, "Block not available (not fully downloaded)", lambda: node.getblock(block.hash))
@@ -723,7 +724,7 @@ class BlockchainTest(BitcoinTestFramework):
         self.log.info("Test getblock when block data is available but undo data isn't")
         # Submits a block building on the header-only block, so it can't be connected and has no undo data
         tx = create_tx_with_script(block.vtx[0], 0, script_sig=bytes([OP_TRUE]), amount=50 * COIN)
-        block_noundo = create_block(block.sha256, create_coinbase(current_height + 2, nValue=100), block_time + 1, txlist=[tx])
+        block_noundo = create_block(block.sha256, create_coinbase(current_height + 2, nValue=100), block_time + 1, txlist=[tx], height=current_height + 2)
         block_noundo.solve()
         node.submitblock(block_noundo.serialize().hex())
 

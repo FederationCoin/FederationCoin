@@ -45,9 +45,9 @@ class MempoolFeeHistogramTest(BitcoinTestFramework):
         self.generate(self.nodes[0], COINBASE_MATURITY + 2, sync_fun=self.no_op)
 
         # We have two UTXOs (utxo_1 and utxo_2) and we create three changeless transactions:
-        # - tx1 (5 sat/vB): spending utxo_1
-        # - tx2 (14 sat/vB): spending output from tx1
-        # - tx3 (6 sat/vB): spending utxo_2 and the output from tx2
+        # - tx1 (5 token/vB): spending utxo_1
+        # - tx2 (14 token/vB): spending output from tx1
+        # - tx3 (6 token/vB): spending utxo_2 and the output from tx2
 
         self.log.info("Test getmempoolinfo does not return fee histogram by default")
         assert ("fee_histogram" not in node.getmempoolinfo())
@@ -71,11 +71,11 @@ class MempoolFeeHistogramTest(BitcoinTestFramework):
         assert_equal(2, len(utxos))
         node.lockunspent(False, [{"txid": utxos[1]["txid"], "vout": utxos[1]["vout"]}])
 
-        self.log.info("Send tx1 transaction with 5 sat/vB fee rate")
+        self.log.info("Send tx1 transaction with 5 token/vB fee rate")
         tx1_txid = node.sendtoaddress(address=node.getnewaddress(), amount=Decimal("50.0"), fee_rate=5, subtractfeefromamount=True)
         tx1_info = get_tx_details(node, tx1_txid)
 
-        self.log.info(f"Test fee rate histogram when mempool contains 1 transaction (tx1: {tx1_info['feerate']} sat/vB)")
+        self.log.info(f"Test fee rate histogram when mempool contains 1 transaction (tx1: {tx1_info['feerate']} token/vB)")
         info = node.getmempoolinfo([1, 3, 5, 10])
         (non_empty_groups, empty_groups, total_fees) = self.histogram_stats(info['fee_histogram'])
         assert_equal(1, non_empty_groups)
@@ -103,14 +103,14 @@ class MempoolFeeHistogramTest(BitcoinTestFramework):
         assert_equal(0, info['fee_histogram']['10']['fees'])
         assert_equal(10, info['fee_histogram']['10']['from_feerate'])
 
-        self.log.info("Send tx2 transaction with 14 sat/vB fee rate (spends tx1 UTXO)")
+        self.log.info("Send tx2 transaction with 14 token/vB fee rate (spends tx1 UTXO)")
         tx2_txid = node.sendtoaddress(address=node.getnewaddress(), amount=Decimal("25.0"), fee_rate=14, subtractfeefromamount=True)
         tx2_info = get_tx_details(node, tx2_txid)
 
-        self.log.info(f"Test fee rate histogram when mempool contains 2 transactions (tx1: {tx1_info['feerate']} sat/vB, tx2: {tx2_info['feerate']} sat/vB)")
+        self.log.info(f"Test fee rate histogram when mempool contains 2 transactions (tx1: {tx1_info['feerate']} token/vB, tx2: {tx2_info['feerate']} token/vB)")
         info = node.getmempoolinfo([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
 
-        # Verify that both tx1 and tx2 are reported in 8 sat/vB fee rate group
+        # Verify that both tx1 and tx2 are reported in 8 token/vB fee rate group
         (non_empty_groups, empty_groups, total_fees) = self.histogram_stats(info['fee_histogram'])
         tx1p2_feerate = get_actual_fee_rate(tx1_info['fee'] + tx2_info['fee'], tx1_info['vsize'] + tx2_info['vsize'])
         assert_equal(1, non_empty_groups)
@@ -121,14 +121,14 @@ class MempoolFeeHistogramTest(BitcoinTestFramework):
         # Unlock the second UTXO which we locked
         node.lockunspent(True, [{"txid": utxos[1]["txid"], "vout": utxos[1]["vout"]}])
 
-        self.log.info("Send tx3 transaction with 6 sat/vB fee rate (spends all available UTXOs)")
+        self.log.info("Send tx3 transaction with 6 token/vB fee rate (spends all available UTXOs)")
         tx3_txid = node.sendtoaddress(address=node.getnewaddress(), amount=Decimal("99.9"), fee_rate=6, subtractfeefromamount=True)
         tx3_info = get_tx_details(node, tx3_txid)
 
-        self.log.info(f"Test fee rate histogram when mempool contains 3 transactions (tx1: {tx1_info['feerate']} sat/vB, tx2: {tx2_info['feerate']} sat/vB, tx3: {tx3_info['feerate']} sat/vB)")
+        self.log.info(f"Test fee rate histogram when mempool contains 3 transactions (tx1: {tx1_info['feerate']} token/vB, tx2: {tx2_info['feerate']} token/vB, tx3: {tx3_info['feerate']} token/vB)")
         info = node.getmempoolinfo([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
 
-        # Verify that each of 6, 8 and 9 sat/vB fee rate groups contain one transaction
+        # Verify that each of 6, 8 and 9 token/vB fee rate groups contain one transaction
         # tx1 should be grouped with tx2 + tx3 (descendants)
         # tx2 should be grouped with tx1 (ancestors only)
         # tx3 should be alone
@@ -162,7 +162,7 @@ class MempoolFeeHistogramTest(BitcoinTestFramework):
         self.log.info("Test fee rate histogram with default groups")
         info = node.getmempoolinfo(with_fee_histogram=True)
 
-        # Verify that the 6 sat/vB fee rate group has one transaction, and the 8-9 sat/vB fee rate group has two
+        # Verify that the 6 token/vB fee rate group has one transaction, and the 8-9 token/vB fee rate group has two
         for collapse_n in (9, 11, 13, 15):
             for field in ('count', 'sizes', 'fees'):
                 expected_frg[str(collapse_n - 1)][field] += expected_frg[str(collapse_n)][field]

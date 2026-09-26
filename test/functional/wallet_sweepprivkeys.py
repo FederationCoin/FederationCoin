@@ -7,7 +7,7 @@
 from test_framework.key import ECKey
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.descriptors import descsum_create
-from test_framework.util import assert_equal, assert_fee_amount
+from test_framework.util import assert_equal, assert_fee_amount, assert_raises_rpc_error
 from test_framework.wallet_util import bytes_to_wif
 
 class SweepPrivKeysTest(BitcoinTestFramework):
@@ -35,8 +35,8 @@ class SweepPrivKeysTest(BitcoinTestFramework):
         miner = self.nodes[1]
 
         keys = (
-            ('mkckmmfVv89sW1HUjyRuydGhwFmSaYtRvG', '92YkaycAxLPUqbbV78V9nNngKLnyVd9T8uZuZAzQnc26dJSP4fm'),
-            ('mw8s1FS2Vr7GwQF8bnDVUQHQZq5qWqz5kq', '93VijJgAYnVUGXAfxYhbMHVGVwQUEXK1YnPvcCod3x1RLbzUhXe'),
+            ('fKD722ttZEjrR546MG6pDcv7sBeMDdUCbp', '8VSqmGRfKXZrgUJCbrZAXFCHfWwV6MfSYgSBemz4t7utjT4Emne'),
+            ('fVjDFWfR8xhFrU1kD4tPiPvpVkxkAGBhdb', '8WPoubVeuyfr7PsPTGmc69tsr7YyqFpzxZGChooH9TuDShKZsnQ'),
         )
 
         # This test is not meant to test fee estimation and we'd like
@@ -66,15 +66,14 @@ class SweepPrivKeysTest(BitcoinTestFramework):
         assert_equal(node.listtransactions()[-1]['label'], 'test 2')
         self.check_balance(5, txid)
 
-        # Test sweeping segwit address types (P2WPKH, P2SH-P2WPKH, P2TR)
-        self.log.info("Test sweeping P2WPKH, P2SH-P2WPKH, and P2TR outputs")
+        # Taproot addresses are not valid on this chain.
+        self.log.info("Test sweeping P2WPKH and P2SH-P2WPKH outputs")
         eckey = ECKey()
         eckey.generate(compressed=True)
         wif = bytes_to_wif(eckey.get_bytes(), compressed=True)
         for desc_fmt, addr_type in (
             ("wpkh(%s)", "P2WPKH"),
             ("sh(wpkh(%s))", "P2SH-P2WPKH"),
-            ("tr(%s)", "P2TR"),
         ):
             desc = descsum_create(desc_fmt % wif)
             addr = node.deriveaddresses(desc)[0]
@@ -85,6 +84,9 @@ class SweepPrivKeysTest(BitcoinTestFramework):
             txid = node.sweepprivkeys({'privkeys': (wif,), 'label': addr_type})
             assert_equal(node.listtransactions()[-1]['label'], addr_type)
             self.check_balance(2, txid)
+
+        tr_addr = node.deriveaddresses(descsum_create(f"tr({wif})"))[0]
+        assert_raises_rpc_error(-5, "Invalid Bitcoin address", node.sendtoaddress, tr_addr, 2)
 
 if __name__ == '__main__':
     SweepPrivKeysTest(__file__).main()

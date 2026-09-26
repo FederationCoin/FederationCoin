@@ -26,8 +26,7 @@ Testnet DNS seed **name** (compiled `vSeeds`):
 `seed.testnet.federationcoin.org`. Core looks that up for bootstrap
 IPs; it also queries `x10000009.seed.testnet.federationcoin.org`.
 Today both names alias to the P2P NLB in front of two always-on
-`federationcoind` nodes. That is not `bitcoin-seeder`
-([docs/seeds.md](../docs/seeds.md) in the workspace dump).
+`federationcoind` nodes. That is not `bitcoin-seeder`.
 `addnode seed.testnet.federationcoin.org:35333` is backup. Dummy
 MAIN has no seeds.
 

@@ -2368,7 +2368,38 @@ std::optional<PSBTError> CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bo
         }
     }
 
-    const PrecomputedTransactionData txdata = PrecomputePSBTData(psbtx);
+    // Unified sighash commits to every spent output. A co-signer's parent
+    // transaction is often absent from this wallet, and writing that output
+    // into the PSBT would claim the updater knows an input it does not own.
+    // The message still has to be built from it, or the signature made here
+    // stops verifying once the co-signer adds the output.
+    std::vector<CTxOut> spent_outputs(psbtx.tx->vin.size());
+    std::vector<unsigned char> have_output(psbtx.tx->vin.size(), 0);
+    std::map<COutPoint, Coin> chain_coins;
+    for (unsigned int i = 0; i < psbtx.tx->vin.size(); ++i) {
+        if (psbtx.GetInputUTXO(spent_outputs[i], i)) {
+            have_output[i] = 1;
+        } else if (HaveChain()) {
+            chain_coins.emplace(psbtx.tx->vin[i].prevout, Coin{});
+        }
+    }
+    if (!chain_coins.empty()) {
+        chain().findCoins(chain_coins);
+        for (unsigned int i = 0; i < psbtx.tx->vin.size(); ++i) {
+            if (have_output[i]) continue;
+            const auto found{chain_coins.find(psbtx.tx->vin[i].prevout)};
+            if (found == chain_coins.end() || found->second.IsSpent()) continue;
+            spent_outputs[i] = found->second.out;
+            have_output[i] = 1;
+        }
+    }
+    const bool have_all_spent_outputs{std::find(have_output.begin(), have_output.end(), 0) == have_output.end()};
+    PrecomputedTransactionData txdata;
+    if (have_all_spent_outputs) {
+        txdata.Init(*psbtx.tx, std::move(spent_outputs), /*force=*/true);
+    } else {
+        txdata.Init(*psbtx.tx, {}, /*force=*/true);
+    }
 
     // Fill in information from ScriptPubKeyMans
     for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
@@ -3458,7 +3489,7 @@ bool CWallet::AttachChain(const std::shared_ptr<CWallet>& walletInstance, interf
             // Wallet is assumed to be from another chain, if genesis block in the active
             // chain differs from the genesis block known to the wallet.
             if (chain.getBlockHash(0) != locator.vHave.back()) {
-                error = Untranslated("Wallet files should not be reused across chains. Restart bitcoind with -walletcrosschain to override.");
+                error = Untranslated("Wallet files should not be reused across chains. Restart federationcoind with -walletcrosschain to override.");
                 return false;
             }
         }

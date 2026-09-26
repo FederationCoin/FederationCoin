@@ -23,12 +23,10 @@ from test_framework.script import (
     CScriptOp,
 )
 from test_framework.script_util import (
-    PAY_TO_ANCHOR,
     key_to_p2pk_script,
     key_to_p2pkh_script,
     key_to_p2wpkh_script,
     keys_to_multisig_script,
-    output_key_to_p2tr_script,
     script_to_p2sh_script,
     script_to_p2wsh_script,
 )
@@ -102,8 +100,6 @@ class UtxoToSqliteTest(BitcoinTestFramework):
                 script_to_p2sh_script(key_to_p2pkh_script(pubkey)), # 23 bytes
                 key_to_p2wpkh_script(pubkey),                       # 22 bytes
                 script_to_p2wsh_script(key_to_p2pkh_script(pubkey)),# 34 bytes
-                output_key_to_p2tr_script(pubkey[1:]),              # 34 bytes
-                PAY_TO_ANCHOR,                                      # 4 bytes
             )
 
             # create outputs and mine them in a block

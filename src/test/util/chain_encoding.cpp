@@ -21,8 +21,11 @@
 static bool IsKeyTokenChar(unsigned char c)
 {
     // Base58 plus '0' (Bech32 data can contain 0; Base58 cannot).
+    // Bytes above 127 are not in that alphabet. string_view::find takes char,
+    // and converting an unsigned value above 127 changes the sign.
+    if (c >= 128) return false;
     static constexpr std::string_view alphabet{"0123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"};
-    return alphabet.find(c) != std::string_view::npos;
+    return alphabet.find(static_cast<char>(c)) != std::string_view::npos;
 }
 
 static std::string RecodeExtKey(const std::string& encoded)

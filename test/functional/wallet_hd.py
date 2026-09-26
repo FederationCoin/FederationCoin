@@ -55,8 +55,8 @@ class WalletHDTest(BitcoinTestFramework):
             #assert_raises_rpc_error(-4, "Wallet is not a HD wallet.", self.nodes[0].dumpmasterprivkey)
 
         # Import a non-HD private key in the HD wallet
-        non_hd_add = 'bcrt1qmevj8zfx0wdvp05cqwkmr6mxkfx60yezwjksmt'
-        non_hd_key = 'cS9umN9w6cDMuRVYdbkfE4c7YUFLJRoXMfhQ569uY4odiQbVN8Rt'
+        non_hd_add = 'gfcnrt1qmevj8zfx0wdvp05cqwkmr6mxkfx60yez8tgvhn'
+        non_hd_key = 'a4spcnPYJ9ZAK9HFnPSNVH6KZX2twjTtkbjK7pcPgQkFD7U6w8me'
         self.nodes[1].importprivkey(non_hd_key)
 
         # This should be enough to keep the master key and the non-HD key

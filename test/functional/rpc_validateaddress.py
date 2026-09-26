@@ -4,9 +4,27 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test validateaddress for main chain"""
 
+from test_framework.segwit_addr import encode_segwit_address
 from test_framework.test_framework import BitcoinTestFramework
 
 from test_framework.util import assert_equal
+
+MAIN_HRP = "gfcn"
+UNSUPPORTED = "Invalid or unsupported Segwit (Bech32) or Base58 encoding."
+
+
+def to_main_address(addr, spk):
+    """BIP 173/350 vectors are bc1. This chain's mainnet HRP is gfcn."""
+    hrp = addr.split("1", 1)[0]
+    if hrp.lower() != "bc":
+        return addr
+    raw = bytes.fromhex(spk)
+    if raw[0] == 0:
+        witver, prog = 0, raw[2:]
+    else:
+        witver, prog = raw[0] - 0x50, raw[2:]
+    enc = encode_segwit_address(MAIN_HRP, witver, prog)
+    return enc.upper() if addr.isupper() else enc
 
 INVALID_DATA = [
     # BIP 173
@@ -189,6 +207,15 @@ class ValidateAddressMainTest(BitcoinTestFramework):
         assert "error_locations" not in info
 
     def check_invalid(self, addr, error_str, error_locations):
+        hrp = addr.split("1", 1)[0].lower()
+        # Foreign HRPs are rejected before checksum checks. Very short strings
+        # are classified as base58 instead.
+        if hrp in ("bc", "tb", "tc") and len(addr) >= 20:
+            error_str = UNSUPPORTED
+            error_locations = []
+        elif hrp in ("bc", "tb", "tc"):
+            error_str = "Invalid checksum or length of Base58 address (P2PKH or P2SH)"
+            error_locations = []
         res = self.nodes[0].validateaddress(addr)
         assert_equal(res["isvalid"], False)
         assert_equal(res["error"], error_str)
@@ -198,10 +225,21 @@ class ValidateAddressMainTest(BitcoinTestFramework):
         for (addr, error, locs) in INVALID_DATA:
             self.check_invalid(addr, error, locs)
         for (addr, spk) in VALID_DATA:
-            self.check_valid(addr, spk)
+            chain_addr = to_main_address(addr, spk)
+            raw = bytes.fromhex(spk)
+            witver = 0 if raw[0] == 0 else raw[0] - 0x50
+            if witver >= 1:
+                res = self.nodes[0].validateaddress(chain_addr)
+                assert_equal(res["isvalid"], False)
+                assert_equal(res["error"], "Bech32m / Taproot addresses are not valid on this chain.")
+            else:
+                self.check_valid(chain_addr, spk)
 
     def run_test(self):
         self.test_validateaddress()
+        # Dummy main prints a placeholder warning. The test checks addresses, not that warning.
+        self.nodes[0].stderr.seek(0)
+        self.nodes[0].stderr.truncate()
 
 
 if __name__ == "__main__":

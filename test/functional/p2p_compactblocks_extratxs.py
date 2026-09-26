@@ -165,12 +165,12 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
             base_size = len(tx_info['tx'].serialize())
 
             if base_size < target_size:
-                # Each padded output approximately 200 bytes
-                bytes_per_output = 200
+                # Output scripts are capped at 34 bytes. A 30-byte push is about 42 bytes on the wire.
+                bytes_per_output = 42
                 num_outputs = (target_size - base_size) // bytes_per_output
 
                 for _ in range(num_outputs):
-                    padding_data = b'x' * 190
+                    padding_data = b'x' * 30
                     script = CScript([padding_data, OP_DROP, OP_TRUE])
                     tx_info['tx'].vout.append(CTxOut(100, script))
                     tx_info['tx'].vout[0].nValue -= 100
@@ -364,42 +364,41 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
 
         # First, test with 1MB limit - should fail
         self.log.info(f"Step 1: Testing with 1MB limit for {buffersize} large transactions")
-        self.restart_node_with_limit(memory_mb=1, count=buffersize)
+        self.restart_node_with_limit(memory_mb=0.05, count=buffersize)
 
-        # Create 60 large transactions (~20KB each = ~1.2MB total)
-        # This exceeds the 1MB limit
-        self.log.info(f"Creating {buffersize} large transactions (~20KB each, ~1.2MB total)")
-        rejected_txs = self.populate_extra_pool(buffersize, target_size=20000)
+        # ~2KB each stays inside the reduced-data block weight cap, and 60 of them exceed 0.05MB.
+        self.log.info(f"Creating {buffersize} transactions (~2KB each)")
+        rejected_txs = self.populate_extra_pool(buffersize, target_size=2000)
 
         indices = list(range(buffersize))
         result_small = self.send_compact_block(rejected_txs, indices)
 
         # Should have evictions - can't fit 1.2MB in 1MB limit
-        assert len(result_small["missing_indices"]) > 0, "1MB limit should cause evictions for 1.2MB of transactions"
+        assert len(result_small["missing_indices"]) > 0, "0.05MB limit should cause evictions"
         evicted_count = len(result_small["missing_indices"])
         self.log.info(f"✓ 1MB limit caused {evicted_count} evictions (can't fit ~1.2MB of transactions)")
 
         # Now test with larger size limit to show it succeeds
-        self.log.info(f"Step 2: Testing with 2MB limit for same {buffersize} large transactions")
-        self.restart_node_with_limit(memory_mb=2, count=buffersize)
+        self.log.info(f"Step 2: Testing with 0.2MB limit for same {buffersize} transactions")
+        self.restart_node_with_limit(memory_mb=0.2, count=buffersize)
 
-        rejected_txs = self.populate_extra_pool(buffersize, target_size=20000)
+        rejected_txs = self.populate_extra_pool(buffersize, target_size=2000)
 
         result_large = self.send_compact_block(rejected_txs, indices)
 
         # Should have NO evictions with 2MB limit
-        assert result_large["missing_indices"] == [], "2MB limit should store all transactions"
+        assert result_large["missing_indices"] == [], "0.2MB limit should store all transactions"
         self.log.info(f"✓ 2MB limit successfully stores all {buffersize} large transactions (~1.2MB)")
 
     def test_extratxnsize_boundary(self):
         """Test extra transaction pool at exact size limit boundary."""
         self.log.info("Testing extra transaction pool exact size limit boundary...")
 
-        limit_mb = 1
+        limit_mb = 0.05
         self.restart_node_with_limit(memory_mb=limit_mb)
 
-        test_count = 100
-        rejected_txs = self.populate_extra_pool(test_count, target_size=20000)
+        test_count = 40
+        rejected_txs = self.populate_extra_pool(test_count, target_size=2000)
 
         indices = list(range(test_count))
         result = self.send_compact_block(rejected_txs, indices)
@@ -410,7 +409,7 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
 
         # Now restart and add exactly the number that fit
         self.restart_node_with_limit(memory_mb=limit_mb)
-        rejected_txs = self.populate_extra_pool(num_fit, target_size=20000)
+        rejected_txs = self.populate_extra_pool(num_fit, target_size=2000)
 
         # Verify all fit
         indices = list(range(num_fit))
@@ -419,7 +418,7 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
 
         # Add one more transaction - should evict exactly one
         self.log.info("Adding one more transaction at the boundary...")
-        self.populate_extra_pool(1, target_size=20000)
+        self.populate_extra_pool(1, target_size=2000)
 
         # Check original transactions again
         result2 = self.send_compact_block(rejected_txs, indices)
@@ -467,12 +466,11 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
         """Test that a transaction larger than the entire size limit is rejected."""
         self.log.info("Testing large transaction that exceeds size limit...")
 
-        limit_mb = 0.5 # 0.5 MB/500KB
+        limit_mb = 0.01
         self.restart_node_with_limit(memory_mb=limit_mb)
 
-        # Create a 600KB transaction (larger than 500KB limit)
-        # This should be rejected from mempool AND not stored in extra pool
-        rejected_txs = self.populate_extra_pool(1, target_size=600000) # 600 KB
+        # Larger than the pool limit, still small enough for one reduced-data block.
+        rejected_txs = self.populate_extra_pool(1, target_size=20000)
 
         # try block reconstruction
         result = self.send_compact_block(rejected_txs, [0])

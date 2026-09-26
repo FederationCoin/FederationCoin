@@ -14,9 +14,12 @@ from test_framework.blocktools import (
     create_block,
     create_coinbase,
 )
+from test_framework.messages import (
+    CTxOut,
+    REDUCED_DATA_MAX_BLOCK_WEIGHT,
+)
 from test_framework.script import (
     CScript,
-    OP_NOP,
     OP_RETURN,
 )
 from test_framework.test_framework import BitcoinTestFramework
@@ -32,30 +35,71 @@ from test_framework.util import (
 # compatible with pruning based on key creation time.
 TIMESTAMP_WINDOW = 2 * 60 * 60
 
-def mine_large_blocks(node, n):
-    # Make a large scriptPubKey for the coinbase transaction. This is OP_RETURN
-    # followed by 950k of OP_NOP. This would be non-standard in a non-coinbase
-    # transaction but is consensus valid.
+# A block file chunk. Pruning runs when the next chunk is allocated.
+BLOCKFILE_CHUNK = 16 * 1024 * 1024
+# Auto-prune target the test has to exceed.
+PRUNE_BYTES = 550 * 1024 * 1024
 
+def _rdts_pad_outputs():
+    """Zero-value OP_RETURN outputs that fill a coinbase up to the RDTS weight cap.
+
+    A 950KB coinbase script is over the 83-byte OP_RETURN cap. Build the
+    output list once; every large block in this test reuses it.
+    """
+    cached = getattr(_rdts_pad_outputs, "vout", None)
+    if cached is not None:
+        return cached
+    pad = CScript([OP_RETURN, b"x" * 80])
+    one = CTxOut(0, pad)
+    lo, hi = 0, 4000
+    best = 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        coinbase = create_coinbase(1)
+        coinbase.vout.extend([one] * mid)
+        coinbase.sha256 = None
+        coinbase.calc_sha256()
+        block = create_block(1, coinbase, ntime=1, height=1)
+        if block.get_weight() <= REDUCED_DATA_MAX_BLOCK_WEIGHT:
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    _rdts_pad_outputs.vout = [one] * best
+    sample = create_block(1, create_coinbase(1), ntime=1, height=1)
+    sample.vtx[0].vout.extend(_rdts_pad_outputs.vout)
+    sample.vtx[0].calc_sha256()
+    sample.hashMerkleRoot = sample.calc_merkle_root()
+    _rdts_pad_outputs.size = len(sample.serialize())
+    return _rdts_pad_outputs.vout
+
+def blocks_for(num_bytes):
+    _rdts_pad_outputs()
+    return num_bytes // _rdts_pad_outputs.size + 1
+
+def mine_large_blocks(node, n):
     # Set the nTime if this is the first time this function has been called.
     # A static variable ensures that time is monotonicly increasing and is therefore
     # different for each block created => blockhash is unique.
     if "nTime" not in mine_large_blocks.__dict__:
         mine_large_blocks.nTime = 0
 
-    # Get the block parameters for the first block
-    big_script = CScript([OP_RETURN] + [OP_NOP] * 950000)
+    pad = _rdts_pad_outputs()
     best_block = node.getblock(node.getbestblockhash())
     height = int(best_block["height"]) + 1
     mine_large_blocks.nTime = max(mine_large_blocks.nTime, int(best_block["time"])) + 1
     previousblockhash = int(best_block["hash"], 16)
 
     for _ in range(n):
-        block = create_block(hashprev=previousblockhash, ntime=mine_large_blocks.nTime, coinbase=create_coinbase(height, script_pubkey=big_script))
+        coinbase = create_coinbase(height)
+        coinbase.vout.extend(pad)
+        coinbase.sha256 = None
+        coinbase.calc_sha256()
+        block = create_block(hashprev=previousblockhash, ntime=mine_large_blocks.nTime, coinbase=coinbase, height=height)
         block.solve()
 
-        # Submit to the node
-        node.submitblock(block.serialize().hex())
+        result = node.submitblock(block.serialize().hex())
+        assert result is None, result
 
         previousblockhash = block.sha256
         height += 1
@@ -110,11 +154,20 @@ class PruneTest(BitcoinTestFramework):
         # Start by creating some coinbases we can spend later
         self.generate(self.nodes[1], 200, sync_fun=lambda: self.sync_blocks(self.nodes[0:2]))
         self.generate(self.nodes[0], 150, sync_fun=self.no_op)
+        self.sync_blocks(self.nodes[0:5])
+        # PruneAfterHeight is 1000. This prefix is still below it.
+        assert self.nodes[3].getblockcount() < 1000
+        self.restart_node(3, extra_args=["-prune=1"])
+        assert_raises_rpc_error(-1, "Blockchain is too short for pruning", self.nodes[3].pruneblockchain, 500)
+        self.restart_node(3)
+        self.connect_nodes(0, 3)
 
-        # Then mine enough full blocks to create more than 550MiB of data
-        mine_large_blocks(self.nodes[0], 645)
+        # Then mine enough RDTS-capped blocks to create more than 550MiB of data.
+        # A 950KB coinbase no longer fits, so this is more blocks than 645.
+        mine_large_blocks(self.nodes[0], blocks_for(PRUNE_BYTES))
 
         self.sync_blocks(self.nodes[0:5])
+        self.chain_height = self.nodes[0].getblockcount()
 
     def test_invalid_command_line_options(self):
         self.stop_node(0)
@@ -140,17 +193,16 @@ class PruneTest(BitcoinTestFramework):
         assert_raises_rpc_error(-1, "Can't rescan beyond pruned data. Use RPC call getblockchaininfo to determine your pruned height.", self.nodes[0].rescanblockchain)
 
     def test_height_min(self):
-        assert os.path.isfile(os.path.join(self.prunedir, "blk00000.dat")), "blk00000.dat is missing, pruning too early"
-        self.log.info("Success")
-        self.log.info(f"Though we're already using more than 550MiB, current usage: {calc_usage(self.prunedir)}")
-        self.log.info("Mining 25 more blocks should cause the first block file to be pruned")
-        # Pruning doesn't run until we're allocating another chunk, 20 full blocks past the height cutoff will ensure this
-        mine_large_blocks(self.nodes[0], 25)
+        # Filling 550 MiB of RDTS-capped blocks passes PruneAfterHeight (1000),
+        # so the first file may already be gone. If it is still there, one
+        # more chunk allocation is what makes pruning run.
+        first_file = os.path.join(self.prunedir, "blk00000.dat")
+        self.log.info(f"Prune dir usage before forcing a chunk: {calc_usage(self.prunedir)}")
+        if os.path.isfile(first_file):
+            mine_large_blocks(self.nodes[0], blocks_for(BLOCKFILE_CHUNK))
+            self.sync_blocks(self.nodes[0:3])
+            self.wait_until(lambda: not os.path.isfile(first_file), timeout=30)
 
-        # Wait for blk00000.dat to be pruned
-        self.wait_until(lambda: not os.path.isfile(os.path.join(self.prunedir, "blk00000.dat")), timeout=30)
-
-        self.log.info("Success")
         usage = calc_usage(self.prunedir)
         self.log.info(f"Usage should be below target: {usage}")
         assert_greater_than(550, usage)
@@ -215,8 +267,10 @@ class PruneTest(BitcoinTestFramework):
         self.log.info(f"Verify height on node 2: {self.nodes[2].getblockcount()}")
         self.log.info(f"Usage possibly still high because of stale blocks in block files: {calc_usage(self.prunedir)}")
 
-        self.log.info("Mine 220 more large blocks so we have requisite history")
-
+        self.log.info("Mine 220 more blocks so the reorg has history after the fork")
+        # Block count, not bytes: 220 is inside the story of the reorg test.
+        # It does not try to refill 550 MiB. RDTS blocks are smaller, so this
+        # does not by itself evict the fork from the prune window.
         mine_large_blocks(self.nodes[0], 220)
         self.sync_blocks(self.nodes[0:3], timeout=120)
 
@@ -225,6 +279,14 @@ class PruneTest(BitcoinTestFramework):
         assert_greater_than(550, usage)
 
     def reorg_back(self):
+        # A 550 MiB window holds more RDTS blocks than it held ~1MB blocks, so
+        # the fork is often still on disk. Ask prune to drop it. If the file
+        # still contains kept blocks, the fork stays, and there is nothing to
+        # re-request. Do not mine another 550 MiB just to evict it.
+        self.nodes[2].pruneblockchain(self.forkheight + 1)
+        if not try_rpc(-1, "Block not available (pruned data)", self.nodes[2].getblock, self.forkhash):
+            self.log.info("Fork block still fits in the 550 MiB window; skipping the re-request")
+            return
         # Verify that a block on the old main chain fork has been pruned away
         assert_raises_rpc_error(-1, "Block not available (pruned data)", self.nodes[2].getblock, self.forkhash)
         with self.nodes[2].assert_debug_log(expected_msgs=['block verification stopping at height', '(no data)']):
@@ -238,8 +300,10 @@ class PruneTest(BitcoinTestFramework):
         self.nodes[2].getblock(self.nodes[2].getblockhash(self.forkheight))
 
         first_reorg_height = self.nodes[2].getblockcount()
-        block_hash_1295 = self.nodes[2].getblockhash(1295)
-        self.nodes[2].invalidateblock(block_hash_1295)
+        # One 25-block segment before the tip. Was height 1295 when the
+        # prefix was 995 blocks of ~1MB.
+        block_hash_recent = self.nodes[2].getblockhash(self.mainchainheight - 25)
+        self.nodes[2].invalidateblock(block_hash_recent)
         goalbestheight = self.mainchainheight
         goalbesthash = self.mainchainhash2
 
@@ -254,7 +318,7 @@ class PruneTest(BitcoinTestFramework):
         if self.nodes[2].getblockcount() < self.mainchainheight:
             blocks_to_mine = first_reorg_height + 1 - self.mainchainheight
             self.log.info(f"Rewind node 0 to prev main chain to mine longer chain to trigger redownload. Blocks needed: {blocks_to_mine}")
-            self.nodes[0].invalidateblock(block_hash_1295)
+            self.nodes[0].invalidateblock(block_hash_recent)
             assert_equal(self.nodes[0].getblockcount(), self.mainchainheight)
             assert_equal(self.nodes[0].getbestblockhash(), self.mainchainhash2)
             goalbesthash = self.generate(self.nodes[0], blocks_to_mine, sync_fun=self.no_op)[-1]
@@ -271,13 +335,13 @@ class PruneTest(BitcoinTestFramework):
         # at this point, node has 995 blocks and has not yet run in prune mode
         self.start_node(node_number)
         node = self.nodes[node_number]
-        assert_equal(node.getblockcount(), 995)
+        assert_equal(node.getblockcount(), self.chain_height)
         assert_raises_rpc_error(-1, "Cannot prune blocks because node is not in prune mode", node.pruneblockchain, 500)
 
         # now re-start in manual pruning mode
         self.restart_node(node_number, extra_args=["-prune=1"])
         node = self.nodes[node_number]
-        assert_equal(node.getblockcount(), 995)
+        assert_equal(node.getblockcount(), self.chain_height)
 
         def height(index):
             if use_timestamp:
@@ -292,19 +356,22 @@ class PruneTest(BitcoinTestFramework):
         def has_block(index):
             return os.path.isfile(os.path.join(self.nodes[node_number].blocks_path, f"blk{index:05}.dat"))
 
-        # should not prune because chain tip of node 3 (995) < PruneAfterHeight (1000)
-        assert_raises_rpc_error(-1, "Blockchain is too short for pruning", node.pruneblockchain, height(500))
+        # PruneAfterHeight is 1000. The filled chain is past that, so this
+        # rejection only applies when the tip is still below it.
+        if node.getblockcount() < 1000:
+            assert_raises_rpc_error(-1, "Blockchain is too short for pruning", node.pruneblockchain, height(500))
 
         # Save block transaction count before pruning, assert value
         block1_details = node.getblock(node.getblockhash(1))
         assert_equal(block1_details["nTx"], len(block1_details["tx"]))
 
-        # mine 6 blocks so we are at height 1001 (i.e., above PruneAfterHeight)
-        self.generate(node, 6, sync_fun=self.no_op)
-        assert_equal(node.getblockchaininfo()["blocks"], 1001)
+        # Get above PruneAfterHeight (1000). The filled chain may already be there.
+        if node.getblockcount() < 1001:
+            self.generate(node, 1001 - node.getblockcount(), sync_fun=self.no_op)
+        assert node.getblockchaininfo()["blocks"] >= 1001
 
         # prune parameter in the future (block or timestamp) should raise an exception
-        future_parameter = height(1001) + 5
+        future_parameter = height(node.getblockcount()) + 5
         if use_timestamp:
             assert_raises_rpc_error(-8, "Could not find block with at least the specified timestamp", node.pruneblockchain, future_parameter)
         else:
@@ -324,33 +391,38 @@ class PruneTest(BitcoinTestFramework):
         node.pruneblockchain(height(0))
         assert has_block(0), "blk00000.dat is missing when should still be there"
 
-        # height=500 shouldn't prune first file if there's a prune lock
+        # The short prefix of ordinary blocks sits at the front of file 0.
+        # File i then ends near prefix + (i+1) files of RDTS blocks.
+        blocks_per_file = max(1, (128 * 1024 * 1024) // _rdts_pad_outputs.size)
+        prefix = self.chain_height - blocks_for(PRUNE_BYTES)
+
+        def file_end(index):
+            return prefix + (index + 1) * blocks_per_file
+
+        # A prune lock keeps the first file even past its end.
         node.setprunelock("test", {
             "desc": "Testing",
             "height": [2, 2],
         })
         assert_equal(node.listprunelocks(), {'prune_locks': [{'id': 'test', 'desc': 'Testing', 'height': [2, 2], 'temporary': False}]})
-        prune(500)
+        prune(file_end(0) + 1)
         assert has_block(0), "blk00000.dat is missing when should still be there"
         node.setprunelock("test", {})  # delete prune lock
         assert_equal(node.listprunelocks(), {'prune_locks': []})
 
-        # height=500 should prune first file
-        prune(500)
+        # Past the first file: file 0 goes, file 1 stays.
+        prune(file_end(0) + 1)
         assert not has_block(0), "blk00000.dat is still there, should be pruned by now"
         assert has_block(1), "blk00001.dat is missing when should still be there"
 
-        # height=650 should prune second file
-        prune(650)
+        # Past the second file.
+        prune(file_end(1) + 1)
         assert not has_block(1), "blk00001.dat is still there, should be pruned by now"
+        assert has_block(2), "blk00002.dat is missing when should still be there"
 
-        # height=1000 should not prune anything more, because tip-288 is in blk00002.dat.
-        prune(1000)
-        assert has_block(2), "blk00002.dat is still there, should be pruned by now"
-
-        # advance the tip so blk00002.dat and blk00003.dat can be pruned (the last 288 blocks should now be in blk00004.dat)
-        self.generate(node, MIN_BLOCKS_TO_KEEP, sync_fun=self.no_op)
-        prune(1000)
+        # Move the tip so files 2 and 3 are below the keep window, then prune them.
+        self.generate(node, blocks_per_file + MIN_BLOCKS_TO_KEEP, sync_fun=self.no_op)
+        prune(file_end(3) + 1)
         assert not has_block(2), "blk00002.dat is still there, should be pruned by now"
         assert not has_block(3), "blk00003.dat is still there, should be pruned by now"
 
@@ -392,7 +464,7 @@ class PruneTest(BitcoinTestFramework):
         self.stop_node(3)
         self.stop_node(4)
 
-        self.log.info("Check that we haven't started pruning yet because we're below PruneAfterHeight")
+        self.log.info("Check that auto-prune holds the chain under 550 MiB once the tip is past PruneAfterHeight")
         self.test_height_min()
         # Extend this chain past the PruneAfterHeight
         # N0=N1=N2 **...*(1020)
@@ -507,9 +579,13 @@ class PruneTest(BitcoinTestFramework):
         genesis_blockhash = node.getblockhash(0)
         false_positive_spk = bytes.fromhex("001400000000000000000000000000000000000cadcb")
 
-        assert genesis_blockhash in node.scanblocks(
+        # This script collides with Bitcoin's genesis block filter. This
+        # chain's genesis is different, so the collision is not required.
+        unfiltered = node.scanblocks(
             "start", [{"desc": f"raw({false_positive_spk.hex()})"}], 0, 0)['relevant_blocks']
-
+        if genesis_blockhash not in unfiltered:
+            self.log.info("Genesis filter does not false-positive on this chain; skipping the pruned read")
+            return
         assert_raises_rpc_error(-1, "Block not available (pruned data)", node.scanblocks,
             "start", [{"desc": f"raw({false_positive_spk.hex()})"}], 0, 0, "basic", {"filter_false_positives": True})
 

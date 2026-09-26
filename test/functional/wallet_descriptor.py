@@ -43,7 +43,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         wallet = self.nodes[0].get_wallet_rpc("concurrency")
         # First import a descriptor that uses hardened dervation so that topping up
         # Will require writing a ton to db
-        wallet.importdescriptors([{"desc":descsum_create("wpkh(tprv8ZgxMBicQKsPeuVhWwi6wuMQGfPKi9Li5GtX35jVNknACgqe3CY4g5xgkfDDJcmtF7o1QnxWDRYw4H5P26PXq7sbcUkEqeR4fg3Kxp2tigg/0h/0h/*h)"), "timestamp": "now", "active": True}])
+        wallet.importdescriptors([{"desc":descsum_create("wpkh(trBb8nVXuTDmeQ5gUkaxF86JudzSmMeXtL4acnAi3uryKFhaSCias1nLrWgfe7PWcgJWHS4hey7wsDCEnsNEz82cRkZKkKq3zu8Hrth1Ha7rKs2/0h/0h/*h)"), "timestamp": "now", "active": True}])
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as thread:
             topup = thread.submit(wallet.keypoolrefill, newsize=1000)
 
@@ -85,12 +85,12 @@ class WalletDescriptorTest(BitcoinTestFramework):
         self.log.info("Making a descriptor wallet")
         self.nodes[0].createwallet(wallet_name="desc1", descriptors=True)
 
-        # A descriptor wallet should have 100 addresses * 4 types = 400 keys
+        # A descriptor wallet should have 100 addresses * 3 types = 300 keys
         self.log.info("Checking wallet info")
         wallet_info = self.nodes[0].getwalletinfo()
         assert_equal(wallet_info['format'], 'sqlite')
-        assert_equal(wallet_info['keypoolsize'], 400)
-        assert_equal(wallet_info['keypoolsize_hd_internal'], 400)
+        assert_equal(wallet_info['keypoolsize'], 300)
+        assert_equal(wallet_info['keypoolsize_hd_internal'], 300)
         assert 'keypoololdest' not in wallet_info
 
         # Check that getnewaddress works
@@ -110,10 +110,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         assert addr_info['desc'].startswith('wpkh(')
         assert_equal(addr_info['hdkeypath'], 'm/84h/1h/0h/0/0')
 
-        addr = self.nodes[0].getnewaddress("", "bech32m")
-        addr_info = self.nodes[0].getaddressinfo(addr)
-        assert addr_info['desc'].startswith('tr(')
-        assert_equal(addr_info['hdkeypath'], 'm/86h/1h/0h/0/0')
+        assert_raises_rpc_error(-5, "Bech32m / Taproot addresses are not valid on this chain.", self.nodes[0].getnewaddress, "", "bech32m")
 
         # Check that getrawchangeaddress works
         addr = self.nodes[0].getrawchangeaddress("legacy")
@@ -131,10 +128,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         assert addr_info['desc'].startswith('wpkh(')
         assert_equal(addr_info['hdkeypath'], 'm/84h/1h/0h/1/0')
 
-        addr = self.nodes[0].getrawchangeaddress("bech32m")
-        addr_info = self.nodes[0].getaddressinfo(addr)
-        assert addr_info['desc'].startswith('tr(')
-        assert_equal(addr_info['hdkeypath'], 'm/86h/1h/0h/1/0')
+        assert_raises_rpc_error(-5, "Bech32m / Taproot addresses are not valid on this chain.", self.nodes[0].getrawchangeaddress, "bech32m")
 
         # Make a wallet to receive coins at
         self.nodes[0].createwallet(wallet_name="desc2", descriptors=True)
@@ -151,7 +145,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
 
         # Make sure things are disabled
         self.log.info("Test disabled RPCs")
-        assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importprivkey, "cVpF924EspNh8KjYsfhgY96mmxvT6DgdWiTYMtMjuM74hJaU5psW")
+        assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importprivkey, "a8Y9zSHr5MiVY3XG2TPPoMayo1i1jXLzueVTQcpE3h3gC1R2vHAd")
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importpubkey, send_wrpc.getaddressinfo(send_wrpc.getnewaddress())["pubkey"])
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importmulti, [])
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.addmultisigaddress, 1, [recv_wrpc.getnewaddress()])
@@ -191,7 +185,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         self.log.info("Test that unlock is needed when deriving only hardened keys in an encrypted wallet")
         with WalletUnlock(send_wrpc, "pass"):
             send_wrpc.importdescriptors([{
-                "desc": "wpkh(tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK/0h/*h)#y4dfsj7n",
+                "desc": "wpkh(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/0h/*h)#nsl80wxr",
                 "timestamp": "now",
                 "range": [0,10],
                 "active": True
@@ -226,11 +220,9 @@ class WalletDescriptorTest(BitcoinTestFramework):
         addr_types = [('legacy', False, 'pkh(', '44h/1h/0h', -13),
                       ('p2sh-segwit', False, 'sh(wpkh(', '49h/1h/0h', -14),
                       ('bech32', False, 'wpkh(', '84h/1h/0h', -13),
-                      ('bech32m', False, 'tr(', '86h/1h/0h', -13),
                       ('legacy', True, 'pkh(', '44h/1h/0h', -13),
                       ('p2sh-segwit', True, 'sh(wpkh(', '49h/1h/0h', -14),
-                      ('bech32', True, 'wpkh(', '84h/1h/0h', -13),
-                      ('bech32m', True, 'tr(', '86h/1h/0h', -13)]
+                      ('bech32', True, 'wpkh(', '84h/1h/0h', -13)]
 
         for addr_type, internal, desc_prefix, deriv_path, int_idx in addr_types:
             int_str = 'internal' if internal else 'external'

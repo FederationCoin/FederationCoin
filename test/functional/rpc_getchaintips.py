@@ -69,11 +69,11 @@ class GetChainTipsTest (BitcoinTestFramework):
         start_height = self.nodes[0].getblockcount()
         # Create invalid block (too high coinbase)
         block_time = n0.getblock(n0.getbestblockhash())['time'] + 1
-        invalid_block = create_block(tip, create_coinbase(start_height+1, nValue=100), block_time)
+        invalid_block = create_block(tip, create_coinbase(start_height+1, nValue=100), block_time, height=start_height+1)
         invalid_block.solve()
 
         block_time += 1
-        block2 = create_block(invalid_block.sha256, create_coinbase(2), block_time, version=4)
+        block2 = create_block(invalid_block.sha256, create_coinbase(start_height + 2), block_time, version=4, height=start_height + 2)
         block2.solve()
 
         self.log.info("Submit headers-only chain")

@@ -20,8 +20,9 @@ import sys
 import tempfile
 import time
 
-from .address import create_deterministic_address_bcrt1_p2tr_op_true
+from .address import script_to_p2wsh
 from .authproxy import JSONRPCException
+from .script import CScript, OP_TRUE
 from . import coverage
 from .p2p import NetworkThread
 from .test_node import TestNode
@@ -866,7 +867,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             # block in the cache does not age too much (have an old tip age).
             # This is needed so that we are out of IBD when the test starts,
             # see the tip age check in IsInitialBlockDownload().
-            gen_addresses = [k.address for k in TestNode.PRIV_KEYS][:3] + [create_deterministic_address_bcrt1_p2tr_op_true()[0]]
+            # The fourth address is MiniWallet's untagged P2WSH(OP_TRUE). Taproot
+            # is not active, so the premine cannot use a bech32m output.
+            gen_addresses = [k.address for k in TestNode.PRIV_KEYS][:3] + [script_to_p2wsh(CScript([OP_TRUE]))]
             assert_equal(len(gen_addresses), 4)
             for i in range(8):
                 self.generatetoaddress(
@@ -893,7 +896,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             self.log.debug("Copy cache directory {} to node {}".format(cache_node_dir, i))
             to_dir = get_datadir_path(self.options.tmpdir, i)
             shutil.copytree(cache_node_dir, to_dir)
-            initialize_datadir(self.options.tmpdir, i, self.chain, self.disable_autoconnect)  # Overwrite port/rpcport in bitcoin.conf
+            initialize_datadir(self.options.tmpdir, i, self.chain, self.disable_autoconnect)  # Overwrite port/rpcport in federationcoin.conf
 
     def _initialize_chain_clean(self):
         """Initialize empty blockchain for use by the test.

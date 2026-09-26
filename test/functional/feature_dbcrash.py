@@ -63,9 +63,9 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
         self.node1_args = ["-dbcrashratio=16", "-dbcache=8"] + self.base_args
         self.node2_args = ["-dbcrashratio=24", "-dbcache=16"] + self.base_args
 
-        # Node3 is a normal node with default args, except will mine full blocks
-        # and txs with "dust" outputs
-        self.node3_args = ["-blockmaxweight=4000000", "-dustrelayfee=0"]
+        # Node3 is a normal node with default args, except it mines up to the
+        # RDTS weight cap and allows dust outputs.
+        self.node3_args = ["-blockmaxweight=800000", "-dustrelayfee=0"]
         self.extra_args = [self.node0_args, self.node1_args, self.node2_args, self.node3_args]
 
     def setup_network(self):

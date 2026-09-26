@@ -16,7 +16,6 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.script import (
     CScript,
     OP_RETURN,
-    OP_TRUE,
 )
 
 class WalletPruningTest(BitcoinTestFramework):
@@ -42,13 +41,15 @@ class WalletPruningTest(BitcoinTestFramework):
         height = int(best_block["height"]) + 1
         self.nTime = max(self.nTime, int(best_block["time"])) + 1
         previousblockhash = int(best_block["hash"], 16)
-        big_script = CScript([OP_RETURN] + [OP_TRUE] * 950000)
+        # A 950KB coinbase is over the RDTS OP_RETURN cap (83 bytes). This test
+        # is unlisted (no Berkeley DB wallet). Keep the script inside that cap.
+        big_script = CScript([OP_RETURN, b"x" * 80])
         # Set mocktime to accept all future blocks
         for i in self.nodes:
             if i.running:
                 i.setmocktime(self.nTime + 600 * n)
         for _ in range(n):
-            block = create_block(hashprev=previousblockhash, ntime=self.nTime, coinbase=create_coinbase(height, script_pubkey=big_script))
+            block = create_block(hashprev=previousblockhash, ntime=self.nTime, coinbase=create_coinbase(height, script_pubkey=big_script), height=height)
             block.solve()
 
             # Submit to the node

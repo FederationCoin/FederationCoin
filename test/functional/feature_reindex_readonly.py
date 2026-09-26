@@ -19,11 +19,9 @@ class BlockstoreReindexTest(BitcoinTestFramework):
         self.extra_args = [["-fastprune"]]
 
     def reindex_readonly(self):
-        self.log.debug("Generate block big enough to start second block file")
-        fastprune_blockfile_size = 0x10000
-        opreturn = "6a"
-        nulldata = fastprune_blockfile_size * "ff"
-        self.generateblock(self.nodes[0], output=f"raw({opreturn}{nulldata})", transactions=[])
+        self.log.debug("Generate enough blocks to start a second block file")
+        # An OP_RETURN cannot fill a 64KiB fastprune file: output scripts are capped.
+        self.generate(self.nodes[0], 500)
         block_count = self.nodes[0].getblockcount()
         self.stop_node(0)
 

@@ -578,7 +578,7 @@ class ImportMultiTest(BitcoinTestFramework):
 
         # Test ranged descriptor fails if range is not specified
         xpriv = "trBb8nVXuTDmeQ5gUkaxF86JudzSmMeXtL4acnAi3uryKFhaSCias1nLrWgfe7PWcgJWHS4hey7wsDCEnsNEz82cRkZKkKq3zu8Hrth1Ha7rKs2"
-        addresses = ["2N7yv4p8G8yEaPddJxY41kPihnWvs39qCMf", "2MsHxyb2JS3pAySeNUsJ7mNnurtpeenDzLA"] # hdkeypath=m/0'/0'/0' and 1'
+        addresses = ["2NXKX3vRYr9hTD4mPyxPLEWzVR2BojfaFFf", "2NGdZxhKb9EH3nsnTWHdSFW4hVQ5bLHD5Hp"] # hdkeypath=m/0'/0'/0' and 1'
         addresses += ["gfcnrt1qrd3n235cj2czsfmsuvqqpr3lu6lg0ju7eppmyt", "gfcnrt1qfqeppuvj0ww98r6qghmdkj70tv8qpche7qklyl"] # wpkh subscripts corresponding to the above addresses
         desc = "sh(wpkh(" + xpriv + "/0'/0'/*'" + "))"
         self.log.info("Ranged descriptor import should fail without a specified range")
@@ -617,7 +617,7 @@ class ImportMultiTest(BitcoinTestFramework):
 
         # Test importing a descriptor containing a WIF private key
         wif_priv = "a6MvWW6EefVvcyUCfFRgf9eQtGArzTL2TLpbJgwD6YPYRJWwN1pD"
-        address = "2MuhcG52uHPknxDgmGPsV18jSHFBnnRgjPg"
+        address = "2NK3DFBLBzaDfmeprHpCoVG1DukSjXKC17R"
         desc = "sh(wpkh(" + wif_priv + "))"
         self.log.info("Should import a descriptor with a WIF private key as spendable")
         self.test_importmulti({"desc": descsum_create(desc),

@@ -67,9 +67,9 @@ class WalletLabelsTest(BitcoinTestFramework):
             assert_raises_rpc_error(-11, "Invalid label name", *rpc_call, "*")
 
     def test_sort_multisig(self, node):
-        node.importprivkey("cSJUMwramrFYHKPfY77FH94bv4Q5rwUCyfD6zX3kLro4ZcWsXFEM")
-        node.importprivkey("cSpQbSsdKRmxaSWJ3TckCFTrksXNPbh8tfeZESGNQekkVxMbQ77H")
-        node.importprivkey("cRNbfcJgnvk2QJEVbMsxzoprotm1cy3kVA2HoyjSs3ss5NY5mQqr")
+        node.importprivkey("a52PDN6ByPbLh3BNgtnxYMYow7BeWF8aNbF23FWEVCjg4KN3vgVs")
+        node.importprivkey("a5YKSs7EWy7kzAJ1CFJTTTx4mvJw2uMWHbgUHAirYzhMzfBBQDhZ")
+        node.importprivkey("a46WX2YHzU5pp22Ck9ZgG2K4pwYaGGi7t64CriBw1PpUa5NH9mGQ")
 
         addresses = [
             "muRmfCwue81ZT9oc3NaepefPscUHtP5kyC",
@@ -142,7 +142,7 @@ class WalletLabelsTest(BitcoinTestFramework):
             linked_addresses.add(address_group[0][0])
 
         # send 50 from each address to a third address not in this wallet
-        common_address = "msf4WtN1YQKXvNtvdFYt9JBnUD2FB41kjr"
+        common_address = self.nodes[1].getnewaddress()
         node.sendmany(
             amounts={common_address: 100},
             subtractfeefrom=[common_address],
@@ -243,10 +243,11 @@ class WalletLabelsTest(BitcoinTestFramework):
             self.log.info('Check watchonly labels')
             node.createwallet(wallet_name='watch_only', disable_private_keys=True)
             wallet_watch_only = node.get_wallet_rpc('watch_only')
+            # Witness version 1 and above cannot be imported. Use v0 addresses.
             BECH32_VALID = {
-                '✔️_VER15_PROG40': 'bcrt10qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxkg7fn',
-                '✔️_VER16_PROG03': 'bcrt1sqqqqq8uhdgr',
-                '✔️_VER16_PROB02': 'bcrt1sqqqq4wstyw',
+                'watch-a': self.nodes[1].getnewaddress(),
+                'watch-b': self.nodes[1].getnewaddress(),
+                'watch-c': self.nodes[1].getnewaddress(),
             }
             BECH32_INVALID = {
                 '❌_VER15_PROG41': 'bcrt1sqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqajlxj8',

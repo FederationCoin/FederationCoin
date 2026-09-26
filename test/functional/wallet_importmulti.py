@@ -577,9 +577,9 @@ class ImportMultiTest(BitcoinTestFramework):
                      labels=[p2sh_p2wpkh_label])
 
         # Test ranged descriptor fails if range is not specified
-        xpriv = "tprv8ZgxMBicQKsPeuVhWwi6wuMQGfPKi9Li5GtX35jVNknACgqe3CY4g5xgkfDDJcmtF7o1QnxWDRYw4H5P26PXq7sbcUkEqeR4fg3Kxp2tigg"
+        xpriv = "trBb8nVXuTDmeQ5gUkaxF86JudzSmMeXtL4acnAi3uryKFhaSCias1nLrWgfe7PWcgJWHS4hey7wsDCEnsNEz82cRkZKkKq3zu8Hrth1Ha7rKs2"
         addresses = ["2N7yv4p8G8yEaPddJxY41kPihnWvs39qCMf", "2MsHxyb2JS3pAySeNUsJ7mNnurtpeenDzLA"] # hdkeypath=m/0'/0'/0' and 1'
-        addresses += ["bcrt1qrd3n235cj2czsfmsuvqqpr3lu6lg0ju7scl8gn", "bcrt1qfqeppuvj0ww98r6qghmdkj70tv8qpchehegrg8"] # wpkh subscripts corresponding to the above addresses
+        addresses += ["gfcnrt1qrd3n235cj2czsfmsuvqqpr3lu6lg0ju7eppmyt", "gfcnrt1qfqeppuvj0ww98r6qghmdkj70tv8qpche7qklyl"] # wpkh subscripts corresponding to the above addresses
         desc = "sh(wpkh(" + xpriv + "/0'/0'/*'" + "))"
         self.log.info("Ranged descriptor import should fail without a specified range")
         self.test_importmulti({"desc": descsum_create(desc),
@@ -616,7 +616,7 @@ class ImportMultiTest(BitcoinTestFramework):
                               success=False, error_code=-8, error_message='Range is too large')
 
         # Test importing a descriptor containing a WIF private key
-        wif_priv = "cTe1f5rdT8A8DFgVWTjyPwACsDPJM9ff4QngFxUixCSvvbg1x6sh"
+        wif_priv = "a6MvWW6EefVvcyUCfFRgf9eQtGArzTL2TLpbJgwD6YPYRJWwN1pD"
         address = "2MuhcG52uHPknxDgmGPsV18jSHFBnnRgjPg"
         desc = "sh(wpkh(" + wif_priv + "))"
         self.log.info("Should import a descriptor with a WIF private key as spendable")
@@ -748,7 +748,7 @@ class ImportMultiTest(BitcoinTestFramework):
         self.log.info("Bech32m addresses and descriptors cannot be imported")
         self.test_importmulti(
             {
-                "scriptPubKey": {"address": "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6"},
+                "scriptPubKey": {"address": "gfcnrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqlwxfzj"},
                 "timestamp": "now",
             },
             success=False,
@@ -857,13 +857,13 @@ class ImportMultiTest(BitcoinTestFramework):
         wrpc = self.nodes[1].get_wallet_rpc("noprivkeys")
         assert_equal(wrpc.getwalletinfo()["keypoolsize"], 0)
         assert_equal(wrpc.getwalletinfo()["private_keys_enabled"], False)
-        xpub = "tpubDAXcJ7s7ZwicqjprRaEWdPoHKrCS215qxGYxpusRLLmJuT69ZSicuGdSfyvyKpvUNYBW1s2U3NSrT6vrCYB9e6nZUEvrqnwXPF8ArTCRXMY"
+        xpub = "trB6nRkVEj8hDD5Fhh2BWm3vS5X3rcHnGaFrgWUaXAiXPKGYCBf9BrzHddPLzygCAkMD4UZ5csH7R2TsrFRSbDp6SmB3sYLE8dw6KaoxZTWPYod"
         addresses = [
-            'bcrt1qtmp74ayg7p24uslctssvjm06q5phz4yrxucgnv', # m/0'/0'/0
-            'bcrt1q8vprchan07gzagd5e6v9wd7azyucksq2xc76k8', # m/0'/0'/1
-            'bcrt1qtuqdtha7zmqgcrr26n2rqxztv5y8rafjp9lulu', # m/0'/0'/2
-            'bcrt1qau64272ymawq26t90md6an0ps99qkrse58m640', # m/0'/0'/3
-            'bcrt1qsg97266hrh6cpmutqen8s4s962aryy77jp0fg0', # m/0'/0'/4
+            'gfcnrt1qtmp74ayg7p24uslctssvjm06q5phz4yr09x5l5', # m/0'/0'/0
+            'gfcnrt1q8vprchan07gzagd5e6v9wd7azyucksq20pqx6l', # m/0'/0'/1
+            'gfcnrt1qtuqdtha7zmqgcrr26n2rqxztv5y8rafjgupqny', # m/0'/0'/2
+            'gfcnrt1qau64272ymawq26t90md6an0ps99qkrsea79xeh', # m/0'/0'/3
+            'gfcnrt1qsg97266hrh6cpmutqen8s4s962aryy77mc34yh', # m/0'/0'/4
         ]
         result = wrpc.importmulti(
             [{

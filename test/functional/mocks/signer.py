@@ -21,20 +21,20 @@ def enumerate(args):
     sys.stdout.write(json.dumps([{"fingerprint": "00000001", "type": "trezor", "model": "trezor_t"}]))
 
 def getdescriptors(args):
-    xpub = "tpubD6NzVbkrYhZ4WaWSyoBvQwbpLkojyoTZPRsgXELWz3Popb3qkjcJyJUGLnL4qHHoQvao8ESaAstxYSnhyswJ76uZPStJRJCTKvosUCJZL5B"
+    xpub = "trB6nMbsSD2SBxuhNXhn4z1LDdKasWu6ENda7foJDVBd31u37KcqP9syhfEAfn5HgCiY6rxNjEhDYXuywbHJNZaEumJ3nkHfi9C2GGVfBBYBGEB"
 
     sys.stdout.write(json.dumps({
         "receive": [
-            "pkh([00000001/44h/1h/" + args.account + "']" + xpub + "/0/*)#aqllu46s",
-            "sh(wpkh([00000001/49h/1h/" + args.account + "']" + xpub + "/0/*))#5dh56mgg",
-            "wpkh([00000001/84h/1h/" + args.account + "']" + xpub + "/0/*)#h62dxaej",
-            "tr([00000001/86h/1h/" + args.account + "']" + xpub + "/0/*)#pcd5w87f"
+            "pkh([00000001/44h/1h/" + args.account + "']" + xpub + "/0/*)#8mf8r0u2",
+            "sh(wpkh([00000001/49h/1h/" + args.account + "']" + xpub + "/0/*))#f9sg793a",
+            "wpkh([00000001/84h/1h/" + args.account + "']" + xpub + "/0/*)#esa8uhzc",
+            "tr([00000001/86h/1h/" + args.account + "']" + xpub + "/0/*)#8hcrhgjq"
         ],
         "internal": [
-            "pkh([00000001/44h/1h/" + args.account + "']" + xpub + "/1/*)#v567pq2g",
-            "sh(wpkh([00000001/49h/1h/" + args.account + "']" + xpub + "/1/*))#pvezzyah",
-            "wpkh([00000001/84h/1h/" + args.account + "']" + xpub + "/1/*)#xw0vmgf2",
-            "tr([00000001/86h/1h/" + args.account + "']" + xpub + "/1/*)#svg4njw3"
+            "pkh([00000001/44h/1h/" + args.account + "']" + xpub + "/1/*)#k0vx76vj",
+            "sh(wpkh([00000001/49h/1h/" + args.account + "']" + xpub + "/1/*))#uy77x6yz",
+            "wpkh([00000001/84h/1h/" + args.account + "']" + xpub + "/1/*)#gycxpzjq",
+            "tr([00000001/86h/1h/" + args.account + "']" + xpub + "/1/*)#kraz2azc"
 
         ]
     }))
@@ -45,9 +45,9 @@ def displayaddress(args):
         return sys.stdout.write(json.dumps({"error": "Unexpected fingerprint", "fingerprint": args.fingerprint}))
 
     expected_desc = {
-        "wpkh([00000001/84h/1h/0h/0/0]02c97dc3f4420402e01a113984311bf4a1b8de376cac0bdcfaf1b3ac81f13433c7)#3te6hhy7": "bcrt1qm90ugl4d48jv8n6e5t9ln6t9zlpm5th68x4f8g",
-        "sh(wpkh([00000001/49h/1h/0h/0/0]02c97dc3f4420402e01a113984311bf4a1b8de376cac0bdcfaf1b3ac81f13433c7))#kz9y5w82": "2N2gQKzjUe47gM8p1JZxaAkTcoHPXV6YyVp",
-        "pkh([00000001/44h/1h/0h/0/0]02c97dc3f4420402e01a113984311bf4a1b8de376cac0bdcfaf1b3ac81f13433c7)#q3pqd8wh": "n1LKejAadN6hg2FrBXoU1KrwX4uK16mco9",
+        "wpkh([00000001/84h/1h/0h/0/0]02c97dc3f4420402e01a113984311bf4a1b8de376cac0bdcfaf1b3ac81f13433c7)#3te6hhy7": "gfcnrt1qm90ugl4d48jv8n6e5t9ln6t9zlpm5th6wlt4ts",
+        "sh(wpkh([00000001/49h/1h/0h/0/0]02c97dc3f4420402e01a113984311bf4a1b8de376cac0bdcfaf1b3ac81f13433c7))#kz9y5w82": "2NS21K72mMEaZAZx6KzHtesjQRneUE74PCJ",
+        "pkh([00000001/44h/1h/0h/0/0]02c97dc3f4420402e01a113984311bf4a1b8de376cac0bdcfaf1b3ac81f13433c7)#q3pqd8wh": "fZvftzPyGUggb62TnpUNFKWMSznDdLT12N",
         "tr([00000001/86h/1h/0h/0/0]c97dc3f4420402e01a113984311bf4a1b8de376cac0bdcfaf1b3ac81f13433c7)#puqqa90m": "tb1phw4cgpt6cd30kz9k4wkpwm872cdvhss29jga2xpmftelhqll62mscq0k4g",
         "wpkh([00000001/84h/1h/0h/0/1]03a20a46308be0b8ded6dff0a22b10b4245c587ccf23f3b4a303885be3a524f172)#aqpjv5xr": "wrong_address",
     }

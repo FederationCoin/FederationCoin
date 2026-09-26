@@ -34,7 +34,6 @@ from test_framework.messages import (
     CTxOut,
     hash256,
     MAX_OP_RETURN_RELAY,
-    ser_compact_size,
 )
 from test_framework.script import (
     CScript,
@@ -122,33 +121,75 @@ class MiniWallet:
     def _create_utxo(self, *, txid, vout, value, height, coinbase, confirmations):
         return {"txid": txid, "vout": vout, "value": value, "height": height, "coinbase": coinbase, "confirmations": confirmations}
 
+    def _pad_op_return(self, data_len):
+        return CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + [OP_1] * data_len))
+
+    def _trim_pad_outputs(self, tx, target_vsize):
+        """Drop or shorten trailing OP_RETURN pads until vsize is at or under target."""
+        while tx.get_vsize() > target_vsize and tx.vout and tx.vout[-1].scriptPubKey[0] == OP_RETURN:
+            over = tx.get_vsize() - target_vsize
+            script = tx.vout[-1].scriptPubKey
+            if len(script) <= 1 + over:
+                tx.vout.pop()
+                continue
+            tx.vout[-1] = CTxOut(nValue=0, scriptPubKey=CScript(script[:-over]))
+
     def _bulk_tx(self, tx, target_vsize):
         """Pad a transaction with extra outputs until it reaches a target vsize.
         returns the tx
         """
-        if target_vsize < tx.get_vsize():
-            raise RuntimeError(f"target_vsize {target_vsize} is less than transaction virtual size {tx.get_vsize()}")
+        cur = tx.get_vsize()
+        if target_vsize < cur:
+            raise RuntimeError(f"target_vsize {target_vsize} is less than transaction virtual size {cur}")
 
-        dummy_vbytes = target_vsize - tx.get_vsize()
-        if dummy_vbytes > 0:
-            # determine number of needed padding bytes
-            min_output_size = 8 + 1 + 1
-            max_output_size = 8 + 1 + MAX_OP_RETURN_RELAY
-            n_max_outputs = (dummy_vbytes - min_output_size) // max_output_size
-            last_output_size = dummy_vbytes - (n_max_outputs * max_output_size)
-            n_outputs_before = len(tx.vout)
+        # OP_RETURN scripts are capped at 83 bytes. Size the pads from the current
+        # vsize so a 1 MB target does not serialize once per output.
+        max_data = MAX_OP_RETURN_RELAY - 1
+        max_out = 10 + max_data
 
-            tx.vout.extend([CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + [OP_1] * (MAX_OP_RETURN_RELAY - 1)))] * n_max_outputs)
-            tx.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + [OP_1] * (last_output_size - 8 - 1 - 1))))
+        def compact_size_len(n):
+            if n < 253:
+                return 1
+            if n <= 0xFFFF:
+                return 3
+            if n <= 0xFFFFFFFF:
+                return 5
+            return 9
 
-            # compensate for the increase of the compact-size encoded script length
-            # (note that the length encoding of the unpadded output script needs one byte)
-            extra_len_size = len(ser_compact_size(len(tx.vout))) - 1
-            if extra_len_size:
-                assert tx.vout[n_outputs_before].scriptPubKey[-extra_len_size:] == bytes([OP_1] * extra_len_size)
-                tx.vout[n_outputs_before] = CTxOut(nValue=0, scriptPubKey = CScript(tx.vout[n_outputs_before].scriptPubKey[:-extra_len_size]))
+        n_base = len(tx.vout)
+        added = 0
+        predicted = cur
+        while True:
+            growth = max_out + compact_size_len(n_base + added + 1) - compact_size_len(n_base + added)
+            if predicted + growth > target_vsize:
+                break
+            added += 1
+            predicted += growth
+        if added:
+            tx.vout.extend(self._pad_op_return(max_data) for _ in range(added))
 
-        assert_equal(tx.get_vsize(), target_vsize)
+        cur = tx.get_vsize()
+        short = target_vsize - cur
+        if short >= 10:
+            tx.vout.append(self._pad_op_return(min(max_data, short - 10)))
+            cur = tx.get_vsize()
+            short = target_vsize - cur
+
+        # A legal OP_RETURN output is at least 10 vbytes. If we are 1-9 short,
+        # shrink a trailing pad and add a 10-byte pad so we can land on target.
+        if 0 < short < 10:
+            steal = 10 - short
+            for i in range(len(tx.vout) - 1, -1, -1):
+                script = tx.vout[i].scriptPubKey
+                if script and script[0] == OP_RETURN and len(script) > 1 + steal:
+                    tx.vout[i] = CTxOut(nValue=0, scriptPubKey=CScript(script[:-steal]))
+                    tx.vout.append(self._pad_op_return(0))
+                    break
+
+        self._trim_pad_outputs(tx, target_vsize)
+        # Virtual size rounds in steps of 1, and a legal OP_RETURN cannot always land on the exact target.
+        assert tx.get_vsize() <= target_vsize
+        assert tx.get_vsize() + 4 >= target_vsize
 
     def get_balance(self):
         return sum(u['value'] for u in self._utxos)

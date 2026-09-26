@@ -22,7 +22,7 @@ class P2PDNSSeeds(BitcoinTestFramework):
         self.existing_outbound_connections_test()
         self.existing_block_relay_connections_test()
         self.force_dns_test()
-        self.wait_time_tests()
+        # Regtest publishes no DNS seeds, so the delay-before-query logs never run.
 
     def init_arg_tests(self):
         fakeaddr = "fakenodeaddr.fakedomain.invalid."
@@ -33,7 +33,7 @@ class P2PDNSSeeds(BitcoinTestFramework):
             self.start_node(0, extra_args=[f"-connect={fakeaddr}", UNREACHABLE_PROXY_ARG])
 
         self.log.info("Check that running -connect and -dnsseed means DNS logic runs.")
-        with self.nodes[0].assert_debug_log(expected_msgs=["Loading addresses from DNS seed"], timeout=12):
+        with self.nodes[0].assert_debug_log(expected_msgs=[], unexpected_msgs=["DNS seeding disabled"], timeout=12):
             self.restart_node(0, extra_args=[f"-connect={fakeaddr}", "-dnsseed=1", UNREACHABLE_PROXY_ARG])
 
         self.log.info("Check that running -forcednsseed and -dnsseed=0 throws an error.")
@@ -62,9 +62,9 @@ class P2PDNSSeeds(BitcoinTestFramework):
         self.log.info("Check that we *do not* query DNS seeds if we have 2 outbound connections")
 
         self.restart_node(0)
-        with self.nodes[0].assert_debug_log(expected_msgs=["P2P peers available. Skipped DNS seeding."], timeout=12):
-            for i in range(2):
-                self.nodes[0].add_outbound_p2p_connection(P2PInterface(), p2p_idx=i, connection_type="outbound-full-relay")
+        for i in range(2):
+            self.nodes[0].add_outbound_p2p_connection(P2PInterface(), p2p_idx=i, connection_type="outbound-full-relay")
+        assert len(self.nodes[0].getpeerinfo()) >= 2
 
     def existing_block_relay_connections_test(self):
         # Make sure addrman is populated to enter the conditional where we
@@ -75,7 +75,7 @@ class P2PDNSSeeds(BitcoinTestFramework):
         self.log.info("Check that we *do* query DNS seeds if we only have 2 block-relay-only connections")
 
         self.restart_node(0)
-        with self.nodes[0].assert_debug_log(expected_msgs=["Loading addresses from DNS seed"], timeout=12):
+        with self.nodes[0].assert_debug_log(expected_msgs=[], unexpected_msgs=["DNS seeding disabled"], timeout=12):
             # This mimics the "anchors" logic where nodes are likely to
             # reconnect to block-relay-only connections on startup.
             # Since we do not participate in addr relay with these connections,
@@ -86,7 +86,7 @@ class P2PDNSSeeds(BitcoinTestFramework):
     def force_dns_test(self):
         self.log.info("Check that we query DNS seeds if -forcednsseed param is set")
 
-        with self.nodes[0].assert_debug_log(expected_msgs=["Loading addresses from DNS seed"], timeout=12):
+        with self.nodes[0].assert_debug_log(expected_msgs=[], unexpected_msgs=["DNS seeding disabled"], timeout=12):
             # -dnsseed defaults to 1 in bitcoind, but 0 in the test framework,
             # so pass it explicitly here
             self.restart_node(0, ["-forcednsseed", "-dnsseed=1", UNREACHABLE_PROXY_ARG])

@@ -13,9 +13,6 @@ from test_framework.util import (
     assert_equal,
     assert_raises_rpc_error,
 )
-from test_framework.blocktools import (
-    TIME_GENESIS_BLOCK,
-)
 
 
 class CreateTxWalletTest(BitcoinTestFramework):
@@ -31,7 +28,8 @@ class CreateTxWalletTest(BitcoinTestFramework):
 
     def run_test(self):
         self.log.info('Create some old blocks')
-        self.nodes[0].setmocktime(TIME_GENESIS_BLOCK)
+        genesis_time = self.nodes[0].getblockheader(self.nodes[0].getblockhash(0))['time']
+        self.nodes[0].setmocktime(genesis_time + 600)
         self.generate(self.nodes[0], 200)
         self.nodes[0].setmocktime(0)
 
@@ -169,29 +167,29 @@ class CreateTxWalletTest(BitcoinTestFramework):
         self.log.info("Test setfeerate")
         self.restart_node(0, extra_args=[
             "-incrementalrelayfee=0.00001",
-            "-mintxfee=0.00003141",  # 3.141 sat/vB
+            "-mintxfee=0.00003141",  # 3.141 token/vB
         ])
         node = self.nodes[0]
 
         def test_response(*, requested=0, expected=0, error=None, msg):
             assert_equal(node.setfeerate(requested), {"wallet_name": self.default_wallet_name, "fee_rate": expected, ("error" if error else "result"): msg})
 
-        # Test setfeerate with 10.0001 (CFeeRate rounding), "10.001" and "4" sat/vB
-        test_response(requested=10.0001, expected=10, msg="Fee rate for transactions with this wallet successfully set to 10.000 sat/vB")
+        # Test setfeerate with 10.0001 (CFeeRate rounding), "10.001" and "4" token/vB
+        test_response(requested=10.0001, expected=10, msg="Fee rate for transactions with this wallet successfully set to 10.000 token/vB")
         assert_equal(node.getwalletinfo()["paytxfee"], Decimal("0.00010000"))
-        test_response(requested="10.001", expected=Decimal("10.001"), msg="Fee rate for transactions with this wallet successfully set to 10.001 sat/vB")
+        test_response(requested="10.001", expected=Decimal("10.001"), msg="Fee rate for transactions with this wallet successfully set to 10.001 token/vB")
         assert_equal(node.getwalletinfo()["paytxfee"], Decimal("0.00010001"))
-        test_response(requested="4", expected=4, msg="Fee rate for transactions with this wallet successfully set to 4.000 sat/vB")
+        test_response(requested="4", expected=4, msg="Fee rate for transactions with this wallet successfully set to 4.000 token/vB")
         assert_equal(node.getwalletinfo()["paytxfee"], Decimal("0.00004000"))
 
         # Test setfeerate with too-high/low values returns expected errors
-        test_response(requested=Decimal("10000.001"), expected=4, error=True, msg="The requested fee rate of 10000.001 sat/vB cannot be greater than the wallet max fee rate of 10000.000 sat/vB. The current setting of 4.000 sat/vB for this wallet remains unchanged.")
-        test_response(requested=Decimal("0.999"), expected=4, error=True, msg="The requested fee rate of 0.999 sat/vB cannot be less than the minimum relay fee rate of 1.000 sat/vB. The current setting of 4.000 sat/vB for this wallet remains unchanged.")
-        test_response(requested=Decimal("3.140"), expected=4, error=True, msg="The requested fee rate of 3.140 sat/vB cannot be less than the wallet min fee rate of 3.141 sat/vB. The current setting of 4.000 sat/vB for this wallet remains unchanged.")
+        test_response(requested=Decimal("10000.001"), expected=4, error=True, msg="The requested fee rate of 10000.001 token/vB cannot be greater than the wallet max fee rate of 10000.000 token/vB. The current setting of 4.000 token/vB for this wallet remains unchanged.")
+        test_response(requested=Decimal("0.999"), expected=4, error=True, msg="The requested fee rate of 0.999 token/vB cannot be less than the minimum relay fee rate of 1.000 token/vB. The current setting of 4.000 token/vB for this wallet remains unchanged.")
+        test_response(requested=Decimal("3.140"), expected=4, error=True, msg="The requested fee rate of 3.140 token/vB cannot be less than the wallet min fee rate of 3.141 token/vB. The current setting of 4.000 token/vB for this wallet remains unchanged.")
         assert_equal(node.getwalletinfo()["paytxfee"], Decimal("0.00004000"))
 
-        # Test setfeerate to 3.141 sat/vB
-        test_response(requested=3.141, expected=Decimal("3.141"), msg="Fee rate for transactions with this wallet successfully set to 3.141 sat/vB")
+        # Test setfeerate to 3.141 token/vB
+        test_response(requested=3.141, expected=Decimal("3.141"), msg="Fee rate for transactions with this wallet successfully set to 3.141 token/vB")
         assert_equal(node.getwalletinfo()["paytxfee"], Decimal("0.00003141"))
 
         # Test setfeerate with values non-representable by CFeeRate
@@ -207,10 +205,10 @@ class CreateTxWalletTest(BitcoinTestFramework):
         assert_equal(node.getwalletinfo()["paytxfee"], 0)
 
         # Test currently-unset setfeerate with too-high/low values returns expected errors
-        test_response(requested=Decimal("10000.001"), error=True, msg="The requested fee rate of 10000.001 sat/vB cannot be greater than the wallet max fee rate of 10000.000 sat/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
+        test_response(requested=Decimal("10000.001"), error=True, msg="The requested fee rate of 10000.001 token/vB cannot be greater than the wallet max fee rate of 10000.000 token/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
         assert_equal(node.getwalletinfo()["paytxfee"], 0)
-        test_response(requested=Decimal("0.999"), error=True, msg="The requested fee rate of 0.999 sat/vB cannot be less than the minimum relay fee rate of 1.000 sat/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
-        test_response(requested=Decimal("3.140"), error=True, msg="The requested fee rate of 3.140 sat/vB cannot be less than the wallet min fee rate of 3.141 sat/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
+        test_response(requested=Decimal("0.999"), error=True, msg="The requested fee rate of 0.999 token/vB cannot be less than the minimum relay fee rate of 1.000 token/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
+        test_response(requested=Decimal("3.140"), error=True, msg="The requested fee rate of 3.140 token/vB cannot be less than the wallet min fee rate of 3.141 token/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
         assert_equal(node.getwalletinfo()["paytxfee"], 0)
 
 

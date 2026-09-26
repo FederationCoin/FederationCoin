@@ -34,7 +34,7 @@ WALLET_NOT_LOADED = 'Requested wallet does not exist or is not loaded'
 WALLET_NOT_SPECIFIED = (
     "Multiple wallets are loaded. Please select which wallet to use by requesting the RPC "
     "through the /wallet/<walletname> URI path. Or for the CLI, specify the \"-rpcwallet=<walletname>\" "
-    "option before the command (run \"bitcoin-cli -h\" for help or \"bitcoin-cli listwallets\" to see "
+    "option before the command (run \"federationcoin-cli -h\" for help or \"federationcoin-cli listwallets\" to see "
     "which wallets are currently loaded)."
 )
 
@@ -250,12 +250,12 @@ class TestBitcoinCli(BitcoinTestFramework):
             wallet_info = self.nodes[0].getwalletinfo()
             assert_equal(int(cli_get_info['Keypool size']), wallet_info['keypoolsize'])
             assert_equal(int(cli_get_info['Unlocked until']), wallet_info['unlocked_until'])
-            assert_equal(Decimal(cli_get_info['Transaction fee rate (-paytxfee) (BTC/kvB)']), wallet_info['paytxfee'])
-            assert_equal(Decimal(cli_get_info['Min tx relay fee rate (BTC/kvB)']), network_info['relayfee'])
+            assert_equal(Decimal(cli_get_info['Transaction fee rate (-paytxfee) (COIN/kvB)']), wallet_info['paytxfee'])
+            assert_equal(Decimal(cli_get_info['Min tx relay fee rate (COIN/kvB)']), network_info['relayfee'])
             assert_equal(self.nodes[0].cli.getwalletinfo(), wallet_info)
             for field in ['Keypool size', 'Time offset (s)', 'Unlocked until']:
                 assert_scale(cli_get_info[field], expected_scale=0)
-            for field in ['Balance', 'Transaction fee rate (-paytxfee) (BTC/kvB)', 'Min tx relay fee rate (BTC/kvB)']:
+            for field in ['Balance', 'Transaction fee rate (-paytxfee) (COIN/kvB)', 'Min tx relay fee rate (COIN/kvB)']:
                 assert_scale(cli_get_info[field])
 
             # Setup to test -getinfo, -generate, and -rpcwallet= with multiple wallets.

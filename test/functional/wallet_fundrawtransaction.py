@@ -239,8 +239,6 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.nodes[2].sendall(recipients=[self.nodes[0].getnewaddress()])
 
         output_types = ['legacy', 'p2sh-segwit', 'bech32']
-        if self.options.descriptors:
-            output_types.append('bech32m')
         # Create coins
         for _ in range(10):
             for output_type in output_types:
@@ -663,12 +661,12 @@ class RawTransactionsTest(BitcoinTestFramework):
         if self.options.descriptors:
             with WalletUnlock(wallet, "test"):
                 wallet.importdescriptors([{
-                    'desc': descsum_create('wpkh(tprv8ZgxMBicQKsPdYeeZbPSKd2KYLmeVKtcFA7kqCxDvDR13MQ6us8HopUR2wLcS2ZKPhLyKsqpDL2FtL73LMHcgoCL7DXsciA8eX8nbjCR2eG/0h/*h)'),
+                    'desc': descsum_create('wpkh(trBb8nVXuTDmeQ5gTPjuHmmeHMfN332rfWcUnfPwr35hriLRGsH3jgNZzFCPvPWuk65wS1cfa41Fs7fZcvPuJNvhHRt4F4cgmxsMqjnTvVjkjXB/0h/*h)'),
                     'timestamp': 'now',
                     'active': True
                 },
                 {
-                    'desc': descsum_create('wpkh(tprv8ZgxMBicQKsPdYeeZbPSKd2KYLmeVKtcFA7kqCxDvDR13MQ6us8HopUR2wLcS2ZKPhLyKsqpDL2FtL73LMHcgoCL7DXsciA8eX8nbjCR2eG/1h/*h)'),
+                    'desc': descsum_create('wpkh(trBb8nVXuTDmeQ5gTPjuHmmeHMfN332rfWcUnfPwr35hriLRGsH3jgNZzFCPvPWuk65wS1cfa41Fs7fZcvPuJNvhHRt4F4cgmxsMqjnTvVjkjXB/1h/*h)'),
                     'timestamp': 'now',
                     'active': True,
                     'internal': True
@@ -799,19 +797,32 @@ class RawTransactionsTest(BitcoinTestFramework):
 
         self.nodes[3].loadwallet('wwatch')
         wwatch = self.nodes[3].get_wallet_rpc('wwatch')
-        # Setup change addresses for the watchonly wallet
-        desc_import = [{
-            "desc": descsum_create("wpkh(tpubD6NzVbkrYhZ4YNXVQbNhMK1WqguFsUXceaVJKbmno2aZ3B6QfbMeraaYvnBSGpV3vxLyTTK9DYT1yoEck4XUScMzXoQ2U2oSmE2JyMedq3H/1/*)"),
-            "timestamp": "now",
-            "internal": True,
-            "active": True,
-            "keypool": True,
-            "range": [0, 100],
-            "watchonly": True,
-        }]
+        # Setup change addresses for the watchonly wallet. The old tpub is
+        # not a key for this chain.
         if self.options.descriptors:
-            wwatch.importdescriptors(desc_import)
+            xpub = self.nodes[0].gethdkeys()[0]["xpub"]
+            public_desc = descsum_create(f"wpkh({xpub}/0/*)")
+            desc_import = [{
+                "desc": public_desc,
+                "timestamp": "now",
+                "internal": True,
+                "active": True,
+                "keypool": True,
+                "range": [0, 100],
+                "watchonly": True,
+            }]
+            res = wwatch.importdescriptors(desc_import)
+            assert res[0]["success"], res
         else:
+            _, pubkey = generate_keypair()
+            desc_import = [{
+                "desc": descsum_create(f"wpkh({pubkey.hex()})"),
+                "timestamp": "now",
+                "internal": True,
+                "active": True,
+                "keypool": True,
+                "watchonly": True,
+            }]
             wwatch.importmulti(desc_import)
 
         # Backward compatibility test (2nd params is includeWatching)
@@ -854,7 +865,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         wwatch.unloadwallet()
 
     def test_option_feerate(self):
-        self.log.info("Test fundrawtxn with explicit fee rates (fee_rate sat/vB and feeRate BTC/kvB)")
+        self.log.info("Test fundrawtxn with explicit fee rates (fee_rate token/vB and feeRate COIN/kvB)")
         node = self.nodes[3]
         # Make sure there is exactly one input so coin selection can't skew the result.
         assert_equal(len(self.nodes[3].listunspent(1)), 1)
@@ -914,17 +925,17 @@ class RawTransactionsTest(BitcoinTestFramework):
             # Test fee rate values that don't pass fixed-point parsing checks.
             for invalid_value in ["", 0.000000001, 1e-09, 1.111111111, 1111111111111111, "31.999999999999999999999"]:
                 assert_raises_rpc_error(-3, "Invalid amount", node.fundrawtransaction, rawtx, add_inputs=True, **{param: invalid_value})
-        # Test fee_rate values that cannot be represented in sat/vB.
+        # Test fee_rate values that cannot be represented in token/vB.
         for invalid_value in [0.0001, 0.00000001, 0.00099999, 31.99999999]:
             assert_raises_rpc_error(-3, "Invalid amount",
                 node.fundrawtransaction, rawtx, fee_rate=invalid_value, add_inputs=True)
 
-        self.log.info("Test min fee rate checks are bypassed with fundrawtxn, e.g. a fee_rate under 1 sat/vB is allowed")
+        self.log.info("Test min fee rate checks are bypassed with fundrawtxn, e.g. a fee_rate under 1 token/vB is allowed")
         node.fundrawtransaction(rawtx, fee_rate=0.999, add_inputs=True)
         node.fundrawtransaction(rawtx, feeRate=0.00000999, add_inputs=True)
 
         self.log.info("- raises RPC error if both feeRate and fee_rate are passed")
-        assert_raises_rpc_error(-8, "Cannot specify both fee_rate (sat/vB) and feeRate (BTC/kvB)",
+        assert_raises_rpc_error(-8, "Cannot specify both fee_rate (token/vB) and feeRate (COIN/kvB)",
             node.fundrawtransaction, rawtx, fee_rate=0.1, feeRate=0.1, add_inputs=True)
 
         self.log.info("- raises RPC error if both feeRate and estimate_mode passed")
@@ -967,7 +978,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         outputs = {self.nodes[2].getnewaddress(): 1}
         rawtx = self.nodes[3].createrawtransaction(inputs, outputs)
 
-        # Test subtract fee from outputs with feeRate (BTC/kvB)
+        # Test subtract fee from outputs with feeRate (COIN/kvB)
         result = [self.nodes[3].fundrawtransaction(rawtx),  # uses self.min_relay_tx_fee (set by settxfee)
             self.nodes[3].fundrawtransaction(rawtx, subtractFeeFromOutputs=[]),  # empty subtraction list
             self.nodes[3].fundrawtransaction(rawtx, subtractFeeFromOutputs=[0]),  # uses self.min_relay_tx_fee (set by settxfee)
@@ -1448,7 +1459,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         # However at normal feerates, the difference between the effective value and the real value
         # that this bug is not detected because the transaction fee must be at least 0.01 BTC (the minimum change value).
         # Otherwise the targeted minimum change value will be enough to cover the transaction fees that were not
-        # being accounted for. So the minimum relay fee is set to 0.1 BTC/kvB in this test.
+        # being accounted for. So the minimum relay fee is set to 0.1 COIN/kvB in this test.
         self.log.info("Test issue 22670 ApproximateBestSubset bug")
         # Make sure the default wallet will not be loaded when restarted with a high minrelaytxfee
         self.nodes[0].unloadwallet(self.default_wallet_name, False)

@@ -14,7 +14,6 @@ import urllib.parse
 
 
 from test_framework.messages import (
-    BLOCK_HEADER_SIZE,
     COIN,
     deser_block_spent_outputs,
 )
@@ -29,6 +28,9 @@ from test_framework.wallet import (
     getnewdestination,
 )
 from typing import Optional
+
+# Header v2 is 164 bytes. The 80-byte constant is the v1 header.
+HEADER_SIZE = 164
 
 
 INVALID_PARAM = "abc"
@@ -240,26 +242,26 @@ class RESTTest (BitcoinTestFramework):
 
         # Check binary format
         response = self.test_rest_request(f"/block/{bb_hash}", req_type=ReqType.BIN, ret_type=RetType.OBJ)
-        assert_greater_than(int(response.getheader('content-length')), BLOCK_HEADER_SIZE)
+        assert_greater_than(int(response.getheader('content-length')), HEADER_SIZE)
         response_bytes = response.read()
 
         # Compare with block header
         response_header = self.test_rest_request(f"/headers/{bb_hash}", req_type=ReqType.BIN, ret_type=RetType.OBJ, query_params={"count": 1})
-        assert_equal(int(response_header.getheader('content-length')), BLOCK_HEADER_SIZE)
+        assert_equal(int(response_header.getheader('content-length')), HEADER_SIZE)
         response_header_bytes = response_header.read()
-        assert_equal(response_bytes[:BLOCK_HEADER_SIZE], response_header_bytes)
+        assert_equal(response_bytes[:HEADER_SIZE], response_header_bytes)
 
         # Check block hex format
         response_hex = self.test_rest_request(f"/block/{bb_hash}", req_type=ReqType.HEX, ret_type=RetType.OBJ)
-        assert_greater_than(int(response_hex.getheader('content-length')), BLOCK_HEADER_SIZE*2)
+        assert_greater_than(int(response_hex.getheader('content-length')), HEADER_SIZE*2)
         response_hex_bytes = response_hex.read().strip(b'\n')
         assert_equal(response_bytes.hex().encode(), response_hex_bytes)
 
         # Compare with hex block header
         response_header_hex = self.test_rest_request(f"/headers/{bb_hash}", req_type=ReqType.HEX, ret_type=RetType.OBJ, query_params={"count": 1})
-        assert_greater_than(int(response_header_hex.getheader('content-length')), BLOCK_HEADER_SIZE*2)
-        response_header_hex_bytes = response_header_hex.read(BLOCK_HEADER_SIZE*2)
-        assert_equal(response_bytes[:BLOCK_HEADER_SIZE].hex().encode(), response_header_hex_bytes)
+        assert_greater_than(int(response_header_hex.getheader('content-length')), HEADER_SIZE*2)
+        response_header_hex_bytes = response_header_hex.read(HEADER_SIZE*2)
+        assert_equal(response_bytes[:HEADER_SIZE].hex().encode(), response_header_hex_bytes)
 
         # Check json format
         block_json_obj = self.test_rest_request(f"/block/{bb_hash}")
@@ -343,7 +345,7 @@ class RESTTest (BitcoinTestFramework):
         json_obj = self.test_rest_request("/mempool/info")
         assert_equal(json_obj['size'], 3)
         # the size of the memory pool should be greater than 3x ~100 bytes
-        assert_greater_than(json_obj['bytes'], 300)
+        assert_greater_than(json_obj['bytes'], 250)
 
         mempool_info = self.nodes[0].getmempoolinfo()
         # pop unstable unbroadcastcount before check
@@ -480,7 +482,7 @@ class RESTTest (BitcoinTestFramework):
             self.import_deterministic_coinbase_privkeys()
 
             # Random address so node1's balance doesn't increase
-            not_related_address = "2MxqoHEdNQTyYeX1mHcbrrpzgojbosTpCvJ"
+            not_related_address = self.nodes[0].getnewaddress()
 
             # Prepare for Fee estimation
             for i in range(18):

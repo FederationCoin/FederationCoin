@@ -31,14 +31,14 @@ class SignMessagesWithPrivTest(BitcoinTestFramework):
         message = 'This is just a test message'
 
         self.log.info('test signing with priv_key')
-        priv_key = 'cUeKHd5orzT3mz8P9pxyREHfsWtVfgsfDjiZZBcjUBAaGk1BTj7N'
+        priv_key = 'a7NE93KR4XnrBhv6JceggSmstZg4JzY2cfkUbv5DcX7BmSoCay67'
         expected_signature = 'INbVnW4e6PeRmsv2Qgu8NuopvrVjkcxob+sX8OcZG0SALhWybUjzMLPdAsXI46YZGb0KQTRii+wWIQzRpG/U+S0='
         signature = self.nodes[0].signmessagewithprivkey(priv_key, message)
         assert_equal(expected_signature, signature)
 
         self.log.info('test that verifying with P2PKH address succeeds')
         addresses = self.addresses_from_privkey(priv_key)
-        assert_equal(addresses[0], 'mpLQjfK79b7CCV4VMJWEWAj5Mpx8Up5zxB')
+        assert_equal(addresses[0], 'fNvkyvYVnhhB7Yq6xbB8kANVHkq39QiSD9')
         assert self.nodes[0].verifymessage(addresses[0], signature, message)
 
         self.log.info('test that verifying with non-P2PKH addresses succeeds')
@@ -53,31 +53,31 @@ class SignMessagesWithPrivTest(BitcoinTestFramework):
         assert_raises_rpc_error(-3, "Address does not refer to key", self.nodes[0].verifymessage, addresses[3], signature, message)
 
         self.log.info('test that verifying with p2tr address throws error')
-        assert_raises_rpc_error(-3, "Address does not refer to key", self.nodes[0].verifymessage, addresses[4], signature, message)
+        assert_raises_rpc_error(-5, "Invalid address", self.nodes[0].verifymessage, addresses[4], signature, message)
 
         self.log.info('test that verifying Electrum p2sh-segwit succeeds')
         signature = 'IFBRc4WU3K2c75KG7kcn/x9Ov6y75xrk05t9Zi7kwEIJNU0dMFMgRdeeKYo8JC4L83ckPavuaI+GUuvYZdwkGsM='
-        assert self.nodes[0].verifymessage('2MzoTgQ7YuReUaXaW2iciHoewDGdmagMVuy', signature, message)
+        assert self.nodes[0].verifymessage('2NQ94fWQqcc7MPxib48x2mvviqmtiBWNQeN', signature, message)
 
         self.log.info('test that verifying Electrum p2wpkh succeeds')
         signature = 'IBR+8bubsBxBFFE3CO6pggzNSRyg/23HRMNXyWUIIEXmTe3P0apzd5izyR/d80nVRE883I58gijFKIevBLtcPRI='
-        assert self.nodes[0].verifymessage('bcrt1qa0mscp9epevt07rscyjsre5fdlxjp3tlcchs4x', signature, message)
+        assert self.nodes[0].verifymessage('gfcnrt1qa0mscp9epevt07rscyjsre5fdlxjp3tl3pfve7', signature, message)
 
         self.log.info('test that verifying Sparrow p2wpkh ("Electrum") succeeds')
         signature = 'H036ky29d5FwS0K46di8ssfP+UbVEghDoexR2GGv+WX+WQHVnTWiUTOSjazS3+aIx92qsnE0m/WK2uflxI47BhQ='
-        assert self.nodes[0].verifymessage('bcrt1q00cc7f4m04f5mjdcm9g6c5y2a3wnvfvflljety', signature, message)
+        assert self.nodes[0].verifymessage('gfcnrt1q00cc7f4m04f5mjdcm9g6c5y2a3wnvfvfkxv98u', signature, message)
 
         self.log.info('test that verifying Sparrow p2wpkh ("BIP137/Trezor") succeeds')
         signature = 'J036ky29d5FwS0K46di8ssfP+UbVEghDoexR2GGv+WX+WQHVnTWiUTOSjazS3+aIx92qsnE0m/WK2uflxI47BhQ='
-        assert self.nodes[0].verifymessage('bcrt1q00cc7f4m04f5mjdcm9g6c5y2a3wnvfvflljety', signature, message)
+        assert self.nodes[0].verifymessage('gfcnrt1q00cc7f4m04f5mjdcm9g6c5y2a3wnvfvfkxv98u', signature, message)
 
         self.log.info('test that verifying Sparrow p2wpkh ("BIP322 Simple") succeeds')
         signature = 'AkcwRAIgCu7IrN3jCvBdp5myPZHCKiOW5o3EToYG2xgPbjiw6JsCIFwaZMcYQj9FmWcNtZk3qTp2UDBm77cbFmxQ3WVnVxrCASEDonFDI6fuQ05yUfeQIsOs599XHZnpaTxaqD13g4sXYRY='
-        assert self.nodes[0].verifymessage('bcrt1q00cc7f4m04f5mjdcm9g6c5y2a3wnvfvflljety', signature, message)
+        assert self.nodes[0].verifymessage('gfcnrt1q00cc7f4m04f5mjdcm9g6c5y2a3wnvfvfkxv98u', signature, message)
 
-        self.log.info('test that verifying Sparrow p2tr ("BIP322 Simple") succeeds')
+        self.log.info('test that verifying Sparrow p2tr ("BIP322 Simple") is rejected')
         signature = 'AUFdYU3dZCSmTxWnl5ja/Jo096VAaKtdaYs8b4ikF2iuQ2fiy7YSFHBWcD40a1oBKTVWUrXqOC0pXoDjTFKqM/ObAQ=='
-        assert self.nodes[0].verifymessage('bcrt1p5t6gmtfkd4q8jfgz40auxqgtll895n85amlgvgsz0jwxvfw9qltss6wfve', signature, message)
+        assert_raises_rpc_error(-5, "Invalid address", self.nodes[0].verifymessage, 'gfcnrt1p5t6gmtfkd4q8jfgz40auxqgtll895n85amlgvgsz0jwxvfw9qltshnqmn3', signature, message)
 
         self.log.info('test parameter validity and error codes')
         # signmessagewithprivkey has two required parameters
@@ -92,7 +92,7 @@ class SignMessagesWithPrivTest(BitcoinTestFramework):
         assert_raises_rpc_error(-5, "Invalid private key", self.nodes[0].signmessagewithprivkey, "invalid_key", message)
         assert_raises_rpc_error(-5, "Invalid address", self.nodes[0].verifymessage, "invalid_addr", signature, message)
         # malformed signature provided
-        assert_raises_rpc_error(-3, "Malformed base64 encoding", self.nodes[0].verifymessage, 'mpLQjfK79b7CCV4VMJWEWAj5Mpx8Up5zxB', "invalid_sig", message)
+        assert_raises_rpc_error(-3, "Malformed base64 encoding", self.nodes[0].verifymessage, 'fNvkyvYVnhhB7Yq6xbB8kANVHkq39QiSD9', "invalid_sig", message)
 
 
 if __name__ == '__main__':

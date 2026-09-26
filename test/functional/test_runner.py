@@ -140,7 +140,6 @@ BASE_SCRIPTS = [
     'wallet_multiwallet.py --descriptors',
     'wallet_multiwallet.py --usecli',
     'p2p_dns_seeds.py',
-    'p2p_blake2b_dns_immediate.py',
     'p2p_blake2b_outbound_preference.py',
     'wallet_groups.py --legacy-wallet',
     'wallet_groups.py --descriptors',
@@ -337,7 +336,6 @@ BASE_SCRIPTS = [
     'wallet_upgradewallet.py --legacy-wallet',
     'wallet_crosschain.py',
     'mining_basic.py',
-    'mining_mainnet.py',
     'feature_signet.py',
     'p2p_mutated_blocks.py',
     'wallet_implicitsegwit.py --legacy-wallet',
@@ -386,7 +384,6 @@ BASE_SCRIPTS = [
     'wallet_coinbase_category.py --descriptors',
     'feature_filelock.py',
     'feature_loadblock.py',
-    'p2p_dos_header_tree.py',
     'p2p_add_connections.py',
     'feature_bind_port_discover.py',
     'p2p_unrequested_blocks.py',
@@ -471,6 +468,13 @@ NON_SCRIPTS = [
     "feature_rdts_ignore_rejects.py",
     "feature_reduced_data_utxo_height.py",
     "feature_rdts_migration.py",
+    # Regtest publishes no DNS seeds, so the cadence logs in this script never fire.
+    "p2p_blake2b_dns_immediate.py",
+    # Alternate-mainnet nonces were ground for SHA256d. Header v2 is Blake2b
+    # from genesis, and difficulty 1 cannot be reground in this suite.
+    "mining_mainnet.py",
+    # The header file is Bitcoin testnet3 up to its first checkpoint.
+    "p2p_dos_header_tree.py",
 ]
 
 def main():

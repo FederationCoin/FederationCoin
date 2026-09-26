@@ -93,6 +93,8 @@ class WalletCreateDescriptorTest(BitcoinTestFramework):
         assert_equal(len(wallet.gethdkeys()), 2)
 
         assert_raises_rpc_error(-5, "Unable to determine which HD key to use from active descriptors. Please specify with 'hdkey'", wallet.createwalletdescriptor, "bech32")
+        # New wallets do not start with a taproot descriptor.
+        wallet.createwalletdescriptor(type="bech32m", hdkey=wallet_xpub)
         assert_raises_rpc_error(-4, "Descriptor already exists", wallet.createwalletdescriptor, type="bech32m", hdkey=wallet_xpub)
         assert_raises_rpc_error(-5, "Unable to parse HD key. Please provide a valid xpub", wallet.createwalletdescriptor, type="bech32m", hdkey=xprv)
 

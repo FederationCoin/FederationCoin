@@ -65,7 +65,7 @@ class DumptxoutsetTest(BitcoinTestFramework):
         # Blockhash should be deterministic based on mocked time.
         assert_equal(
             out['base_hash'],
-            '09abf0e7b510f61ca6cf33bab104e9ee99b3528b371d27a2d4b39abb800fba7e')
+            '4a641ef4032aa63254238c76b7b6bd314b0ae719fd0a3a5dd224ebdc1e128cd1')
 
         self.check_output_file(expected_path, is_human_readable, expected_digest)
 
@@ -109,7 +109,7 @@ class DumptxoutsetTest(BitcoinTestFramework):
                 sep = params.get('separator', ',')
                 if params.get('show_header', True):
                     assert_equal(content.pop(0).rstrip(),
-                        "#(blockhash 09abf0e7b510f61ca6cf33bab104e9ee99b3528b371d27a2d4b39abb800fba7e ) txid{s}vout{s}value{s}coinbase{s}height{s}scriptPubKey".format(s=sep))
+                        "#(blockhash 4a641ef4032aa63254238c76b7b6bd314b0ae719fd0a3a5dd224ebdc1e128cd1 ) txid{s}vout{s}value{s}coinbase{s}height{s}scriptPubKey".format(s=sep))
                 assert_equal(content[0].rstrip(),
                     "b9edce02689692b1cdc3440d03011486a27c46b966248b922cc6e4315e900708{s}0{s}5000000000{s}1{s}78{s}76a9142b4569203694fc997e13f2c0a1383b9e16c77a0d88ac".format(s=sep))
 
@@ -121,19 +121,19 @@ class DumptxoutsetTest(BitcoinTestFramework):
         self.generate(node, COINBASE_MATURITY)
 
         self.test_dump_file('no_option',           {},
-                            '31fcdd0cf542a4b1dfc13c3c05106620ce48951ef62907dd8e5e8c15a0aa993b')
+                            '08f12d68fca07502f700d4c1bcf9d2392a974045018a96e38baf6d1ac47d3d04')
         self.test_dump_file('all_data',            {'format': ()},
-                            '50d7bf3ecca8c5daf648aca884b91496386d8269ef001ff95a1db4381d399bfb')
+                            '3a0b29c4a9d0eb8ab16333c1711eb3c355a81de9b1afb64b9d7b72bdb359e91b')
         self.test_dump_file('partial_data_1',      {'format': ('txid',)},
-                            'f9966db510b46d865a9412da88d17ac2c05c6bfe612ffc7c1b004aec1b508c5c')
+                            '4d20911b7051ea037636e36cbaed782a2f0b1bf6d2901a98de8baea9fb41550f')
         self.test_dump_file('partial_data_order',  {'format': ('height', 'vout')},
-                            '0ef7e361fde77f5c9f3667b1d8ce4351ec8dc81826937da0dab5631e2aedc5fe')
+                            'a700dccbcb18e472a854d5380ddc888d9a7bff6583836d6621998b16ac0c1cac')
         self.test_dump_file('partial_data_double', {'format': ('scriptPubKey', 'scriptPubKey')},
-                            '8bd128d326b971ea37bd28c016aae506e29d23dac578edd849636a8ab2ee31a8')
+                            'f96c74be09d858da367f317eafce15b3f06cd4a8a4e1a62480f11a036492d4a4')
         self.test_dump_file('no_header',           {'format': (), 'show_header': False},
                             'af1f38ee1d1b8bbdc117ab7e8353910dab5ab45f18be27aa4fa7d96ccc96a050')
         self.test_dump_file('separator',           {'format': (), 'separator': ':'},
-                            '5bee81096e400d1b3bf02de432e0fd4af8f4d9244907dc1c857ec329c5ce4490')
+                            '95cb54638b51809538971e8c8b6872a8e31d241648b1a369dffd1222feaf9fc4')
         self.test_dump_file('all_options',         {'format': (), 'show_header': False, 'separator': ':'},
                             '5c52c2a9bdb23946eb0f6d088f25ed8f5d9ebc3a3512182287975f1041cdedb4')
 

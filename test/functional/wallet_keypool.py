@@ -75,12 +75,12 @@ class KeyPoolTest(BitcoinTestFramework):
         # Imported public keys / addresses can't be mine because they are not spendable
         if self.options.descriptors:
             nodes[0].importdescriptors([{
-                "desc": "addr(bcrt1q95gp4zeaah3qcerh35yhw02qeptlzasdtst55v)",
+                "desc": "addr(gfcnrt1q95gp4zeaah3qcerh35yhw02qeptlzasdzf4gc5)",
                 "timestamp": "now"
             }])
         else:
-            nodes[0].importaddress("bcrt1q95gp4zeaah3qcerh35yhw02qeptlzasdtst55v", "label", rescan=False)
-        import_addr_data = nodes[0].getaddressinfo("bcrt1q95gp4zeaah3qcerh35yhw02qeptlzasdtst55v")
+            nodes[0].importaddress("gfcnrt1q95gp4zeaah3qcerh35yhw02qeptlzasdzf4gc5", "label", rescan=False)
+        import_addr_data = nodes[0].getaddressinfo("gfcnrt1q95gp4zeaah3qcerh35yhw02qeptlzasdzf4gc5")
         assert import_addr_data["iswatchonly"] is not self.options.descriptors
         assert not import_addr_data["ismine"]
         assert not import_addr_data["isactive"]
@@ -92,13 +92,13 @@ class KeyPoolTest(BitcoinTestFramework):
             }])
         else:
             nodes[0].importpubkey("02f893ca95b0d55b4ce4e72ae94982eb679158cb2ebc120ff62c17fedfd1f0700e", "label", rescan=False)
-        import_pub_data = nodes[0].getaddressinfo("bcrt1q4v7a8wn5vqd6fk4026s5gzzxyu7cfzz23n576h")
+        import_pub_data = nodes[0].getaddressinfo("gfcnrt1q4v7a8wn5vqd6fk4026s5gzzxyu7cfzz2c22zk0")
         assert import_pub_data["iswatchonly"] is not self.options.descriptors
         assert not import_pub_data["ismine"]
         assert not import_pub_data["isactive"]
 
-        nodes[0].importprivkey("cPMX7v5CNV1zCphFSq2hnR5rCjzAhA1GsBfD1qrJGdj4QEfu38Qx", "label", rescan=False)
-        import_priv_data = nodes[0].getaddressinfo("bcrt1qa985v5d53qqtrfujmzq2zrw3r40j6zz4ns02kj")
+        nodes[0].importprivkey("a25RyLJoa2MncYUxbciR3da4DnmjLTfeG7h84aJnQyfftwWQ2s6C", "label", rescan=False)
+        import_priv_data = nodes[0].getaddressinfo("gfcnrt1qa985v5d53qqtrfujmzq2zrw3r40j6zz46f3k62")
         assert not import_priv_data["iswatchonly"]
         assert import_priv_data["ismine"]
         assert not import_priv_data["isactive"]
@@ -116,39 +116,39 @@ class KeyPoolTest(BitcoinTestFramework):
             nodes[0].walletpassphrase('test', 10)
             nodes[0].importdescriptors([
                 {
-                    "desc": "wpkh(tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK/0h/*h)#y4dfsj7n",
+                    "desc": "wpkh(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/0h/*h)#nsl80wxr",
                     "timestamp": "now",
                     "range": [0,0],
                     "active": True
                 },
                 {
-                    "desc": "pkh(tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK/1h/*h)#a0nyvl0k",
+                    "desc": "pkh(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/1h/*h)#awpur3j6",
                     "timestamp": "now",
                     "range": [0,0],
                     "active": True
                 },
                 {
-                    "desc": "sh(wpkh(tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK/2h/*h))#lmeu2axg",
+                    "desc": "sh(wpkh(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/2h/*h))#uqu43epp",
                     "timestamp": "now",
                     "range": [0,0],
                     "active": True
                 },
                 {
-                    "desc": "wpkh(tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK/3h/*h)#jkl636gm",
+                    "desc": "wpkh(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/3h/*h)#9nd5wxst",
                     "timestamp": "now",
                     "range": [0,0],
                     "active": True,
                     "internal": True
                 },
                 {
-                    "desc": "pkh(tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK/4h/*h)#l3crwaus",
+                    "desc": "pkh(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/4h/*h)#ls2mpnpu",
                     "timestamp": "now",
                     "range": [0,0],
                     "active": True,
                     "internal": True
                 },
                 {
-                    "desc": "sh(wpkh(tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK/5h/*h))#qg8wa75f",
+                    "desc": "sh(wpkh(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/5h/*h))#rnz8x6nq",
                     "timestamp": "now",
                     "range": [0,0],
                     "active": True,
@@ -173,9 +173,9 @@ class KeyPoolTest(BitcoinTestFramework):
         wi = nodes[0].getwalletinfo()
         if self.options.descriptors:
             # Descriptors wallet: keypool size applies to both internal and external
-            # chains and there are four of each (legacy, nested, segwit, and taproot)
-            assert_equal(wi['keypoolsize_hd_internal'], TEST_NEW_KEYPOOL_SIZE * 4)
-            assert_equal(wi['keypoolsize'], TEST_NEW_KEYPOOL_SIZE * 4)
+            # chains and there are three of each (legacy, nested, and segwit).
+            assert_equal(wi['keypoolsize_hd_internal'], TEST_NEW_KEYPOOL_SIZE * 3)
+            assert_equal(wi['keypoolsize'], TEST_NEW_KEYPOOL_SIZE * 3)
         else:
             # Legacy wallet: keypool size applies to both internal and external HD chains
             assert_equal(wi['keypoolsize_hd_internal'], TEST_NEW_KEYPOOL_SIZE)
@@ -227,8 +227,8 @@ class KeyPoolTest(BitcoinTestFramework):
             nodes[0].keypoolrefill(100)
             wi = nodes[0].getwalletinfo()
             if self.options.descriptors:
-                assert_equal(wi['keypoolsize_hd_internal'], 400)
-                assert_equal(wi['keypoolsize'], 400)
+                assert_equal(wi['keypoolsize_hd_internal'], 300)
+                assert_equal(wi['keypoolsize'], 300)
             else:
                 assert_equal(wi['keypoolsize_hd_internal'], 100)
                 assert_equal(wi['keypoolsize'], 100)

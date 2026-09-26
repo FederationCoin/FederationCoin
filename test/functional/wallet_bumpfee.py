@@ -15,6 +15,7 @@ make assumptions about execution order.
 """
 from decimal import Decimal
 
+from test_framework.descriptors import descsum_create
 from test_framework.blocktools import (
     COINBASE_MATURITY,
 )
@@ -148,7 +149,7 @@ class BumpFeeTest(BitcoinTestFramework):
         # Test fee_rate values that don't pass fixed-point parsing checks.
         for invalid_value in ["", 0.000000001, 1e-09, 1.111111111, 1111111111111111, "31.999999999999999999999"]:
             assert_raises_rpc_error(-3, msg, rbf_node.bumpfee, rbfid, fee_rate=invalid_value)
-        # Test fee_rate values that cannot be represented in sat/vB.
+        # Test fee_rate values that cannot be represented in token/vB.
         for invalid_value in [0.0001, 0.00000001, 0.00099999, 31.99999999]:
             assert_raises_rpc_error(-3, msg, rbf_node.bumpfee, rbfid, fee_rate=invalid_value)
         # Test fee_rate out of range (negative number).
@@ -532,7 +533,7 @@ def test_dust_to_fee(self, rbf_node, dest_address):
     # boundary. Thus expected transaction size (p2wpkh, 1 input, 2 outputs) is 140-141 vbytes, usually 141.
     if not 140 <= fulltx["vsize"] <= 141:
         raise AssertionError("Invalid tx vsize of {} (140-141 expected), full tx: {}".format(fulltx["vsize"], fulltx))
-    # Bump with fee_rate of 350.25 sat/vB vbytes to create dust.
+    # Bump with fee_rate of 350.25 token/vB vbytes to create dust.
     # Expected fee is 141 vbytes * fee_rate 0.00350250 BTC / 1000 vbytes = 0.00049385 BTC.
     # or occasionally 140 vbytes * fee_rate 0.00350250 BTC / 1000 vbytes = 0.00049035 BTC.
     # Dust should be dropped to the fee, so actual bump fee is 0.00050000 BTC.
@@ -553,18 +554,18 @@ def test_setfeerate(self, rbf_node, dest_address):
 
     # Test setfeerate with too high/low values returns expected errors
     new = Decimal("10000.001")
-    test_response(requested=new, error=True, msg=f"The requested fee rate of {new} sat/vB cannot be greater than the wallet max fee rate of 10000.000 sat/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
+    test_response(requested=new, error=True, msg=f"The requested fee rate of {new} token/vB cannot be greater than the wallet max fee rate of 10000.000 token/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
     new = Decimal("0.999")
-    test_response(requested=new, error=True, msg=f"The requested fee rate of {new} sat/vB cannot be less than the minimum relay fee rate of 1.000 sat/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
+    test_response(requested=new, error=True, msg=f"The requested fee rate of {new} token/vB cannot be less than the minimum relay fee rate of 1.000 token/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
     fee_rate = Decimal("2.001")
-    test_response(requested=fee_rate, expected=fee_rate, msg=f"Fee rate for transactions with this wallet successfully set to {fee_rate} sat/vB")
+    test_response(requested=fee_rate, expected=fee_rate, msg=f"Fee rate for transactions with this wallet successfully set to {fee_rate} token/vB")
     new = Decimal("1.999")
-    test_response(requested=new, expected=fee_rate, error=True, msg=f"The requested fee rate of {new} sat/vB cannot be less than the wallet min fee rate of 2.000 sat/vB. The current setting of {fee_rate} sat/vB for this wallet remains unchanged.")
+    test_response(requested=new, expected=fee_rate, error=True, msg=f"The requested fee rate of {new} token/vB cannot be less than the wallet min fee rate of 2.000 token/vB. The current setting of {fee_rate} token/vB for this wallet remains unchanged.")
 
     # Test setfeerate with valid values returns expected results
     rbfid = spend_one_input(rbf_node, dest_address)
     fee_rate = 25
-    test_response(requested=fee_rate, expected=fee_rate, msg="Fee rate for transactions with this wallet successfully set to 25.000 sat/vB")
+    test_response(requested=fee_rate, expected=fee_rate, msg="Fee rate for transactions with this wallet successfully set to 25.000 token/vB")
     bumped_tx = rbf_node.bumpfee(rbfid)
     bumped_txdetails = rbf_node.getrawtransaction(bumped_tx["txid"], True)
     allow_for_bytes_offset = len(bumped_txdetails['vout']) * 2  # potentially up to 2 bytes per output
@@ -575,7 +576,7 @@ def test_setfeerate(self, rbf_node, dest_address):
     # Test setfeerate with a different -maxtxfee
     self.restart_node(1, ["-maxtxfee=0.000025"] + self.extra_args[1])
     new = "2.501"
-    test_response(requested=new, error=True, msg=f"The requested fee rate of {new} sat/vB cannot be greater than the wallet max fee rate of 2.500 sat/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
+    test_response(requested=new, error=True, msg=f"The requested fee rate of {new} token/vB cannot be greater than the wallet max fee rate of 2.500 token/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
 
     self.restart_node(1, self.extra_args[1])
     rbf_node.walletpassphrase(WALLET_PASSPHRASE, WALLET_PASSPHRASE_TIMEOUT)
@@ -624,9 +625,10 @@ def test_maxtxfee_fails(self, rbf_node, dest_address):
 
 def test_watchonly_psbt(self, peer_node, rbf_node, dest_address):
     self.log.info('Test that PSBT is returned for bumpfee in watchonly wallets')
-    priv_rec_desc = "wpkh([00000001/84'/1'/0']tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK/0/*)#rweraev0"
+    xprv = rbf_node.gethdkeys({"private": True})[0]["xprv"]
+    priv_rec_desc = descsum_create(f"wpkh({xprv}/0/*)")
     pub_rec_desc = rbf_node.getdescriptorinfo(priv_rec_desc)["descriptor"]
-    priv_change_desc = "wpkh([00000001/84'/1'/0']tprv8ZgxMBicQKsPd7Uf69XL1XwhmjHopUGep8GuEiJDZmbQz6o58LninorQAfcKZWARbtRtfnLcJ5MQ2AtHcQJCCRUcMRvmDUjyEmNUWwx8UbK/1/*)#j6uzqvuh"
+    priv_change_desc = descsum_create(f"wpkh({xprv}/1/*)")
     pub_change_desc = rbf_node.getdescriptorinfo(priv_change_desc)["descriptor"]
     # Create a wallet with private keys that can sign PSBTs
     rbf_node.createwallet(wallet_name="signer", disable_private_keys=False, blank=True)

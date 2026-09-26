@@ -247,7 +247,7 @@ class SegWitTest(BitcoinTestFramework):
         raw_tx = self.nodes[0].getrawtransaction(txid, True)
         tmpl = self.nodes[0].getblocktemplate({'rules': ['segwit', 'blake2b']})
         assert_greater_than_or_equal(tmpl['sizelimit'], 3999577)  # actual maximum size is lower due to minimum mandatory non-witness data
-        assert_equal(tmpl['weightlimit'], 4000000)
+        assert_equal(tmpl['weightlimit'], 800000)
         assert_equal(tmpl['sigoplimit'], 80000)
         assert_equal(tmpl['transactions'][0]['txid'], txid)
         expected_sigops = 9 if 'txinwitness' in raw_tx["vin"][0] else 8
@@ -350,20 +350,20 @@ class SegWitTest(BitcoinTestFramework):
 
             # Some public keys to be used later
             pubkeys = [
-                "0363D44AABD0F1699138239DF2F042C3282C0671CC7A76826A55C8203D90E39242",  # cPiM8Ub4heR9NBYmgVzJQiUH1if44GSBGiqaeJySuL2BKxubvgwb
-                "02D3E626B3E616FC8662B489C123349FECBFC611E778E5BE739B257EAE4721E5BF",  # cPpAdHaD6VoYbW78kveN2bsvb45Q7G5PhaPApVUGwvF8VQ9brD97
+                "0363D44AABD0F1699138239DF2F042C3282C0671CC7A76826A55C8203D90E39242",  # a2SFytpfuBkwmuLUqHg1fvxV2mScha6YfesVh3Rw3fxnpfncxaKv
+                "02D3E626B3E616FC8662B489C123349FECBFC611E778E5BE739B257EAE4721E5BF",  # a2Y5UhopJ39M1DtquiL5HpN8c6rxkZjm6WR5sDvm6GBjz6ygSyxy
                 "04A47F2CBCEFFA7B9BCDA184E7D5668D3DA6F9079AD41E422FA5FD7B2D458F2538A62F5BD8EC85C2477F39650BD391EA6250207065B2A81DA8B009FC891E898F0E",  # 91zqCU5B9sdWxzMt1ca3VzbtVm2YM6Hi5Rxn4UDtxEaN9C9nzXV
-                "02A47F2CBCEFFA7B9BCDA184E7D5668D3DA6F9079AD41E422FA5FD7B2D458F2538",  # cPQFjcVRpAUBG8BA9hzr2yEzHwKoMgLkJZBBtK9vJnvGJgMjzTbd
-                "036722F784214129FEB9E8129D626324F3F6716555B603FFE8300BBCB882151228",  # cQGtcm34xiLjB1v7bkRa4V3aAc9tS2UTuBZ1UnZGeSeNy627fN66
-                "0266A8396EE936BF6D99D17920DB21C6C7B1AB14C639D5CD72B300297E416FD2EC",  # cTW5mR5M45vHxXkeChZdtSPozrFwFgmEvTNnanCW6wrqwaCZ1X7K
+                "02A47F2CBCEFFA7B9BCDA184E7D5668D3DA6F9079AD41E422FA5FD7B2D458F2538",  # a28Ab2j31hoyfqxsJVgZJBjCJz7Mzz17hVD6w3cQT8rsoPD2GHwf
+                "036722F784214129FEB9E8129D626324F3F6716555B603FFE8300BBCB882151228",  # a2zoUBGgAFgXajhpkY7HKhXnBewT5L8qJ7avXX1knnazTnowijt5
+                "0266A8396EE936BF6D99D17920DB21C6C7B1AB14C639D5CD72B300297E416FD2EC",  # a6DzcqJxFdG6NFYMMVFM9et21u3VtzRcKPQhdWezFHoTSGvXACzR
                 "0450A38BD7F0AC212FEBA77354A9B036A32E0F7C81FC4E0C5ADCA7C549C4505D2522458C2D9AE3CEFD684E039194B72C8A10F9CB9D4764AB26FCC2718D421D3B84",  # 92h2XPssjBpsJN5CqSP7v9a7cf2kgDunBC6PDFwJHMACM1rrVBJ
             ]
 
             # Import a compressed key and an uncompressed key, generate some multisig addresses
-            self.nodes[0].importprivkey("92e6XLo5jVAVwrQKPNTs93oQco8f8sDNBcpv73Dsrs397fQtFQn")
-            uncompressed_spendable_address = ["mvozP4UwyGD2mGZU4D2eMvMLPB9WkMmMQu"]
-            self.nodes[0].importprivkey("cNC8eQ5dg3mFAVePDX4ddmPYpPbw41r9bm2jd1nLJT77e6RrzTRR")
-            compressed_spendable_address = ["mmWQubrDomqpgSYekvsU7HWEVjLFHAakLe"]
+            self.nodes[0].importprivkey("8VYBhdca6gLsnj72t6XssvD1xyHAjbjMbPhCCeDXxNvwDjjejKH")
+            uncompressed_spendable_address = ["fVQLdKiLcNo1gLL5fVhYbuzkK72RGRRAFn"]
+            self.nodes[0].importprivkey("Zzv3VpKEsb73aDS6NJkLtyskqSPVhKWWzh4efkEpSo3j8oDWhNhZ")
+            compressed_spendable_address = ["fL6m9s5cStRobWKGNDYNMH9eRfD9vLzHgD"]
             assert not self.nodes[0].getaddressinfo(uncompressed_spendable_address[0])['iscompressed']
             assert self.nodes[0].getaddressinfo(compressed_spendable_address[0])['iscompressed']
 
@@ -523,10 +523,10 @@ class SegWitTest(BitcoinTestFramework):
 
             # Repeat some tests. This time we don't add witness scripts with importaddress
             # Import a compressed key and an uncompressed key, generate some multisig addresses
-            self.nodes[0].importprivkey("927pw6RW8ZekycnXqBQ2JS5nPyo1yRfGNN8oq74HeddWSpafDJH")
-            uncompressed_spendable_address = ["mguN2vNSCEUh6rJaXoAVwY3YZwZvEmf5xi"]
-            self.nodes[0].importprivkey("cMcrXaaUC48ZKpcyydfFo8PxHAjpsYLhdsp6nmtB3E2ER9UUHWnw")
-            compressed_spendable_address = ["n1UNmpmbVUJ9ytXYXiurmGPQ3TRrXqPWKL"]
+            self.nodes[0].importprivkey("8V1v7PEzVkq8pVVFKuU33JVPk9wXaABFn915vi3wk9XJYssbC2L")
+            uncompressed_spendable_address = ["fFViHBbpqM4g1v5C95qQBXgxVsSpqvUP5n"]
+            self.nodes[0].importprivkey("ZzLmNzp5PbUMjYQh8RLy4LtAJDXPWr152or1qWLfBZxqurK3YCud")
+            compressed_spendable_address = ["fa4j25zz8at8txJA91am1G2oyPJm9XdtLJ"]
 
             self.nodes[0].importpubkey(pubkeys[5])
             compressed_solvable_address = [key_to_p2pkh(pubkeys[5])]
@@ -591,12 +591,12 @@ class SegWitTest(BitcoinTestFramework):
             self.create_and_mine_tx_from_txids(spendable_txid)
 
             # import all the private keys so solvable addresses become spendable
-            self.nodes[0].importprivkey("cPiM8Ub4heR9NBYmgVzJQiUH1if44GSBGiqaeJySuL2BKxubvgwb")
-            self.nodes[0].importprivkey("cPpAdHaD6VoYbW78kveN2bsvb45Q7G5PhaPApVUGwvF8VQ9brD97")
+            self.nodes[0].importprivkey("a2SFytpfuBkwmuLUqHg1fvxV2mScha6YfesVh3Rw3fxnpfncxaKv")
+            self.nodes[0].importprivkey("a2Y5UhopJ39M1DtquiL5HpN8c6rxkZjm6WR5sDvm6GBjz6ygSyxy")
             self.nodes[0].importprivkey("91zqCU5B9sdWxzMt1ca3VzbtVm2YM6Hi5Rxn4UDtxEaN9C9nzXV")
-            self.nodes[0].importprivkey("cPQFjcVRpAUBG8BA9hzr2yEzHwKoMgLkJZBBtK9vJnvGJgMjzTbd")
-            self.nodes[0].importprivkey("cQGtcm34xiLjB1v7bkRa4V3aAc9tS2UTuBZ1UnZGeSeNy627fN66")
-            self.nodes[0].importprivkey("cTW5mR5M45vHxXkeChZdtSPozrFwFgmEvTNnanCW6wrqwaCZ1X7K")
+            self.nodes[0].importprivkey("a28Ab2j31hoyfqxsJVgZJBjCJz7Mzz17hVD6w3cQT8rsoPD2GHwf")
+            self.nodes[0].importprivkey("a2zoUBGgAFgXajhpkY7HKhXnBewT5L8qJ7avXX1knnazTnowijt5")
+            self.nodes[0].importprivkey("a6DzcqJxFdG6NFYMMVFM9et21u3VtzRcKPQhdWezFHoTSGvXACzR")
             self.create_and_mine_tx_from_txids(solvable_txid)
 
             # Test that importing native P2WPKH/P2WSH scripts works

@@ -15,6 +15,7 @@ make assumptions about execution order.
 """
 from decimal import Decimal
 
+from test_framework.authproxy import JSONRPCException
 from test_framework.descriptors import descsum_create
 from test_framework.blocktools import (
     COINBASE_MATURITY,
@@ -392,13 +393,33 @@ def test_nonrbf_bumpfee_fails(self, peer_node, dest_address):
     self.clear_mempool()
 
 
+def utxo_absent_from(owner, other, minimum):
+    """An output `owner` can spend whose parent `other` does not store.
+
+    listunspent()[-1] is often change from a payment both wallets already
+    have. Unified sighash needs every spent output, including one this wallet
+    has never received, so the co-sign path has to load that output from the
+    chain.
+    """
+    for utxo in owner.listunspent(minimumAmount=minimum):
+        try:
+            other.gettransaction(utxo["txid"])
+        except JSONRPCException as e:
+            assert e.error["code"] == -5
+            return utxo
+    raise AssertionError("no spendable output whose parent is absent from the other wallet")
+
+
 def test_notmine_bumpfee(self, rbf_node, peer_node, dest_address):
     self.log.info('Test that it cannot bump fee if non-owned inputs are included')
     # here, the rbftx has a peer_node coin and then adds a rbf_node input
     # Note that this test depends upon the RPC code checking input ownership prior to change outputs
     # (since it can't use fundrawtransaction, it lacks a proper change output)
     fee = Decimal("0.001")
-    utxos = [node.listunspent(minimumAmount=fee)[-1] for node in (rbf_node, peer_node)]
+    utxos = [
+        rbf_node.listunspent(minimumAmount=fee)[-1],
+        utxo_absent_from(peer_node, rbf_node, fee),
+    ]
     inputs = [{
         "txid": utxo["txid"],
         "vout": utxo["vout"],

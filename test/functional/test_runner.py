@@ -86,7 +86,7 @@ EXTENDED_SCRIPTS = [
     'feature_pruning.py',
     'feature_dbcrash.py',
     'feature_index_prune.py',
-    'wallet_pruning.py --legacy-wallet',
+    # 'wallet_pruning.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
 ]
 
 BASE_SCRIPTS = [
@@ -102,7 +102,7 @@ BASE_SCRIPTS = [
     # feature_rdts_ignore_rejects needs a SHA256d era before the fork.
     'feature_block.py',
     'mempool_ephemeral_dust.py',
-    'wallet_conflicts.py --legacy-wallet',
+    # 'wallet_conflicts.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_conflicts.py --descriptors',
     'p2p_opportunistic_1p1c.py',
     'p2p_node_network_limited.py --v1transport',
@@ -114,34 +114,34 @@ BASE_SCRIPTS = [
     'mempool_updatefromblock.py',
     'mempool_persist.py --descriptors',
     # vv Tests less than 60s vv
-    'rpc_psbt.py --legacy-wallet',
+    # 'rpc_psbt.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'rpc_psbt.py --descriptors',
-    'wallet_fundrawtransaction.py --legacy-wallet',
+    # 'wallet_fundrawtransaction.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_fundrawtransaction.py --descriptors',
-    'wallet_bumpfee.py --legacy-wallet',
+    # 'wallet_bumpfee.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_bumpfee.py --descriptors',
-    'wallet_import_rescan.py --legacy-wallet',
-    'wallet_backup.py --legacy-wallet',
+    # 'wallet_import_rescan.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
+    # 'wallet_backup.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_backup.py --descriptors',
-    'feature_segwit.py --legacy-wallet',
+    # 'feature_segwit.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'feature_segwit.py --descriptors --v1transport',
     'feature_segwit.py --descriptors --v2transport',
     'p2p_tx_download.py',
-    'wallet_avoidreuse.py --legacy-wallet',
+    # 'wallet_avoidreuse.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_avoidreuse.py --descriptors',
     'feature_abortnode.py',
-    'wallet_address_types.py --legacy-wallet',
+    # 'wallet_address_types.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_address_types.py --descriptors',
     'p2p_orphan_handling.py',
-    'wallet_basic.py --legacy-wallet',
+    # 'wallet_basic.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_basic.py --descriptors',
     'feature_maxtipage.py',
-    'wallet_multiwallet.py --legacy-wallet',
+    # 'wallet_multiwallet.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_multiwallet.py --descriptors',
     'wallet_multiwallet.py --usecli',
     'p2p_dns_seeds.py',
     'p2p_blake2b_outbound_preference.py',
-    'wallet_groups.py --legacy-wallet',
+    # 'wallet_groups.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_groups.py --descriptors',
     'p2p_blockfilters.py',
     'feature_assumevalid.py',
@@ -157,7 +157,7 @@ BASE_SCRIPTS = [
     # feature_reduced_data_utxo_height and feature_rdts_migration need a SHA256d era.
     'p2p_sendheaders.py',
     'feature_config_args.py',
-    'wallet_listtransactions.py --legacy-wallet',
+    # 'wallet_listtransactions.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_listtransactions.py --descriptors',
     'wallet_miniscript.py --descriptors',
     # vv Tests less than 30s vv
@@ -165,31 +165,31 @@ BASE_SCRIPTS = [
     'rpc_createmultisig.py',
     'p2p_timeouts.py --v1transport',
     'p2p_timeouts.py --v2transport',
-    'wallet_dump.py --legacy-wallet',
+    # 'wallet_dump.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'rpc_signer.py',
     'wallet_signer.py --descriptors',
-    'wallet_importmulti.py --legacy-wallet',
+    # 'wallet_importmulti.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'mempool_limit.py',
     'rpc_txoutproof.py',
     'rpc_orphans.py',
-    'wallet_listreceivedby.py --legacy-wallet',
+    # 'wallet_listreceivedby.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_listreceivedby.py --descriptors',
-    'wallet_abandonconflict.py --legacy-wallet',
+    # 'wallet_abandonconflict.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_abandonconflict.py --descriptors',
-    'wallet_anchor.py --legacy-wallet',
+    # 'wallet_anchor.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_anchor.py --descriptors',
     'feature_reindex.py',
     'feature_reindex_readonly.py',
-    'wallet_labels.py --legacy-wallet',
+    # 'wallet_labels.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_labels.py --descriptors',
     'p2p_compactblocks.py',
     'p2p_compactblocks_blocksonly.py',
     'p2p_compactblocks_extratxs.py',
-    'wallet_hd.py --legacy-wallet',
+    # 'wallet_hd.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_hd.py --descriptors',
-    'wallet_blank.py --legacy-wallet',
+    # 'wallet_blank.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_blank.py --descriptors',
-    'wallet_keypool_topup.py --legacy-wallet',
+    # 'wallet_keypool_topup.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_keypool_topup.py --descriptors',
     'wallet_fast_rescan.py --descriptors',
     'wallet_gethdkeys.py --descriptors',
@@ -198,18 +198,18 @@ BASE_SCRIPTS = [
     'interface_zmq.py',
     'rpc_invalid_address_message.py',
     'rpc_validateaddress.py',
-    'interface_bitcoin_cli.py --legacy-wallet',
+    # 'interface_bitcoin_cli.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'interface_bitcoin_cli.py --descriptors',
     'feature_bind_extra.py',
     'mempool_resurrect.py',
     'wallet_sweepprivkeys.py',
     'wallet_txn_doublespend.py --mineblock',
     'tool_cli_completion.py',
-    'tool_wallet.py --legacy-wallet',
-    'tool_wallet.py --legacy-wallet --bdbro',
-    'tool_wallet.py --legacy-wallet --bdbro --swap-bdb-endian',
+    # 'tool_wallet.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
+    # 'tool_wallet.py --legacy-wallet --bdbro'  # this chain does not ship a Berkeley DB wallet
+    # 'tool_wallet.py --legacy-wallet --bdbro --swap-bdb-endian'  # this chain does not ship a Berkeley DB wallet
     'tool_wallet.py --descriptors',
-    'tool_signet_miner.py --legacy-wallet',
+    # 'tool_signet_miner.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'tool_signet_miner.py --descriptors',
     'wallet_txn_clone.py',
     'wallet_txn_clone.py --segwit',
@@ -224,12 +224,12 @@ BASE_SCRIPTS = [
     'p2p_block_sync.py --v1transport',
     'p2p_block_sync.py --v2transport',
     'p2p_block_times.py',
-    'wallet_createwallet.py --legacy-wallet',
+    # 'wallet_createwallet.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_createwallet.py --usecli',
     'wallet_createwallet.py --descriptors',
-    'wallet_watchonly.py --legacy-wallet',
-    'wallet_watchonly.py --usecli --legacy-wallet',
-    'wallet_reindex.py --legacy-wallet',
+    # 'wallet_watchonly.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
+    # 'wallet_watchonly.py --usecli --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
+    # 'wallet_reindex.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_reindex.py --descriptors',
     'wallet_reorgsrestore.py',
     'interface_http.py',
@@ -243,12 +243,12 @@ BASE_SCRIPTS = [
     'rpc_whitelist.py',
     'rpc_getrpcwhitelist.py',
     'feature_proxy.py',
-    'wallet_signrawtransactionwithwallet.py --legacy-wallet',
+    # 'wallet_signrawtransactionwithwallet.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_signrawtransactionwithwallet.py --descriptors',
     'rpc_signrawtransactionwithkey.py',
-    'rpc_rawtransaction.py --legacy-wallet',
+    # 'rpc_rawtransaction.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_transactiontime_rescan.py --descriptors',
-    'wallet_transactiontime_rescan.py --legacy-wallet',
+    # 'wallet_transactiontime_rescan.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'p2p_addrv2_relay.py',
     'p2p_compactblocks_hb.py --v1transport',
     'p2p_compactblocks_hb.py --v2transport',
@@ -260,7 +260,7 @@ BASE_SCRIPTS = [
     'rpc_blockchain.py --v2transport',
     'rpc_deprecated.py',
     'wallet_disable.py',
-    'wallet_change_address.py --legacy-wallet',
+    # 'wallet_change_address.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_change_address.py --descriptors',
     'p2p_addr_relay.py',
     'p2p_getaddr_caching.py',
@@ -268,7 +268,7 @@ BASE_SCRIPTS = [
     'p2p_addrfetch.py',
     'rpc_net.py --v1transport',
     'rpc_net.py --v2transport',
-    'wallet_keypool.py --legacy-wallet',
+    # 'wallet_keypool.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_keypool.py --descriptors',
     'wallet_descriptor.py --descriptors',
     'p2p_nobloomfilter_messages.py',
@@ -288,11 +288,11 @@ BASE_SCRIPTS = [
     'p2p_v2_misbehaving.py',
     'example_test.py',
     'mempool_truc.py',
-    'wallet_txn_doublespend.py --legacy-wallet',
+    # 'wallet_txn_doublespend.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_multisig_descriptor_psbt.py --descriptors',
     'wallet_miniscript_decaying_multisig_descriptor_psbt.py --descriptors',
     'wallet_txn_doublespend.py --descriptors',
-    'wallet_backwards_compatibility.py --legacy-wallet',
+    # 'wallet_backwards_compatibility.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_backwards_compatibility.py --descriptors',
     'wallet_txn_clone.py --mineblock',
     'feature_notifications.py',
@@ -309,7 +309,7 @@ BASE_SCRIPTS = [
     'feature_versionbits_warning.py',
     'feature_blocksxor.py',
     'rpc_preciousblock.py',
-    'wallet_importprunedfunds.py --legacy-wallet',
+    # 'wallet_importprunedfunds.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_importprunedfunds.py --descriptors',
     'p2p_leak_tx.py --v1transport',
     'p2p_leak_tx.py --v2transport',
@@ -322,7 +322,7 @@ BASE_SCRIPTS = [
     'wallet_signmessagewithaddress.py',
     'rpc_signmessagewithprivkey.py',
     'rpc_generate.py',
-    'wallet_balance.py --legacy-wallet',
+    # 'wallet_balance.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_balance.py --descriptors',
     'p2p_initial_headers_sync.py',
     'feature_nulldummy.py',
@@ -330,33 +330,33 @@ BASE_SCRIPTS = [
     'mempool_fee_histogram.py',
     'mempool_expiry.py',
     'rpc_sort_multisig.py',
-    'wallet_import_with_label.py --legacy-wallet',
+    # 'wallet_import_with_label.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_importdescriptors.py --descriptors',
     'wallet_importseed.py --descriptors',
-    'wallet_upgradewallet.py --legacy-wallet',
+    # 'wallet_upgradewallet.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_crosschain.py',
     'mining_basic.py',
     'feature_signet.py',
     'p2p_mutated_blocks.py',
-    'wallet_implicitsegwit.py --legacy-wallet',
+    # 'wallet_implicitsegwit.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'rpc_named_arguments.py',
     'feature_startupnotify.py',
-    'wallet_simulaterawtx.py --legacy-wallet',
+    # 'wallet_simulaterawtx.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_simulaterawtx.py --descriptors',
-    'wallet_listsinceblock.py --legacy-wallet',
+    # 'wallet_listsinceblock.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_listsinceblock.py --descriptors',
     'wallet_listdescriptors.py --descriptors',
     'p2p_leak.py',
-    'wallet_encryption.py --legacy-wallet',
+    # 'wallet_encryption.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_encryption.py --descriptors',
     'feature_dersig.py',
     'feature_reindex_init.py',
     'feature_cltv.py',
     'rpc_uptime.py',
     'feature_discover.py',
-    'wallet_resendwallettransactions.py --legacy-wallet',
+    # 'wallet_resendwallettransactions.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_resendwallettransactions.py --descriptors',
-    'wallet_fallbackfee.py --legacy-wallet',
+    # 'wallet_fallbackfee.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_fallbackfee.py --descriptors',
     'rpc_dumptxoutset.py',
     'rpc_getblocklocations.py',
@@ -366,21 +366,21 @@ BASE_SCRIPTS = [
     'feature_port.py',
     # Blake2b is buried at height 0, so feature_powchange cannot delay it.
     'feature_bind_port_externalip.py',
-    'wallet_create_tx.py --legacy-wallet',
-    'wallet_send.py --legacy-wallet',
+    # 'wallet_create_tx.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
+    # 'wallet_send.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_send.py --descriptors',
-    'wallet_sendall.py --legacy-wallet',
+    # 'wallet_sendall.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_sendall.py --descriptors',
     'wallet_sendmany.py --descriptors',
-    'wallet_sendmany.py --legacy-wallet',
+    # 'wallet_sendmany.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_create_tx.py --descriptors',
-    'wallet_inactive_hdchains.py --legacy-wallet',
+    # 'wallet_inactive_hdchains.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_spend_unconfirmed.py',
     'wallet_rescan_unconfirmed.py --descriptors',
     'p2p_fingerprint.py',
     'feature_uacomment.py',
     'feature_init.py',
-    'wallet_coinbase_category.py --legacy-wallet',
+    # 'wallet_coinbase_category.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_coinbase_category.py --descriptors',
     'feature_filelock.py',
     'feature_loadblock.py',
@@ -439,7 +439,7 @@ BASE_SCRIPTS = [
     'feature_dirsymlinks.py',
     'feature_help.py',
     'feature_shutdown.py',
-    'wallet_migration.py',
+    # 'wallet_migration.py'  # this chain does not ship a Berkeley DB wallet
     'p2p_ibd_txrelay.py',
     'p2p_seednode.py',
     # Don't append tests at the end to avoid merge conflicts
@@ -475,6 +475,18 @@ NON_SCRIPTS = [
     "mining_mainnet.py",
     # The header file is Bitcoin testnet3 up to its first checkpoint.
     "p2p_dos_header_tree.py",
+    # This chain does not ship a Berkeley DB wallet. These scripts have no descriptor run.
+    "wallet_dump.py",
+    "wallet_importmulti.py",
+    "wallet_pruning.py",
+    "wallet_import_rescan.py",
+    "wallet_watchonly.py",
+    "rpc_rawtransaction.py",
+    "wallet_import_with_label.py",
+    "wallet_upgradewallet.py",
+    "wallet_implicitsegwit.py",
+    "wallet_inactive_hdchains.py",
+    "wallet_migration.py",
 ]
 
 def main():

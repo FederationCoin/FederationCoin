@@ -10,11 +10,11 @@ RUN apk add --no-cache \
     coreutils \
     binutils
 
-WORKDIR /opt/bitcoin
+WORKDIR /opt/federationcoin
 
 COPY . .
 
-WORKDIR /opt/bitcoin/build
+WORKDIR /opt/federationcoin/build
 
 RUN cmake .. \
     -DCMAKE_INSTALL_PREFIX="/usr/local/" \
@@ -54,18 +54,18 @@ RUN apk add --no-cache \
     boost-filesystem \
     boost-program_options
 
-COPY --from=builder /usr/local/bin/bitcoind     /usr/local/bin/bitcoind
-COPY --from=builder /usr/local/bin/bitcoin-cli  /usr/local/bin/bitcoin-cli
+COPY --from=builder /usr/local/bin/federationcoind     /usr/local/bin/federationcoind
+COPY --from=builder /usr/local/bin/federationcoin-cli  /usr/local/bin/federationcoin-cli
 
-RUN addgroup -S -g ${GROUP_ID} bitcoin && \
-    adduser -S -u ${USER_ID} -G bitcoin -H -s /bin/false bitcoin
+RUN addgroup -S -g ${GROUP_ID} federationcoin && \
+    adduser -S -u ${USER_ID} -G federationcoin -H -s /bin/false federationcoin
 
-WORKDIR /var/lib/bitcoind
+WORKDIR /var/lib/federationcoind
 EXPOSE 8333 8332
-USER bitcoin
-VOLUME ["/var/lib/bitcoind", "/etc/bitcoin/bitcoin.conf"]
+USER federationcoin
+VOLUME ["/var/lib/federationcoind", "/etc/federationcoin/federationcoin.conf"]
 
-ENTRYPOINT ["bitcoind", "-conf=/etc/bitcoin/bitcoin.conf", "-datadir=/var/lib/bitcoind"]
+ENTRYPOINT ["federationcoind", "-conf=/etc/federationcoin/federationcoin.conf", "-datadir=/var/lib/federationcoind"]
 
 HEALTHCHECK --interval=5m --timeout=15s --start-period=2m --start-interval=10s \
-    CMD ["bitcoin-cli", "-conf=/etc/bitcoin/bitcoin.conf", "-datadir=/var/lib/bitcoind", "getblockchaininfo"]
+    CMD ["federationcoin-cli", "-conf=/etc/federationcoin/federationcoin.conf", "-datadir=/var/lib/federationcoind", "getblockchaininfo"]

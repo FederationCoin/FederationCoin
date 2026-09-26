@@ -593,7 +593,7 @@ class SegWitTest(BitcoinTestFramework):
             # import all the private keys so solvable addresses become spendable
             self.nodes[0].importprivkey("a2SFytpfuBkwmuLUqHg1fvxV2mScha6YfesVh3Rw3fxnpfncxaKv")
             self.nodes[0].importprivkey("a2Y5UhopJ39M1DtquiL5HpN8c6rxkZjm6WR5sDvm6GBjz6ygSyxy")
-            self.nodes[0].importprivkey("91zqCU5B9sdWxzMt1ca3VzbtVm2YM6Hi5Rxn4UDtxEaN9C9nzXV")
+            self.nodes[0].importprivkey("8UtvNktfX4otos4bWLe4Es1VqwB3wpohVCq4A5DZ3kUAFAAuKNq")
             self.nodes[0].importprivkey("a28Ab2j31hoyfqxsJVgZJBjCJz7Mzz17hVD6w3cQT8rsoPD2GHwf")
             self.nodes[0].importprivkey("a2zoUBGgAFgXajhpkY7HKhXnBewT5L8qJ7avXX1knnazTnowijt5")
             self.nodes[0].importprivkey("a6DzcqJxFdG6NFYMMVFM9et21u3VtzRcKPQhdWezFHoTSGvXACzR")

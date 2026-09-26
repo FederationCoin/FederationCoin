@@ -231,10 +231,15 @@ std::shared_ptr<CWallet> SetupLegacyWatchOnlyWallet(interfaces::Node& node, Test
         LOCK(wallet->cs_wallet);
         wallet->SetWalletFlag(WALLET_FLAG_DISABLE_PRIVATE_KEYS);
         wallet->SetupLegacyScriptPubKeyMan();
-        // Add watched key
+        // Add watched key. Coinbases on this chain are P2PKH: a raw pubkey
+        // script is 35 bytes and cannot be paid. ImportPubKeys watches the
+        // pubkey script and stores the pubkey for solving; the P2PKH script
+        // has to be watched too or the mature coinbases are not ours.
         CPubKey pubKey = test.coinbaseKey.GetPubKey();
         bool import_keys = wallet->ImportPubKeys({{pubKey.GetID(), false}}, {{pubKey.GetID(), pubKey}} , /*key_origins=*/{}, /*add_keypool=*/false, /*timestamp=*/1);
         assert(import_keys);
+        const CScript p2pkh = GetScriptForDestination(PKHash(pubKey));
+        assert(wallet->ImportScriptPubKeys(/*label=*/"", {p2pkh}, /*have_solving_data=*/true, /*apply_label=*/false, /*timestamp=*/1));
         wallet->SetLastBlockProcessed(105, WITH_LOCK(node.context()->chainman->GetMutex(), return node.context()->chainman->ActiveChain().Tip()->GetBlockHash()));
     }
     SyncUpWallet(wallet, node);

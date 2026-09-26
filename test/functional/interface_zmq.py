@@ -331,11 +331,8 @@ class ZMQTest (BitcoinTestFramework):
         subscriber = ZMQSubscriber(socket, b"rawblock")
         socket.set(zmq.RCVTIMEO, 1000)
 
-        change_height = node.getblockcount() + 1
-        self.restart_node(0, [
-            f"-testactivationheight=blake2b@{change_height}",
-            f"-zmqpubrawblock={address}",
-        ])
+        # Header v2 is active from genesis. Delaying Blake2b rejects the chain.
+        self.restart_node(0, [f"-zmqpubrawblock={address}"])
         socket.connect(address)
 
         try:

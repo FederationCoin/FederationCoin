@@ -7,23 +7,28 @@
 from test_framework.descriptors import descsum_create
 from test_framework.psbt import PSBT, PSBT_IN_SHA256
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal
+from test_framework.util import (
+    assert_equal,
+    assert_raises_rpc_error,
+)
 
 
+# Same key material as the Bitcoin testnet vectors, with this chain's extended-key version bytes.
 TPRVS = [
-    "tprv8ZgxMBicQKsPerQj6m35no46amfKQdjY7AhLnmatHYXs8S4MTgeZYkWAn4edSGwwL3vkSiiGqSZQrmy5D3P5gBoqgvYP2fCUpBwbKTMTAkL",
-    "tprv8ZgxMBicQKsPd3cbrKjE5GKKJLDEidhtzSSmPVtSPyoHQGL2LZw49yt9foZsN9BeiC5VqRaESUSDV2PS9w7zAVBSK6EQH3CZW9sMKxSKDwD",
-    "tprv8iF7W37EHnVEtDr9EFeyFjQJFL6SfGby2AnZ2vQARxTQHQXy9tdzZvBBVp8a19e5vXhskczLkJ1AZjqgScqWL4FpmXVp8LLjiorcrFK63Sr",
+    "trBb8nVXuTDmeQ5gUhVypwRHkXh95TvXapTQefyXobiNE3THMwwJHVtqjBE9fWpvkLUZNNCSgtsiVECibNFwB52AGpVZpmdCBuui1QbGe79oPU4",
+    "trBb8nVXuTDmeQ5gSthraW7S2zxMo2UStpRmXwixQL1vLUihdnCyAPBLLQc8ZFkAgCiGkWMC5bjg6G5XDcgJ7xm4m7sASwKDSHunhNX2edus8dQ",
+    "trBb8w3h4JcPXrhXi4wPxS3BDU3Lk2MeqTKqZg4k3kXeNTNpWvQuyhtGkLuAPGJsKDAhxqyZzo9nQ5eUJL8YQeUavgwYuNadHb3xv2WJAzkF956",
 ]
 TPUBS = [
-    "tpubD6NzVbkrYhZ4YPAbyf6urxqqnmJF79PzQtyERAmvkSVS9fweCTjxjDh22Z5St9fGb1a5DUCv8G27nYupKP1Ctr1pkamJossoetzws1moNRn",
-    "tpubD6NzVbkrYhZ4YMQC15JS7QcrsAyfGrGiykweqMmPxTkEVScu7vCZLNpPXW1XphHwzsgmqdHWDQAfucbM72EEB1ZEyfgZxYvkZjYVXx1xS9p",
-    "tpubD6NzVbkrYhZ4YU9vM1s53UhD75UyJatx8EMzMZ3VUjR2FciNfLLkAw6a4pWACChzobTseNqdWk4G7ZdBqRDLtLSACKykTScmqibb1ZrCvJu",
-    "tpubD6NzVbkrYhZ4XRMcMFMMFvzVt6jaDAtjZhD7JLwdPdMm9xa76DnxYYP7w9TZGJDVFkek3ArwVsuacheqqPog8TH5iBCX1wuig8PLXim4n9a",
-    "tpubD6NzVbkrYhZ4WsqRzDmkL82SWcu42JzUvKWzrJHQ8EC2vEHRHkXj1De93sD3biLrKd8XGnamXURGjMbYavbszVDXpjXV2cGUERucLJkE6cy",
-    "tpubDEFLeBkKTm8aiYkySz8hXAXPVnPSfxMi7Fxhg9sejUrkwJuRWvPdLEiXjTDbhGbjLKCZUDUUibLxTnK5UP1q7qYrSnPqnNe7M8mvAW1STcc",
-    "tpubD6NzVbkrYhZ4WR99ygpiJvPMAJiwahjLgGywc5vJx2gUfKUfEPCrbKmQczDPJZmLcyZzRb5Ti6rfUb89S2WFyPH7FDtD6RFDA1hdgTEgEUL",
+    "trB6nMbsSD2SBxuhQLMw4qvKfeZcKXPbMia198tr7Rd2oQzfSQWdpt1dTaSvMYpfj561GwwepUTZVv39BhQQi4e9hWQK9tAg6isNbEgjZyT9LNt",
+    "trB6nMbsSD2SBxuhQJbX6G7qv6LdPw51XRSjhzsGXccW1SFTnBBtkLUE4jaHrVkkfciggp4MSdY9b4BhJm5wVhsAyfwjNy5wFPvKW5EHExWHaX6",
+    "trB6nMbsSD2SBxuhQRMFSCgUrAQydqaKZA4xrUHc3otbXhvFYMHNHkcQuHrUPpFP388jVXqTFP6GtQ5HWi7nE6rHgzpebdP7kHcLn4HNiZVi3HU",
+    "trB6nMbsSD2SBxuhPNYwSSAm4ciGQrpvTk4kHw8izbnjSbrzSh96ie4dGu92G9Cn7DeDwh2KeB7asXvc1r9SE5Scw7fa7UbtJnuHcU58EkG3Lqz",
+    "trB6nMbsSD2SBxuhNq2m5QbA8okD3NzQGtAVeZScYZ8WBChGCxrQvAoPjaQ3NrxGSdmb1ZW6snqQu8SJ8W68ycEpo9c2E2vrKTG3AmbQ3HYPBT5",
+    "trB6nVUDao1u72VDaVxJYAx7KrFA2YUnvXXiqVtKNQiknTMzE3UR9LfJ4bUS4SxpYC2U2Fa95Dj86FMyrvofs4emvVwLr5oD5DdgHUThsV8cNWt",
+    "trB6nMbsSD2SBxuhNNLV4se87c77h4pHqGuMQWuZJLmR11Bhx43eroUXKgXJwyxc9VC5Juwa2bL75ksgsjcjpi9Cn3fbeXHaPGEn6MPRPQhHe7m",
 ]
+TAPROOT_DISABLED = "Bech32m / Taproot addresses are not valid on this chain."
 PUBKEYS = [
     "02aebf2d10b040eb936a6f02f44ee82f8b34f5c1ccb20ff3949c2b28206b7c1068",
     "030f64b922aee2fd597f104bc6cb3b670f1ca2c6c49b1071a1a6c010575d94fe5a",
@@ -229,8 +234,13 @@ class WalletMiniscriptTest(BitcoinTestFramework):
             ]
         )[0]["success"]
 
+        if desc.startswith("tr("):
+            self.log.info("Taproot stays parked, so this descriptor cannot mint an address")
+            assert_raises_rpc_error(-5, TAPROOT_DISABLED, self.ms_wo_wallet.getnewaddress, "", "bech32m")
+            return
+
         self.log.info("Testing we derive new addresses for it")
-        addr_type = "bech32m" if desc.startswith("tr(") else "bech32"
+        addr_type = "bech32"
         assert_equal(
             self.ms_wo_wallet.getnewaddress(address_type=addr_type),
             self.funder.deriveaddresses(desc, 0)[0],
@@ -268,8 +278,13 @@ class WalletMiniscriptTest(BitcoinTestFramework):
         )
         assert res[0]["success"], res
 
+        if is_taproot:
+            self.log.info("Taproot stays parked, so this descriptor cannot mint an address")
+            assert_raises_rpc_error(-5, TAPROOT_DISABLED, self.ms_sig_wallet.getnewaddress, "", "bech32m")
+            return
+
         self.log.info("Generating an address for it and testing it detects funds")
-        addr_type = "bech32m" if is_taproot else "bech32"
+        addr_type = "bech32"
         addr = self.ms_sig_wallet.getnewaddress(address_type=addr_type)
         txid = self.funder.sendtoaddress(addr, 0.01)
         self.wait_until(lambda: txid in self.funder.getrawmempool())

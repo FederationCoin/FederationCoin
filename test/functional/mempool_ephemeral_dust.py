@@ -215,7 +215,8 @@ class EphemeralDustTest(BitcoinTestFramework):
 
         res = self.nodes[0].submitpackage([dusty_tx["hex"], sweep_tx["hex"]])
         assert_equal(res["package_msg"], "transaction failed")
-        assert_equal(res["tx-results"][dusty_tx["wtxid"]]["error"], "min relay fee not met, 0 < 15")
+        # Default min relay is 1 token/vB. This 0-fee P2WSH parent is 14 vbytes.
+        assert_equal(res["tx-results"][dusty_tx["wtxid"]]["error"], "min relay fee not met, 0 < 14")
 
         assert_equal(self.nodes[0].getrawmempool(), [])
 

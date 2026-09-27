@@ -67,14 +67,14 @@ class WalletLabelsTest(BitcoinTestFramework):
             assert_raises_rpc_error(-11, "Invalid label name", *rpc_call, "*")
 
     def test_sort_multisig(self, node):
-        node.importprivkey("cSJUMwramrFYHKPfY77FH94bv4Q5rwUCyfD6zX3kLro4ZcWsXFEM")
-        node.importprivkey("cSpQbSsdKRmxaSWJ3TckCFTrksXNPbh8tfeZESGNQekkVxMbQ77H")
-        node.importprivkey("cRNbfcJgnvk2QJEVbMsxzoprotm1cy3kVA2HoyjSs3ss5NY5mQqr")
+        node.importprivkey("a52PDN6ByPbLh3BNgtnxYMYow7BeWF8aNbF23FWEVCjg4KN3vgVs")
+        node.importprivkey("a5YKSs7EWy7kzAJ1CFJTTTx4mvJw2uMWHbgUHAirYzhMzfBBQDhZ")
+        node.importprivkey("a46WX2YHzU5pp22Ck9ZgG2K4pwYaGGi7t64CriBw1PpUa5NH9mGQ")
 
         addresses = [
-            "muRmfCwue81ZT9oc3NaepefPscUHtP5kyC",
-            "n12RzKwqWPPA4cWGzkiebiM7Gu6NXUnDW8",
-            "n2yWMtx8jVbo8wv9BK2eN1LdbaakgKL3Mt",
+            "fU27uUBJHEbYNDaDefFZ4eJooYMCXufirA",
+            "fZcnEbBE9Vy8ygGtc3PYqhzXCpyHBy5wdZ",
+            "fbZrcABXNcBn41gknbhYbzz3XWTfHdbKkV",
         ]
 
         sorted_default = node.addmultisigaddress(2, addresses, None, 'legacy')
@@ -82,27 +82,27 @@ class WalletLabelsTest(BitcoinTestFramework):
         sorted_true = node.addmultisigaddress(2, addresses, {"sort": True}, 'legacy')
 
         assert_equal(sorted_default, sorted_false)
-        assert_equal("2N6dne8yzh13wsRJxCcMgCYNeN9fxKWNHt8", sorted_default['address'])
-        assert_equal("2MsJ2YhGewgDPGEQk4vahGs4wRikJXpRRtU", sorted_true['address'])
+        assert_equal("2NVyPdFHHQBWpgrT3E2gzgfeRzevu25Qxrs", sorted_default['address'])
+        assert_equal("2NGddXoZwergG5fYq6Lv1kzLj4E1FE1wMS7", sorted_true['address'])
 
         sorted_default = node.addmultisigaddress(2, addresses, {'address_type': 'legacy'})
         sorted_false = node.addmultisigaddress(2, addresses, {'address_type': 'legacy', "sort": False})
         sorted_true = node.addmultisigaddress(2, addresses, {'address_type': 'legacy', "sort": True})
 
         assert_equal(sorted_default, sorted_false)
-        assert_equal("2N6dne8yzh13wsRJxCcMgCYNeN9fxKWNHt8", sorted_default['address'])
-        assert_equal("2MsJ2YhGewgDPGEQk4vahGs4wRikJXpRRtU", sorted_true['address'])
+        assert_equal("2NVyPdFHHQBWpgrT3E2gzgfeRzevu25Qxrs", sorted_default['address'])
+        assert_equal("2NGddXoZwergG5fYq6Lv1kzLj4E1FE1wMS7", sorted_true['address'])
 
         assert_raises_rpc_error(-1, "address_type provided in both options and 4th parameter", node.addmultisigaddress, 2, addresses, {"address_type": 'legacy'}, 'bech32')
 
     def test_sort_multisig_with_uncompressed_hash160(self, node):
         node.importpubkey("02632b12f4ac5b1d1b72b2a3b508c19172de44f6f46bcee50ba33f3f9291e47ed0")
         node.importpubkey("04dd4fe618a8ad14732f8172fe7c9c5e76dd18c2cc501ef7f86e0f4e285ca8b8b32d93df2f4323ebb02640fa6b975b2e63ab3c9d6979bc291193841332442cc6ad")
-        address = "2MxvEpFdXeEDbnz8MbRwS23kDZC8tzQ9NjK"
+        address = "2NNFqoMvpMQgUcRGScrGkWB21BhPqkoMcf4"
 
         addresses = [
-            "msDoRfEfZQFaQNfAEWyqf69H99yntZoBbG",
-            "myrfasv56W7579LpepuRy7KFhVhaWsJYS8",
+            "fRp9fvU4CWqZKSRmqoeju5nh55rhRJHjqK",
+            "fYT1q99Tjch42D7SG7aLD6xfdRaV53utNJ",
         ]
         default = self.nodes[0].addmultisigaddress(2, addresses, {'address_type': 'legacy'})
         assert_equal(address, default['address'])
@@ -110,7 +110,7 @@ class WalletLabelsTest(BitcoinTestFramework):
         unsorted = self.nodes[0].addmultisigaddress(2, addresses, {'address_type': 'legacy', "sort": False})
         assert_equal(address, unsorted['address'])
 
-        assert_raises_rpc_error(-1, "Compressed key required for BIP67: myrfasv56W7579LpepuRy7KFhVhaWsJYS8", node.addmultisigaddress, 2, addresses, {"sort": True})
+        assert_raises_rpc_error(-1, "Compressed key required for BIP67: fYT1q99Tjch42D7SG7aLD6xfdRaV53utNJ", node.addmultisigaddress, 2, addresses, {"sort": True})
 
     def run_test(self):
         # Check that there's no UTXO on the node
@@ -142,7 +142,7 @@ class WalletLabelsTest(BitcoinTestFramework):
             linked_addresses.add(address_group[0][0])
 
         # send 50 from each address to a third address not in this wallet
-        common_address = "msf4WtN1YQKXvNtvdFYt9JBnUD2FB41kjr"
+        common_address = self.nodes[1].getnewaddress()
         node.sendmany(
             amounts={common_address: 100},
             subtractfeefrom=[common_address],
@@ -243,10 +243,11 @@ class WalletLabelsTest(BitcoinTestFramework):
             self.log.info('Check watchonly labels')
             node.createwallet(wallet_name='watch_only', disable_private_keys=True)
             wallet_watch_only = node.get_wallet_rpc('watch_only')
+            # Witness version 1 and above cannot be imported. Use v0 addresses.
             BECH32_VALID = {
-                '✔️_VER15_PROG40': 'bcrt10qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxkg7fn',
-                '✔️_VER16_PROG03': 'bcrt1sqqqqq8uhdgr',
-                '✔️_VER16_PROB02': 'bcrt1sqqqq4wstyw',
+                'watch-a': self.nodes[1].getnewaddress(),
+                'watch-b': self.nodes[1].getnewaddress(),
+                'watch-c': self.nodes[1].getnewaddress(),
             }
             BECH32_INVALID = {
                 '❌_VER15_PROG41': 'bcrt1sqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqajlxj8',

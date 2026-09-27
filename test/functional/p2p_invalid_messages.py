@@ -288,6 +288,9 @@ class InvalidMessagesTest(BitcoinTestFramework):
         blockheader.hashPrevBlock = int(blockheader_tip_hash, 16)
         blockheader.nTime = int(time.time())
         blockheader.nBits = blockheader_tip.nBits
+        blockheader.m_header_v2 = True
+        blockheader.m_height = 1
+        blockheader.m_txcount = 1
         blockheader.rehash()
         while not blockheader.hash.startswith('0'):
             blockheader.nNonce += 1

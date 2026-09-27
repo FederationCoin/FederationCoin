@@ -58,7 +58,7 @@ class P2PBlockTimes(BitcoinTestFramework):
 
         self.log.info("Test framework peer generates a new block")
         tip = int(node.getbestblockhash(), 16)
-        block = create_block(tip, create_coinbase(2))
+        block = create_block(tip, create_coinbase(2), height=2)
         block.solve()
 
         self.log.info("Check that last_block_announcement is initially zero")
@@ -86,7 +86,7 @@ class P2PBlockTimes(BitcoinTestFramework):
         # Receiving a second block at height 2 will not be accepted as the tip,
         # because its chainwork is not greater the the earlier height 2 block.
         self.log.info("Create a second block at height 2 (will be stale)")
-        block2 = create_block(tip, create_coinbase(2), ntime=block.nTime + 1)
+        block2 = create_block(tip, create_coinbase(2), ntime=block.nTime + 1, height=2)
         block2.solve()
         headers_message2 = msg_headers()
         headers_message2.headers = [CBlockHeader(block2)]

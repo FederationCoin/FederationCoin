@@ -114,10 +114,10 @@ class ReducedDataTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
-        # Activate RDTS at the BLAKE2b fork inside the 120-block warmup, with
-        # a far-future expiry, so every block this test crafts is post-fork
+        # Blake2b is buried at height 0, so the fork is already active.
+        # A far-future expiry keeps RDTS on for every block this test crafts.
         self.extra_args = [[
-            '-testactivationheight=blake2b@100',
+            '-testactivationheight=blake2b@0',
             '-rdtsexpiry=2000000000',
             '-acceptnonstdtxn=1',
         ]]
@@ -1037,6 +1037,22 @@ class ReducedDataTest(BitcoinTestFramework):
         assert_equal(node.getblockcount(), block_height)
         self.log.info("  ✓ P2A spend with empty witness accepted")
 
+    def test_parked_witness_outputs(self):
+        """Witness version 1 and later outputs are invalid while taproot is parked."""
+        self.log.info("Testing that witness v1+ outputs are rejected...")
+        node = self.nodes[0]
+        cases = [
+            ("witness v1", CScript([OP_1, b'\x00' * 32])),
+            ("witness v2", CScript([OP_2, b'\x00' * 32])),
+            ("pay-to-anchor", PAY_TO_ANCHOR),
+        ]
+        for label, script in cases:
+            funding_tx = self.create_test_transaction(script)
+            result = node.testmempoolaccept([funding_tx.serialize().hex()])[0]
+            assert_equal(result['allowed'], False)
+            assert 'bad-txns-vout-taproot-disabled' in result['reject-reason']
+            self.log.info(f"  {label} rejected ({result['reject-reason']})")
+
     def run_test(self):
         self.init_test()
 
@@ -1044,15 +1060,11 @@ class ReducedDataTest(BitcoinTestFramework):
         self.test_output_script_size_limit()
         self.test_generation_output_size_limit()
         self.test_pushdata_size_limit()
-        self.test_undefined_witness_versions()
-        self.test_taproot_annex_rejection()
-        self.test_taproot_control_block_size()
-        self.test_op_success_rejection()
-        self.test_op_if_notif_rejection()
+        # Witness v1 and later outputs are consensus-invalid while taproot is parked,
+        # so the annex, control-block, tapscript, and P2A spend cases have no output to fund.
+        self.test_parked_witness_outputs()
         self.test_mandatory_flags_cannot_be_bypassed()
-        self.test_p2a_witness_rejected()
         self.test_p2wsh_multisig_witness_script_exemption()
-        self.test_tapscript_script_exemption()
 
         self.log.info("All ReducedData tests completed")
 

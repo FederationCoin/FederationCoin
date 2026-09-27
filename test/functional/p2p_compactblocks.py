@@ -661,6 +661,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         hashPrevBlock = int(node.getblockhash(node.getblockcount() - 150), 16)
         block = self.build_block_on_tip(node)
         block.hashPrevBlock = hashPrevBlock
+        block.m_height = node.getblockcount() - 150 + 1
         block.solve()
 
         comp_block = HeaderAndShortIDs()
@@ -707,6 +708,7 @@ class CompactBlocksTest(BitcoinTestFramework):
         hashPrevBlock = int(node.getblockhash(cur_height - 5), 16)
         block = self.build_block_on_tip(node)
         block.hashPrevBlock = hashPrevBlock
+        block.m_height = cur_height - 5 + 1
         block.solve()
 
         comp_block = HeaderAndShortIDs()

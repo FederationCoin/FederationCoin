@@ -331,11 +331,8 @@ class ZMQTest (BitcoinTestFramework):
         subscriber = ZMQSubscriber(socket, b"rawblock")
         socket.set(zmq.RCVTIMEO, 1000)
 
-        change_height = node.getblockcount() + 1
-        self.restart_node(0, [
-            f"-testactivationheight=blake2b@{change_height}",
-            f"-zmqpubrawblock={address}",
-        ])
+        # Header v2 is active from genesis. Delaying Blake2b rejects the chain.
+        self.restart_node(0, [f"-zmqpubrawblock={address}"])
         socket.connect(address)
 
         try:
@@ -518,7 +515,7 @@ class ZMQTest (BitcoinTestFramework):
         bump_txid = self.nodes[0].sendrawtransaction(orig_tx['tx'].serialize().hex())
         # Mine the pre-bump tx
         txs_to_add = [orig_tx['hex']] + [tx['hex'] for tx in more_tx]
-        block = create_block(int(self.nodes[0].getbestblockhash(), 16), create_coinbase(self.nodes[0].getblockcount()+1), txlist=txs_to_add)
+        block = create_block(int(self.nodes[0].getbestblockhash(), 16), create_coinbase(self.nodes[0].getblockcount()+1), txlist=txs_to_add, height=self.nodes[0].getblockcount()+1)
         add_witness_commitment(block)
         block.solve()
         assert_equal(self.nodes[0].submitblock(block.serialize().hex()), None)

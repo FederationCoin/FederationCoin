@@ -53,7 +53,7 @@ class ResendWalletTransactionsTest(BitcoinTestFramework):
         # after the last time we tried to broadcast. Use mocktime and give an extra minute to be sure.
         block_time = int(time.time()) + 6 * 60
         node.setmocktime(block_time)
-        block = create_block(int(node.getbestblockhash(), 16), create_coinbase(node.getblockcount() + 1), block_time)
+        block = create_block(int(node.getbestblockhash(), 16), create_coinbase(node.getblockcount() + 1), block_time, height=node.getblockcount() + 1)
         block.solve()
         node.submitblock(block.serialize().hex())
 
@@ -122,7 +122,7 @@ class ResendWalletTransactionsTest(BitcoinTestFramework):
 
         block_time = entry_time + 6 * 60
         node.setmocktime(block_time)
-        block = create_block(int(node.getbestblockhash(), 16), create_coinbase(node.getblockcount() + 1), block_time)
+        block = create_block(int(node.getbestblockhash(), 16), create_coinbase(node.getblockcount() + 1), block_time, height=node.getblockcount() + 1)
         block.solve()
         node.submitblock(block.serialize().hex())
         # Set correct m_best_block_time, which is used in ResubmitWalletTransactions

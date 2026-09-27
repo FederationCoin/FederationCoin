@@ -305,7 +305,7 @@ class WalletTest(BitcoinTestFramework):
         assert_equal(self.nodes[0].getreceivedbyaddress(a0), expected_bal)
         assert_equal(self.nodes[0].getreceivedbyaddress(a1), expected_bal)
 
-        self.log.info("Test sendmany with fee_rate param (explicit fee rate in sat/vB)")
+        self.log.info("Test sendmany with fee_rate param (explicit fee rate in token/vB)")
         fee_rate_sat_vb = 2
         fee_rate_btc_kvb = fee_rate_sat_vb * 1e3 / 1e8
         explicit_fee_rate_btc_kvb = Decimal(fee_rate_btc_kvb) / 1000
@@ -333,19 +333,19 @@ class WalletTest(BitcoinTestFramework):
 
         # Test setting explicit fee rate just below the minimum.
         self.log.info("Test sendmany raises 'fee rate too low' if fee_rate of 0.99999999 is passed")
-        assert_raises_rpc_error(-6, "Fee rate (0.999 sat/vB) is lower than the minimum fee rate setting (1.000 sat/vB)",
+        assert_raises_rpc_error(-6, "Fee rate (0.999 token/vB) is lower than the minimum fee rate setting (1.000 token/vB)",
             self.nodes[2].sendmany, amounts={address: 10}, fee_rate=0.999)
 
         self.log.info("Test sendmany raises if an invalid fee_rate is passed")
         # Test fee_rate with zero values.
-        msg = "Fee rate (0.000 sat/vB) is lower than the minimum fee rate setting (1.000 sat/vB)"
+        msg = "Fee rate (0.000 token/vB) is lower than the minimum fee rate setting (1.000 token/vB)"
         for zero_value in [0, 0.000, 0.00000000, "0", "0.000", "0.00000000"]:
             assert_raises_rpc_error(-6, msg, self.nodes[2].sendmany, amounts={address: 1}, fee_rate=zero_value)
         msg = "Invalid amount"
         # Test fee_rate values that don't pass fixed-point parsing checks.
         for invalid_value in ["", 0.000000001, 1e-09, 1.111111111, 1111111111111111, "31.999999999999999999999"]:
             assert_raises_rpc_error(-3, msg, self.nodes[2].sendmany, amounts={address: 1.0}, fee_rate=invalid_value)
-        # Test fee_rate values that cannot be represented in sat/vB.
+        # Test fee_rate values that cannot be represented in token/vB.
         for invalid_value in [0.0001, 0.00000001, 0.00099999, 31.99999999]:
             assert_raises_rpc_error(-3, msg, self.nodes[2].sendmany, amounts={address: 10}, fee_rate=invalid_value)
         # Test fee_rate out of range (negative number).
@@ -488,7 +488,7 @@ class WalletTest(BitcoinTestFramework):
             assert_raises_rpc_error(-5, f'Pubkey "{not_on_curve_pubkey}" must be cryptographically valid', self.nodes[0].importpubkey, not_on_curve_pubkey)
 
             # Bech32m addresses cannot be imported into a legacy wallet
-            assert_raises_rpc_error(-5, "Bech32m addresses cannot be imported into legacy wallets", self.nodes[0].importaddress, "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6")
+            assert_raises_rpc_error(-5, "Bech32m addresses cannot be imported into legacy wallets", self.nodes[0].importaddress, "gfcnrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqlwxfzj")
 
             # Import address and private key to check correct behavior of spendable unspents
             # 1. Send some coins to generate new UTXO
@@ -498,7 +498,7 @@ class WalletTest(BitcoinTestFramework):
             self.nodes[2].lockunspent(False, [utxo])
             self.generate(self.nodes[0], 1, sync_fun=lambda: self.sync_all(self.nodes[0:3]))
 
-            self.log.info("Test sendtoaddress with fee_rate param (explicit fee rate in sat/vB)")
+            self.log.info("Test sendtoaddress with fee_rate param (explicit fee rate in token/vB)")
             prebalance = self.nodes[2].getbalance()
             assert prebalance > 2
             address = self.nodes[1].getnewaddress()
@@ -527,19 +527,19 @@ class WalletTest(BitcoinTestFramework):
 
             # Test setting explicit fee rate just below the minimum.
             self.log.info("Test sendtoaddress raises 'fee rate too low' if fee_rate of 0.99999999 is passed")
-            assert_raises_rpc_error(-6, "Fee rate (0.999 sat/vB) is lower than the minimum fee rate setting (1.000 sat/vB)",
+            assert_raises_rpc_error(-6, "Fee rate (0.999 token/vB) is lower than the minimum fee rate setting (1.000 token/vB)",
                 self.nodes[2].sendtoaddress, address=address, amount=1, fee_rate=0.999)
 
             self.log.info("Test sendtoaddress raises if an invalid fee_rate is passed")
             # Test fee_rate with zero values.
-            msg = "Fee rate (0.000 sat/vB) is lower than the minimum fee rate setting (1.000 sat/vB)"
+            msg = "Fee rate (0.000 token/vB) is lower than the minimum fee rate setting (1.000 token/vB)"
             for zero_value in [0, 0.000, 0.00000000, "0", "0.000", "0.00000000"]:
                 assert_raises_rpc_error(-6, msg, self.nodes[2].sendtoaddress, address=address, amount=1, fee_rate=zero_value)
             msg = "Invalid amount"
             # Test fee_rate values that don't pass fixed-point parsing checks.
             for invalid_value in ["", 0.000000001, 1e-09, 1.111111111, 1111111111111111, "31.999999999999999999999"]:
                 assert_raises_rpc_error(-3, msg, self.nodes[2].sendtoaddress, address=address, amount=1.0, fee_rate=invalid_value)
-            # Test fee_rate values that cannot be represented in sat/vB.
+            # Test fee_rate values that cannot be represented in token/vB.
             for invalid_value in [0.0001, 0.00000001, 0.00099999, 31.99999999]:
                 assert_raises_rpc_error(-3, msg, self.nodes[2].sendtoaddress, address=address, amount=10, fee_rate=invalid_value)
             # Test fee_rate out of range (negative number).
@@ -670,11 +670,12 @@ class WalletTest(BitcoinTestFramework):
         # Verify nothing new in wallet
         assert_equal(total_txs, len(self.nodes[0].listtransactions("*", 99999)))
 
-        # Test getaddressinfo on external address. Note that these addresses are taken from disablewallet.py
+        # Test getaddressinfo on an address this node does not own.
         assert_raises_rpc_error(-5, "Invalid or unsupported Base58-encoded address.", self.nodes[0].getaddressinfo, "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy")
-        address_info = self.nodes[0].getaddressinfo("mneYUmWYsuk7kySiURxCi3AGxrAqZxLgPZ")
-        assert_equal(address_info['address'], "mneYUmWYsuk7kySiURxCi3AGxrAqZxLgPZ")
-        assert_equal(address_info["scriptPubKey"], "76a9144e3854046c7bd1594ac904e4793b6a45b36dea0988ac")
+        addr = self.nodes[1].getnewaddress()
+        address_info = self.nodes[0].getaddressinfo(addr)
+        assert_equal(address_info['address'], addr)
+        assert_equal(address_info["scriptPubKey"], self.nodes[1].getaddressinfo(addr)["scriptPubKey"])
         assert not address_info["ismine"]
         assert not address_info["iswatchonly"]
         assert not address_info["isscript"]
@@ -682,7 +683,6 @@ class WalletTest(BitcoinTestFramework):
         assert_equal(address_info['use_txids'], [])
 
         # Test getaddressinfo 'use_txids' field
-        addr = "mneYUmWYsuk7kySiURxCi3AGxrAqZxLgPZ"
         txid_1 = self.nodes[0].sendtoaddress(addr, 1)
         address_info = self.nodes[0].getaddressinfo(addr)
         assert_equal(address_info['use_txids'], [txid_1])
@@ -765,8 +765,9 @@ class WalletTest(BitcoinTestFramework):
         if self.options.descriptors:
             self.log.info("Testing 'listunspent' outputs the parent descriptor(s) of coins")
             # Create two multisig descriptors, and send a UTxO each.
-            multi_a = descsum_create("wsh(multi(1,tpubD6NzVbkrYhZ4YBNjUo96Jxd1u4XKWgnoc7LsA1jz3Yc2NiDbhtfBhaBtemB73n9V5vtJHwU6FVXwggTbeoJWQ1rzdz8ysDuQkpnaHyvnvzR/*,tpubD6NzVbkrYhZ4YHdDGMAYGaWxMSC1B6tPRTHuU5t3BcfcS3nrF523iFm5waFd1pP3ZvJt4Jr8XmCmsTBNx5suhcSgtzpGjGMASR3tau1hJz4/*))")
-            multi_b = descsum_create("wsh(multi(1,tpubD6NzVbkrYhZ4YHdDGMAYGaWxMSC1B6tPRTHuU5t3BcfcS3nrF523iFm5waFd1pP3ZvJt4Jr8XmCmsTBNx5suhcSgtzpGjGMASR3tau1hJz4/*,tpubD6NzVbkrYhZ4Y2RLiuEzNQkntjmsLpPYDm3LTRBYynUQtDtpzeUKAcb9sYthSFL3YR74cdFgF5mW8yKxv2W2CWuZDFR2dUpE5PF9kbrVXNZ/*))")
+            xpub = self.nodes[0].gethdkeys()[0]["xpub"]
+            multi_a = descsum_create(f"wsh(multi(1,{xpub}/0/*,{xpub}/1/*))")
+            multi_b = descsum_create(f"wsh(multi(1,{xpub}/2/*,{xpub}/3/*))")
             addr_a = self.nodes[0].deriveaddresses(multi_a, 0)[0]
             addr_b = self.nodes[0].deriveaddresses(multi_b, 0)[0]
             txid_a = self.nodes[0].sendtoaddress(addr_a, 0.01)

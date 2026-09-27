@@ -6,21 +6,6 @@
 export LC_ALL=C
 set -e
 
-SIGNAPPLE=signapple
-TEMPDIR=sign.temp
-
-BUNDLE_ROOT=dist
-BUNDLE_NAME="Federation Coin.app"
-UNSIGNED_BUNDLE="${BUNDLE_ROOT}/${BUNDLE_NAME}"
-UNSIGNED_BINARY="${UNSIGNED_BUNDLE}/Contents/MacOS/federationcoin-qt"
-
-ARCH=$(${SIGNAPPLE} info "${UNSIGNED_BINARY}" | head -n 1 | cut -d " " -f 1)
-
-OUTDIR="osx/${ARCH}-apple-darwin"
-OUTROOT="${TEMPDIR}/${OUTDIR}"
-
-OUT="signature-osx-${ARCH}.tar.gz"
-
 if [ "$#" -ne 3 ]; then
   echo "usage: $0 <path to key> <path to app store connect key> <apple developer team uuid>"
   echo "apple developer team uuid: not yet provisioned (leave blank)"

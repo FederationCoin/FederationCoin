@@ -13,8 +13,8 @@ from typing import (
 )
 from test_framework.address import (
     address_to_scriptpubkey,
-    create_deterministic_address_bcrt1_p2tr_op_true,
     key_to_p2pkh,
+    script_to_p2wsh,
     key_to_p2sh_p2wpkh,
     key_to_p2wpkh,
     output_key_to_p2tr,
@@ -34,11 +34,11 @@ from test_framework.messages import (
     CTxOut,
     hash256,
     MAX_OP_RETURN_RELAY,
-    ser_compact_size,
 )
 from test_framework.script import (
     CScript,
     OP_1,
+    OP_DROP,
     OP_NOP,
     OP_RETURN,
     OP_TRUE,
@@ -64,8 +64,8 @@ class MiniWalletMode(Enum):
     """Determines the transaction type the MiniWallet is creating and spending.
 
     For most purposes, the default mode ADDRESS_OP_TRUE should be sufficient;
-    it simply uses a fixed bech32m P2TR address whose coins are spent with a
-    witness stack of OP_TRUE, i.e. following an anyone-can-spend policy.
+    it simply uses a fixed bech32 P2WSH address whose script is OP_TRUE, i.e.
+    following an anyone-can-spend policy. Taproot is not active on this chain.
     However, if the transactions need to be modified by the user (e.g. prepending
     scriptSig for testing opcodes that are activated by a soft-fork), or the txs
     should contain an actual signature, the raw modes RAW_OP_TRUE and RAW_P2PK
@@ -77,7 +77,7 @@ class MiniWalletMode(Enum):
                     |      output       |           |  tx is   | can modify |  needs
          mode       |    description    |  address  | standard | scriptSig  | signing
     ----------------+-------------------+-----------+----------+------------+----------
-    ADDRESS_OP_TRUE | anyone-can-spend  |  bech32m  |   yes    |    no      |   no
+    ADDRESS_OP_TRUE | anyone-can-spend  |  bech32   |   yes    |    no      |   no
     RAW_OP_TRUE     | anyone-can-spend  |  - (raw)  |   no     |    yes     |   no
     RAW_P2PK        | p2pkh             |  base58   |   yes    |    yes     |   yes
     """
@@ -104,8 +104,11 @@ class MiniWallet:
             pub_key = self._priv_key.get_pubkey()
             self._scriptPubKey = key_to_p2pkh_script(pub_key.get_bytes())
         elif mode == MiniWalletMode.ADDRESS_OP_TRUE:
-            internal_key = None if tag_name is None else compute_xonly_pubkey(hash256(tag_name.encode()))[0]
-            self._address, self._taproot_info = create_deterministic_address_bcrt1_p2tr_op_true(internal_key)
+            if tag_name is None:
+                self._redeem_script = CScript([OP_TRUE])
+            else:
+                self._redeem_script = CScript([hash256(tag_name.encode()), OP_DROP, OP_TRUE])
+            self._address = script_to_p2wsh(self._redeem_script)
             self._scriptPubKey = address_to_scriptpubkey(self._address)
 
         # When the pre-mined test framework chain is used, it contains coinbase
@@ -118,33 +121,75 @@ class MiniWallet:
     def _create_utxo(self, *, txid, vout, value, height, coinbase, confirmations):
         return {"txid": txid, "vout": vout, "value": value, "height": height, "coinbase": coinbase, "confirmations": confirmations}
 
+    def _pad_op_return(self, data_len):
+        return CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + [OP_1] * data_len))
+
+    def _trim_pad_outputs(self, tx, target_vsize):
+        """Drop or shorten trailing OP_RETURN pads until vsize is at or under target."""
+        while tx.get_vsize() > target_vsize and tx.vout and tx.vout[-1].scriptPubKey[0] == OP_RETURN:
+            over = tx.get_vsize() - target_vsize
+            script = tx.vout[-1].scriptPubKey
+            if len(script) <= 1 + over:
+                tx.vout.pop()
+                continue
+            tx.vout[-1] = CTxOut(nValue=0, scriptPubKey=CScript(script[:-over]))
+
     def _bulk_tx(self, tx, target_vsize):
         """Pad a transaction with extra outputs until it reaches a target vsize.
         returns the tx
         """
-        if target_vsize < tx.get_vsize():
-            raise RuntimeError(f"target_vsize {target_vsize} is less than transaction virtual size {tx.get_vsize()}")
+        cur = tx.get_vsize()
+        if target_vsize < cur:
+            raise RuntimeError(f"target_vsize {target_vsize} is less than transaction virtual size {cur}")
 
-        dummy_vbytes = target_vsize - tx.get_vsize()
-        if dummy_vbytes > 0:
-            # determine number of needed padding bytes
-            min_output_size = 8 + 1 + 1
-            max_output_size = 8 + 1 + MAX_OP_RETURN_RELAY
-            n_max_outputs = (dummy_vbytes - min_output_size) // max_output_size
-            last_output_size = dummy_vbytes - (n_max_outputs * max_output_size)
-            n_outputs_before = len(tx.vout)
+        # OP_RETURN scripts are capped at 83 bytes. Size the pads from the current
+        # vsize so a 1 MB target does not serialize once per output.
+        max_data = MAX_OP_RETURN_RELAY - 1
+        max_out = 10 + max_data
 
-            tx.vout.extend([CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + [OP_1] * (MAX_OP_RETURN_RELAY - 1)))] * n_max_outputs)
-            tx.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + [OP_1] * (last_output_size - 8 - 1 - 1))))
+        def compact_size_len(n):
+            if n < 253:
+                return 1
+            if n <= 0xFFFF:
+                return 3
+            if n <= 0xFFFFFFFF:
+                return 5
+            return 9
 
-            # compensate for the increase of the compact-size encoded script length
-            # (note that the length encoding of the unpadded output script needs one byte)
-            extra_len_size = len(ser_compact_size(len(tx.vout))) - 1
-            if extra_len_size:
-                assert tx.vout[n_outputs_before].scriptPubKey[-extra_len_size:] == bytes([OP_1] * extra_len_size)
-                tx.vout[n_outputs_before] = CTxOut(nValue=0, scriptPubKey = CScript(tx.vout[n_outputs_before].scriptPubKey[:-extra_len_size]))
+        n_base = len(tx.vout)
+        added = 0
+        predicted = cur
+        while True:
+            growth = max_out + compact_size_len(n_base + added + 1) - compact_size_len(n_base + added)
+            if predicted + growth > target_vsize:
+                break
+            added += 1
+            predicted += growth
+        if added:
+            tx.vout.extend(self._pad_op_return(max_data) for _ in range(added))
 
-        assert_equal(tx.get_vsize(), target_vsize)
+        cur = tx.get_vsize()
+        short = target_vsize - cur
+        if short >= 10:
+            tx.vout.append(self._pad_op_return(min(max_data, short - 10)))
+            cur = tx.get_vsize()
+            short = target_vsize - cur
+
+        # A legal OP_RETURN output is at least 10 vbytes. If we are 1-9 short,
+        # shrink a trailing pad and add a 10-byte pad so we can land on target.
+        if 0 < short < 10:
+            steal = 10 - short
+            for i in range(len(tx.vout) - 1, -1, -1):
+                script = tx.vout[i].scriptPubKey
+                if script and script[0] == OP_RETURN and len(script) > 1 + steal:
+                    tx.vout[i] = CTxOut(nValue=0, scriptPubKey=CScript(script[:-steal]))
+                    tx.vout.append(self._pad_op_return(0))
+                    break
+
+        self._trim_pad_outputs(tx, target_vsize)
+        # Virtual size rounds in steps of 1, and a legal OP_RETURN cannot always land on the exact target.
+        assert tx.get_vsize() <= target_vsize
+        assert tx.get_vsize() + 4 >= target_vsize
 
     def get_balance(self):
         return sum(u['value'] for u in self._utxos)
@@ -207,12 +252,7 @@ class MiniWallet:
         elif self._mode == MiniWalletMode.ADDRESS_OP_TRUE:
             tx.wit.vtxinwit = [CTxInWitness()] * len(tx.vin)
             for i in tx.wit.vtxinwit:
-                assert_equal(len(self._taproot_info.leaves), 1)
-                leaf_info = list(self._taproot_info.leaves.values())[0]
-                i.scriptWitness.stack = [
-                    leaf_info.script,
-                    bytes([leaf_info.version | self._taproot_info.negflag]) + self._taproot_info.internal_pubkey,
-                ]
+                i.scriptWitness.stack = [self._redeem_script]
         else:
             assert False
 
@@ -387,7 +427,7 @@ class MiniWallet:
         assert fee >= 0
         # calculate fee
         if self._mode in (MiniWalletMode.RAW_OP_TRUE, MiniWalletMode.ADDRESS_OP_TRUE):
-            vsize = Decimal(104)  # anyone-can-spend
+            vsize = Decimal(96)  # P2WSH(OP_TRUE) anyone-can-spend
         elif self._mode == MiniWalletMode.RAW_P2PK:
             vsize = Decimal(192)  # P2PK (73+34 bytes scriptSig + 25 bytes scriptPubKey + 60 bytes other)
         else:
@@ -404,8 +444,16 @@ class MiniWallet:
             target_vsize=target_vsize,
             **kwargs,
         )
-        if not target_vsize:
-            assert_equal(tx["tx"].get_vsize(), vsize)
+        # A P2WSH spend is not one fixed size. Measure once and rebuild so the fee matches the feerate.
+        if not target_vsize and not fee:
+            actual = Decimal(tx["tx"].get_vsize())
+            if actual != vsize:
+                send_value = utxo_to_spend["value"] - (fee_rate * actual / 1000)
+                tx = self.create_self_transfer_multi(
+                    utxos_to_spend=[utxo_to_spend],
+                    amount_per_output=int(COIN * send_value),
+                    **kwargs,
+                )
         tx["new_utxo"] = tx.pop("new_utxos")[0]
 
         return tx
@@ -444,7 +492,7 @@ class MiniWallet:
         return chain
 
 
-def getnewdestination(address_type='bech32m'):
+def getnewdestination(address_type='bech32'):
     """Generate a random destination of the specified type and return the
        corresponding public key, scriptPubKey and address. Supported types are
        'legacy', 'p2sh-segwit', 'bech32' and 'bech32m'. Can be used when a random

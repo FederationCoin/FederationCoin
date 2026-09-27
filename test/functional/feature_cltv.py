@@ -122,7 +122,7 @@ class BIP65Test(BitcoinTestFramework):
 
         tip = self.nodes[0].getbestblockhash()
         block_time = self.nodes[0].getblockheader(tip)['mediantime'] + 1
-        block = create_block(int(tip, 16), create_coinbase(CLTV_HEIGHT - 1), block_time, version=3, txlist=invalid_cltv_txs)
+        block = create_block(int(tip, 16), create_coinbase(CLTV_HEIGHT - 1), block_time, version=3, txlist=invalid_cltv_txs, height=CLTV_HEIGHT - 1)
         block.solve()
 
         self.test_cltv_info(is_active=False)  # Not active as of current tip and next block does not need to obey rules
@@ -133,7 +133,7 @@ class BIP65Test(BitcoinTestFramework):
         self.log.info("Test that blocks must now be at least version 4")
         tip = block.sha256
         block_time += 1
-        block = create_block(tip, create_coinbase(CLTV_HEIGHT), block_time, version=3)
+        block = create_block(tip, create_coinbase(CLTV_HEIGHT), block_time, version=3, height=CLTV_HEIGHT)
         block.solve()
 
         with self.nodes[0].assert_debug_log(expected_msgs=[f'{block.hash}, bad-version(0x00000003)']):

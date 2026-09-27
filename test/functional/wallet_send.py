@@ -202,8 +202,8 @@ class WalletSendTest(BitcoinTestFramework):
         # w2 contains the private keys for w3
         self.nodes[1].createwallet(wallet_name="w2", blank=True)
         w2 = self.nodes[1].get_wallet_rpc("w2")
-        xpriv = "tprv8ZgxMBicQKsPfHCsTwkiM1KT56RXbGGTqvc2hgqzycpwbHqqpcajQeMRZoBD35kW4RtyCemu6j34Ku5DEspmgjKdt2qe4SvRch5Kk8B8A2v"
-        xpub = "tpubD6NzVbkrYhZ4YkEfMbRJkQyZe7wTkbTNRECozCtJPtdLRn6cT1QKb8yHjwAPcAr26eHBFYs5iLiFFnCbwPRsncCKUKCfubHDMGKzMVcN1Jg"
+        xpriv = "trBb8nVXuTDmeQ5gV8J8C88vJjxVZngjmSzLPRtDiWyUv7kMpoineRq1b55QTFMWM9H86kAfSpwLkWgN4VN5CuTrHN1N1svTDhdeouj14jhap8z"
+        xpub = "trB6nMbsSD2SBxuhQhRzSnEiZ6hLAt2p1AdP9U8RgTjQSs8ZiWfc5RfzKVjC4vucT6GknaekrZ7j5zjGevhCL54pbGaoscc3CSGnHc1n4Vk9JUr"
         if self.options.descriptors:
             w2.importdescriptors([{
                 "desc": descsum_create("wpkh(" + xpriv + "/0/0/*)"),
@@ -391,7 +391,7 @@ class WalletSendTest(BitcoinTestFramework):
         self.test_send(from_wallet=w0, to_wallet=w1, amount=1, arg_fee_rate=1, fee_rate=1, add_to_wallet=False,
                        expect_error=(-8, "Pass the fee_rate either as an argument, or in the options object, but not both"))
 
-        assert_raises_rpc_error(-8, "Use fee_rate (sat/vB) instead of feeRate", w0.send, {w1.getnewaddress(): 1}, 6, "conservative", 1, {"feeRate": 0.01})
+        assert_raises_rpc_error(-8, "Use fee_rate (token/vB) instead of feeRate", w0.send, {w1.getnewaddress(): 1}, 6, "conservative", 1, {"feeRate": 0.01})
 
         assert_raises_rpc_error(-3, "Unexpected key totalFee", w0.send, {w1.getnewaddress(): 1}, 6, "conservative", 1, {"totalFee": 0.01})
 
@@ -411,15 +411,15 @@ class WalletSendTest(BitcoinTestFramework):
                 self.test_send(from_wallet=w0, to_wallet=w1, amount=1, conf_target=v, estimate_mode=mode,
                     expect_error=(-3, f"JSON value of type {k} for field conf_target is not of expected type number"))
 
-        # Test setting explicit fee rate just below the minimum of 1 sat/vB.
+        # Test setting explicit fee rate just below the minimum of 1 token/vB.
         self.log.info("Explicit fee rate raises RPC error 'fee rate too low' if fee_rate of 0.99999999 is passed")
-        msg = "Fee rate (0.999 sat/vB) is lower than the minimum fee rate setting (1.000 sat/vB)"
+        msg = "Fee rate (0.999 token/vB) is lower than the minimum fee rate setting (1.000 token/vB)"
         self.test_send(from_wallet=w0, to_wallet=w1, amount=1, fee_rate=0.999, expect_error=(-4, msg))
         self.test_send(from_wallet=w0, to_wallet=w1, amount=1, arg_fee_rate=0.999, expect_error=(-4, msg))
 
         self.log.info("Explicit fee rate raises if invalid fee_rate is passed")
         # Test fee_rate with zero values.
-        msg = "Fee rate (0.000 sat/vB) is lower than the minimum fee rate setting (1.000 sat/vB)"
+        msg = "Fee rate (0.000 token/vB) is lower than the minimum fee rate setting (1.000 token/vB)"
         for zero_value in [0, 0.000, 0.00000000, "0", "0.000", "0.00000000"]:
             self.test_send(from_wallet=w0, to_wallet=w1, amount=1, fee_rate=zero_value, expect_error=(-4, msg))
             self.test_send(from_wallet=w0, to_wallet=w1, amount=1, arg_fee_rate=zero_value, expect_error=(-4, msg))
@@ -428,7 +428,7 @@ class WalletSendTest(BitcoinTestFramework):
         for invalid_value in ["", 0.000000001, 1e-09, 1.111111111, 1111111111111111, "31.999999999999999999999"]:
             self.test_send(from_wallet=w0, to_wallet=w1, amount=1, fee_rate=invalid_value, expect_error=(-3, msg))
             self.test_send(from_wallet=w0, to_wallet=w1, amount=1, arg_fee_rate=invalid_value, expect_error=(-3, msg))
-        # Test fee_rate values that cannot be represented in sat/vB.
+        # Test fee_rate values that cannot be represented in token/vB.
         for invalid_value in [0.0001, 0.00000001, 0.00099999, 31.99999999]:
             self.test_send(from_wallet=w0, to_wallet=w1, amount=1, fee_rate=invalid_value, expect_error=(-3, msg))
             self.test_send(from_wallet=w0, to_wallet=w1, amount=1, arg_fee_rate=invalid_value, expect_error=(-3, msg))
@@ -477,7 +477,7 @@ class WalletSendTest(BitcoinTestFramework):
         res = self.test_send(from_wallet=w0, to_wallet=w1, amount=1, add_to_wallet=False, change_type="legacy", change_position=0)
         assert res["complete"]
         change_address = self.nodes[0].decodepsbt(res["psbt"])["tx"]["vout"][0]["scriptPubKey"]["address"]
-        assert change_address[0] == "m" or change_address[0] == "n"
+        assert change_address.startswith("f")
 
         self.log.info("Set lock time...")
         height = self.nodes[0].getblockchaininfo()["blocks"]
@@ -569,13 +569,18 @@ class WalletSendTest(BitcoinTestFramework):
 
         # But funding should work when the solving data is provided
         res = self.test_send(from_wallet=ext_wallet, to_wallet=self.nodes[0], amount=15, inputs=[ext_utxo], add_inputs=True, psbt=True, include_watching=True, solving_data={"pubkeys": [addr_info['pubkey']], "scripts": [addr_info["embedded"]["scriptPubKey"], addr_info["embedded"]["embedded"]["scriptPubKey"]]})
-        signed = ext_wallet.walletprocesspsbt(res["psbt"])
-        signed = ext_fund.walletprocesspsbt(res["psbt"])
+        # Unified sighash needs every spent amount before either wallet adds a signature.
+        psbt = ext_fund.utxoupdatepsbt(res["psbt"])
+        psbt = ext_wallet.utxoupdatepsbt(psbt)
+        psbt = ext_fund.walletprocesspsbt(psbt)["psbt"]
+        signed = ext_wallet.walletprocesspsbt(psbt)
         assert signed["complete"]
 
         res = self.test_send(from_wallet=ext_wallet, to_wallet=self.nodes[0], amount=15, inputs=[ext_utxo], add_inputs=True, psbt=True, include_watching=True, solving_data={"descriptors": [desc]})
-        signed = ext_wallet.walletprocesspsbt(res["psbt"])
-        signed = ext_fund.walletprocesspsbt(res["psbt"])
+        psbt = ext_fund.utxoupdatepsbt(res["psbt"])
+        psbt = ext_wallet.utxoupdatepsbt(psbt)
+        psbt = ext_fund.walletprocesspsbt(psbt)["psbt"]
+        signed = ext_wallet.walletprocesspsbt(psbt)
         assert signed["complete"]
 
         dec = self.nodes[0].decodepsbt(signed["psbt"])
@@ -609,8 +614,10 @@ class WalletSendTest(BitcoinTestFramework):
             include_watching=True,
             fee_rate=target_fee_rate_sat_vb
         )
-        signed = ext_wallet.walletprocesspsbt(res["psbt"])
-        signed = ext_fund.walletprocesspsbt(res["psbt"])
+        psbt = ext_fund.utxoupdatepsbt(res["psbt"])
+        psbt = ext_wallet.utxoupdatepsbt(psbt)
+        psbt = ext_fund.walletprocesspsbt(psbt)["psbt"]
+        signed = ext_wallet.walletprocesspsbt(psbt)
         assert signed["complete"]
         testres = self.nodes[0].testmempoolaccept([signed["hex"]])[0]
         assert_equal(testres["allowed"], True)

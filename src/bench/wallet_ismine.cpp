@@ -11,6 +11,7 @@
 #include <script/script.h>
 #include <script/signingprovider.h>
 #include <sync.h>
+#include <test/util/chain_encoding.h>
 #include <test/util/setup_common.h>
 #include <wallet/context.h>
 #include <wallet/db.h>
@@ -59,7 +60,7 @@ static void WalletIsMine(benchmark::Bench& bench, bool legacy_wallet, int num_co
         }
     }
 
-    const CScript script = GetScriptForDestination(DecodeDestination(ADDRESS_BCRT1_UNSPENDABLE));
+    const CScript script = GetScriptForDestination(DecodeDestination(RecodeKeyOrAddressForActiveChain(ADDRESS_BCRT1_UNSPENDABLE)));
 
     bench.run([&] {
         LOCK(wallet->cs_wallet);

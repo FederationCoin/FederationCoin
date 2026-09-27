@@ -1527,7 +1527,7 @@ RPCHelpMan importmulti()
                                       "block from time %d, which is after or within %d seconds of key creation, and "
                                       "could contain transactions pertaining to the key. As a result, transactions "
                                       "and coins using this key may not appear in the wallet. This error could be "
-                                      "caused by pruning or data corruption (see bitcoind log for details) and could "
+                                      "caused by pruning or data corruption (see federationcoind log for details) and could "
                                       "be dealt with by downloading and rescanning the relevant blocks (see -reindex "
                                       "option and rescanblockchain RPC).",
                                 GetImportTimestamp(request, now), scannedTime - TIMESTAMP_WINDOW - 1, TIMESTAMP_WINDOW)));
@@ -1900,7 +1900,7 @@ RPCHelpMan importdescriptors()
                             GetImportTimestamp(request, now), scanned_time - TIMESTAMP_WINDOW - 1, TIMESTAMP_WINDOW)};
                     if (pwallet->chain().havePruned()) {
                         error_msg += strprintf(" This error could be caused by pruning or data corruption "
-                                "(see bitcoind log for details) and could be dealt with by downloading and "
+                                "(see federationcoind log for details) and could be dealt with by downloading and "
                                 "rescanning the relevant blocks (see -reindex option and rescanblockchain RPC).");
                     } else if (pwallet->chain().hasAssumedValidChain()) {
                         error_msg += strprintf(" This error is likely caused by an in-progress assumeutxo "

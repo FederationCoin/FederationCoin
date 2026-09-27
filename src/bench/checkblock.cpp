@@ -41,19 +41,15 @@ static void DeserializeBlockTest(benchmark::Bench& bench)
 
 static void DeserializeAndCheckBlockTest(benchmark::Bench& bench)
 {
-    DataStream stream(benchmark::data::block413567);
-    std::byte a{0};
-    stream.write({&a, 1}); // Prevent compaction
-
+    // block413567 is a Bitcoin mainnet block. CheckBlock has to run on a
+    // block this chain accepts. Dummy MAIN genesis is that block.
     ArgsManager bench_args;
     const auto chainParams = CreateChainParams(bench_args, ChainType::MAIN);
+    const CBlock genesis{chainParams->GenesisBlock()};
 
     bench.unit("block").run([&] {
-        CBlock block; // Note that CBlock caches its checked state, so we need to recreate it here
-        stream >> TX_WITH_WITNESS(block);
-        bool rewound = stream.Rewind(benchmark::data::block413567.size());
-        assert(rewound);
-
+        CBlock block{genesis};
+        block.fChecked = false; // CheckBlock caches this; keep the cache off the shared genesis
         BlockValidationState validationState;
         bool checked = CheckBlock(block, validationState, chainParams->GetConsensus());
         assert(checked);

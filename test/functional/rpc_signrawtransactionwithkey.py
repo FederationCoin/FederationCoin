@@ -9,6 +9,7 @@ from test_framework.messages import (
 )
 from test_framework.address import (
     address_to_scriptpubkey,
+    byte_to_base58,
     p2a,
     script_to_p2sh,
 )
@@ -38,11 +39,12 @@ from decimal import (
 INPUTS = [
     # Valid pay-to-pubkey scripts
     {'txid': '9b907ef1e3c26fc71fe4a4b3580bc75264112f95050014157059c736f0202e71', 'vout': 0,
-     'scriptPubKey': '76a91460baa0f494b38ce3c940dea67f3804dc52d1fb9488ac'},
+     'scriptPubKey': '76a91460baa0f494b38ce3c940dea67f3804dc52d1fb9488ac', 'amount': 1},
     {'txid': '83a4f6a6b73660e13ee6cb3c6063fa3759c50c9b7521d0536022961898f4fb02', 'vout': 0,
-     'scriptPubKey': '76a914669b857c03a5ed269d5d85a1ffac9ed5d663072788ac'},
+     'scriptPubKey': '76a914669b857c03a5ed269d5d85a1ffac9ed5d663072788ac', 'amount': 1},
 ]
-OUTPUTS = {'mpLQjfK79b7CCV4VMJWEWAj5Mpx8Up5zxB': 0.1}
+# A valid P2PKH on this chain. The destination is never spent.
+OUTPUT_ADDRESS = byte_to_base58(bytes.fromhex("751e76e8199196d454941c45d1b3a323f1433bd6"), 95)
 
 class SignRawTransactionWithKeyTest(BitcoinTestFramework):
     def set_test_params(self):
@@ -66,8 +68,8 @@ class SignRawTransactionWithKeyTest(BitcoinTestFramework):
         1) The transaction has a complete set of signatures
         2) No script verification error occurred"""
         self.log.info("Test valid raw transaction with one input")
-        privKeys = ['cUeKHd5orzT3mz8P9pxyREHfsWtVfgsfDjiZZBcjUBAaGk1BTj7N', 'cVKpPfVKSJxKqVpE9awvXNWuLHCa5j5tiE7K6zbUSptFpTEtiFrA']
-        rawTx = self.nodes[0].createrawtransaction(INPUTS, OUTPUTS)
+        privKeys = ['a7NE93KR4XnrBhv6JceggSmstZg4JzY2cfkUbv5DcX7BmSoCay67', 'a83jF5ivdrJ8FDbwJNddnb17MKz8j2kG7A9E9j3xbApsKA727Ck6']
+        rawTx = self.nodes[0].createrawtransaction(INPUTS, {OUTPUT_ADDRESS: 0.1})
         rawTxSigned = self.nodes[0].signrawtransactionwithkey(rawTx, privKeys, INPUTS)
 
         self.assert_signing_completed_successfully(rawTxSigned)
@@ -96,16 +98,8 @@ class SignRawTransactionWithKeyTest(BitcoinTestFramework):
             self.verify_txn_with_witness_script(tx_type)
 
     def keyless_signing_test(self):
-        self.log.info("Test that keyless 'signing' of pay-to-anchor input succeeds")
-        [txid, vout] = self.send_to_address(p2a(), 49.999)
-        spending_tx = self.nodes[0].createrawtransaction(
-            [{"txid": txid, "vout": vout}],
-            [{getnewdestination()[2]: Decimal("49.998")}])
-        spending_tx_signed = self.nodes[0].signrawtransactionwithkey(spending_tx, [], [])
-        self.assert_signing_completed_successfully(spending_tx_signed)
-        assert self.nodes[0].testmempoolaccept([spending_tx_signed["hex"]])[0]["allowed"]
-        # 'signing' a P2A prevout is a no-op, so signed and unsigned txs shouldn't differ
-        assert_equal(spending_tx, spending_tx_signed["hex"])
+        self.log.info("Pay-to-anchor outputs are rejected")
+        assert_raises_rpc_error(-26, "bad-txns-vout-taproot-disabled", self.send_to_address, p2a(), 49.999)
 
     def verify_txn_with_witness_script(self, tx_type):
         self.log.info("Test with a {} script as the witnessScript".format(tx_type))
@@ -127,13 +121,13 @@ class SignRawTransactionWithKeyTest(BitcoinTestFramework):
 
     def invalid_sighashtype_test(self):
         self.log.info("Test signing transaction with invalid sighashtype")
-        tx = self.nodes[0].createrawtransaction(INPUTS, OUTPUTS)
+        tx = self.nodes[0].createrawtransaction(INPUTS, {OUTPUT_ADDRESS: 0.1})
         privkeys = [self.nodes[0].get_deterministic_priv_key().key]
         assert_raises_rpc_error(-8, "'all' is not a valid sighash parameter.", self.nodes[0].signrawtransactionwithkey, tx, privkeys, sighashtype="all")
 
     def invalid_private_key_and_tx(self):
         self.log.info("Test signing transaction with an invalid private key")
-        tx = self.nodes[0].createrawtransaction(INPUTS, OUTPUTS)
+        tx = self.nodes[0].createrawtransaction(INPUTS, {OUTPUT_ADDRESS: 0.1})
         privkeys = ["123"]
         assert_raises_rpc_error(-5, "Invalid private key", self.nodes[0].signrawtransactionwithkey, tx, privkeys)
         self.log.info("Test signing transaction with an invalid tx hex")

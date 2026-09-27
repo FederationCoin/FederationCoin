@@ -84,7 +84,7 @@ static CBlock CreateGenesisBlock([[maybe_unused]] const char* pszTimestamp, cons
  *   vMerkleTree: 4a5e1e
  */
 
-static const CScript UnspendableGenesisScript()
+static CScript UnspendableGenesisScript()
 {
     return CScript() << "000000000000000000000000000000000000000000000000000000000000000000"_hex << OP_CHECKSIG;
 }

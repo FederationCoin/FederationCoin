@@ -17,6 +17,7 @@
 #include <validation.h>
 #include <validationinterface.h>
 
+#include <cassert>
 #include <thread>
 
 using node::BlockAssembler;
@@ -40,21 +41,22 @@ struct TestSubscriber final : public CValidationInterface {
 
     void UpdatedBlockTip(const CBlockIndex* pindexNew, const CBlockIndex* pindexFork, bool fInitialDownload) override
     {
-        BOOST_CHECK_EQUAL(m_expected_tip, pindexNew->GetBlockHash());
+        // These callbacks run off the test thread. Boost.Test is not safe there.
+        assert(m_expected_tip == pindexNew->GetBlockHash());
     }
 
     void BlockConnected(ChainstateRole role, const std::shared_ptr<const CBlock>& block, const CBlockIndex* pindex) override
     {
-        BOOST_CHECK_EQUAL(m_expected_tip, block->hashPrevBlock);
-        BOOST_CHECK_EQUAL(m_expected_tip, pindex->pprev->GetBlockHash());
+        assert(m_expected_tip == block->hashPrevBlock);
+        assert(m_expected_tip == pindex->pprev->GetBlockHash());
 
         m_expected_tip = block->GetHash();
     }
 
     void BlockDisconnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* pindex) override
     {
-        BOOST_CHECK_EQUAL(m_expected_tip, block->GetHash());
-        BOOST_CHECK_EQUAL(m_expected_tip, pindex->GetBlockHash());
+        assert(m_expected_tip == block->GetHash());
+        assert(m_expected_tip == pindex->GetBlockHash());
 
         m_expected_tip = block->hashPrevBlock;
     }
@@ -202,7 +204,7 @@ BOOST_AUTO_TEST_CASE(processnewblock_signals_ordering)
             for (const auto& block : blocks) {
                 if (block->vtx.size() == 1) {
                     bool processed = Assert(m_node.chainman)->ProcessNewBlock(block, true, true, &ignored);
-                    BOOST_REQUIRE(processed);
+                    assert(processed);
                 }
             }
         });

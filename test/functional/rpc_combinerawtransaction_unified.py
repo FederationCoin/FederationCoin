@@ -12,7 +12,6 @@ class T(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
-        self.extra_args = [["-testactivationheight=blake2b@1"]]
 
     def add_options(self, parser):
         self.add_wallet_options(parser, descriptors=True, legacy=False)

@@ -449,7 +449,7 @@ RPCHelpMan setfeerate()
     return RPCHelpMan{
         "setfeerate",
         "\nSet the transaction fee rate in " + CURRENCY_ATOM + "/vB for this wallet.\n"
-        "Overrides the global -paytxfee configuration option. Like -paytxfee, it is not persisted after bitcoind shutdown/restart.\n"
+        "Overrides the global -paytxfee configuration option. Like -paytxfee, it is not persisted after federationcoind shutdown/restart.\n"
         "Can be deactivated by passing 0 as the fee rate, in which case automatic fee selection will be used by default.\n",
         {
             {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "The transaction fee rate in " + CURRENCY_ATOM + "/vB to set (0 to unset)"},

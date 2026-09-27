@@ -9,7 +9,7 @@ import time
 
 from test_framework.messages import (
     COIN,
-    MAX_BLOCK_WEIGHT,
+    REDUCED_DATA_MAX_BLOCK_WEIGHT,
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -171,7 +171,9 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         self.txouts = gen_return_txouts()
         self.relayfee = self.nodes[0].getnetworkinfo()['relayfee']
 
-        utxo_count = 90
+        # Four 66KB transactions already exceed a quarter of an RDTS block
+        # (200KB virtual). Ninety was the count for a 4MB block.
+        utxo_count = 12
         utxos = self.wallet.send_self_transfer_multi(from_node=self.nodes[0], num_outputs=utxo_count)['new_utxos']
         self.generate(self.wallet, 1)
         assert_equal(len(self.nodes[0].getrawmempool()), 0)
@@ -193,16 +195,15 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
                 self.txouts,
                 utxos[start_range:end_range])
 
-        # Make sure that the size of each group of transactions exceeds
-        # MAX_BLOCK_WEIGHT // 4 -- otherwise the test needs to be revised to
-        # create more transactions.
+        # Each fee group must be larger than a quarter of the RDTS block
+        # (REDUCED_DATA_MAX_BLOCK_WEIGHT // 4 virtual bytes).
         mempool = self.nodes[0].getrawmempool(True)
         sizes = [0, 0, 0]
         for i in range(3):
             for j in txids[i]:
                 assert j in mempool
                 sizes[i] += mempool[j]['vsize']
-            assert sizes[i] > MAX_BLOCK_WEIGHT // 4  # Fail => raise utxo_count
+            assert sizes[i] > REDUCED_DATA_MAX_BLOCK_WEIGHT // 4  # Fail => raise utxo_count
 
         assert_equal(self.nodes[0].getprioritisedtransactions(), {})
         # add a fee delta to something in the cheapest bucket and make sure it gets mined
@@ -290,14 +291,14 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         # getblocktemplate to (eventually) return a new block.
         mock_time = int(time.time())
         self.nodes[0].setmocktime(mock_time)
-        template = self.nodes[0].getblocktemplate({'rules': ['segwit']})
+        template = self.nodes[0].getblocktemplate({'rules': ['segwit', 'blake2b']})
         self.nodes[0].prioritisetransaction(txid=tx_id, fee_delta=-int(self.relayfee*COIN))
 
         # Calling prioritisetransaction with the inverse amount should delete its prioritisation entry
         assert tx_id not in self.nodes[0].getprioritisedtransactions()
 
         self.nodes[0].setmocktime(mock_time+10)
-        new_template = self.nodes[0].getblocktemplate({'rules': ['segwit']})
+        new_template = self.nodes[0].getblocktemplate({'rules': ['segwit', 'blake2b']})
 
         assert template != new_template
 

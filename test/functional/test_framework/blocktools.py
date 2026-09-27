@@ -40,7 +40,7 @@ from .script import (
     OP_TRUE,
 )
 from .script_util import (
-    key_to_p2pk_script,
+    key_to_p2pkh_script,
     key_to_p2wpkh_script,
     keys_to_multisig_script,
     script_to_p2wsh_script,
@@ -62,7 +62,8 @@ COINBASE_MATURITY = 100
 # From BIP141
 WITNESS_COMMITMENT_HEADER = b"\xaa\x21\xa9\xed"
 
-NORMAL_GBT_REQUEST_PARAMS = {"rules": ["segwit"]}
+# Header v2 is active from genesis, so a template client must name blake2b.
+NORMAL_GBT_REQUEST_PARAMS = {"rules": ["segwit", "blake2b"]}
 VERSIONBITS_LAST_OLD_BLOCK_VERSION = 4
 MIN_BLOCKS_TO_KEEP = 288
 
@@ -98,7 +99,12 @@ def create_block(hashprev=None, coinbase=None, ntime=None, *, version=None, tmpl
     block.nTime = ntime or tmpl.get('curtime') or int(time.time() + 600)
     block_height = height if height is not None else tmpl.get('height')
     if header_v2 is None:
-        header_v2 = '!blake2b' in tmpl.get('rules', ())
+        rules = tmpl.get('rules', ())
+        if rules:
+            header_v2 = '!blake2b' in rules
+        else:
+            # No template: a height means this chain's header v2.
+            header_v2 = block_height is not None
     if header_v2 and block_height is None:
         raise ValueError("A v2 block requires a height")
     block.m_header_v2 = header_v2
@@ -181,8 +187,9 @@ def script_BIP34_coinbase_height(height):
 def create_coinbase(height, pubkey=None, *, script_pubkey=None, extra_output_script=None, fees=0, nValue=50, halving_period=REGTEST_RETARGET_PERIOD):
     """Create a coinbase transaction.
 
-    If pubkey is passed in, the coinbase output will be a P2PK output;
-    otherwise an anyone-can-spend output.
+    If pubkey is passed in, the coinbase output will be a P2PKH output.
+    A raw pubkey script is larger than this chain's 34-byte output limit.
+    Otherwise the output is anyone-can-spend.
 
     If extra_output_script is given, make a 0-value output to that
     script. This is useful to pad block weight/sigops as needed. """
@@ -195,7 +202,7 @@ def create_coinbase(height, pubkey=None, *, script_pubkey=None, extra_output_scr
         coinbaseoutput.nValue >>= halvings
         coinbaseoutput.nValue += fees
     if pubkey is not None:
-        coinbaseoutput.scriptPubKey = key_to_p2pk_script(pubkey)
+        coinbaseoutput.scriptPubKey = key_to_p2pkh_script(pubkey)
     elif script_pubkey is not None:
         coinbaseoutput.scriptPubKey = script_pubkey
     else:

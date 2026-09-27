@@ -32,7 +32,6 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.blocktools import COINBASE_MATURITY
 
 ADDRESS_TYPES = [
-    "bech32m",
     "bech32",
     "p2sh-segwit",
     "legacy",
@@ -159,8 +158,8 @@ class AddressInputTypeGrouping(BitcoinTestFramework):
             A.sendtoaddress(B.getnewaddress(address_type="bech32"), v)
 
         for v in generate_payment_values(3, 10):
-            self.log.debug(f"Making payment of {v} BTC to bech32m")
-            A.sendtoaddress(B.getnewaddress(address_type="bech32m"), v)
+            self.log.debug(f"Making payment of {v} BTC to bech32")
+            A.sendtoaddress(B.getnewaddress(address_type="bech32"), v)
 
         self.generate(A, 1)
 

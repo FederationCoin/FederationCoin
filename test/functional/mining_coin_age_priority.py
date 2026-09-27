@@ -60,7 +60,7 @@ class PriorityTest(BitcoinTestFramework):
     def assert_prio(self, txid, starting, current):
         node = self.nodes[1]
 
-        tmpl = node.getblocktemplate({'rules':('segwit',)})
+        tmpl = node.getblocktemplate({'rules': ('segwit', 'blake2b')})
         tmplentry = None
         for tx in tmpl['transactions']:
             if tx['txid'] == txid:
@@ -103,7 +103,7 @@ class PriorityTest(BitcoinTestFramework):
         self.testmsg('priority increases correctly when that input is mined')
 
         # Mine only the sendtoaddress transaction
-        tmpl = node.getblocktemplate({'rules':('segwit',)})
+        tmpl = node.getblocktemplate({'rules': ('segwit', 'blake2b')})
         rawblock = solve_template_hex(tmpl, [node.getrawtransaction(txid_a)])
         assert_equal(node.submitblock(rawblock), None)
         self.sync_all()

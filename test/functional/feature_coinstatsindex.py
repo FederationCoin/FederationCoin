@@ -137,8 +137,8 @@ class CoinStatsIndexTest(BitcoinTestFramework):
             assert_equal(res5['block_info'], {
                 'unspendable': 0,
                 'prevout_spent': 50,
-                'new_outputs_ex_coinbase': Decimal('49.99968800'),
-                'coinbase': Decimal('50.00031200'),
+                'new_outputs_ex_coinbase': Decimal('49.99971200'),
+                'coinbase': Decimal('50.00028800'),
                 'unspendables': {
                     'genesis_block': 0,
                     'bip30': 0,
@@ -195,7 +195,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
         # Generate a block that includes previous coinbase
         tip = self.nodes[0].getbestblockhash()
         block_time = self.nodes[0].getblock(tip)['time'] + 1
-        block = create_block(int(tip, 16), cb, block_time)
+        block = create_block(int(tip, 16), cb, block_time, height=109)
         block.solve()
         self.nodes[0].submitblock(block.serialize().hex())
         self.sync_all()

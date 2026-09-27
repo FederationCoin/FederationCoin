@@ -4,9 +4,6 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 export LC_ALL=C
-if [ -z "$OSSLSIGNCODE" ]; then
-  OSSLSIGNCODE=osslsigncode
-fi
 
 if [ "$#" -ne 1 ]; then
   echo "usage: $0 <path to key>"
@@ -14,16 +11,10 @@ if [ "$#" -ne 1 ]; then
   exit 1
 fi
 
-OUT=signature-win.tar.gz
-SRCDIR=unsigned
-WORKDIR=./.tmp
-OUTDIR="${WORKDIR}/out"
-OUTSUBDIR="${OUTDIR}/win"
 # Microsoft Authenticode: not yet provisioned. Unsigned only.
 # TIMESERVER=https://timestamp.federationcoin.org
 # TIMESERVER=http://timestamp.comodoca.com
 # secrets not yet hosted
-CERTFILE="win-codesign.cert"
 
 echo "unsigned only: Microsoft Authenticode not yet provisioned"
 echo "timestamp.federationcoin.org secrets not yet hosted"

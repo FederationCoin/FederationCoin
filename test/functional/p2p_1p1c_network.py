@@ -55,7 +55,7 @@ class PackageRelayTest(BitcoinTestFramework):
 
         # Store mempoolminfee for dynamic feerate calculation
         self.mempoolminfee = self.nodes[0].getmempoolinfo()['mempoolminfee']
-        self.log.info(f"mempoolminfee after fill_mempool: {self.mempoolminfee} BTC/kvB ({self.mempoolminfee * 100000:.4f} sat/vB)")
+        self.log.info(f"mempoolminfee after fill_mempool: {self.mempoolminfee} COIN/kvB ({self.mempoolminfee * 100000:.4f} token/vB)")
 
     def create_basic_1p1c(self, wallet):
         low_fee_parent = wallet.create_self_transfer(fee_rate=Decimal(DEFAULT_MIN_RELAY_TX_FEE) / COIN, confirmed_only=True)
@@ -95,7 +95,7 @@ class PackageRelayTest(BitcoinTestFramework):
         parent1_feerate = self.mempoolminfee * 2
         parent2_feerate = self.mempoolminfee * 4
 
-        self.log.info(f"Creating 2p1c package with parent1={parent1_feerate} BTC/kvB, parent2={parent2_feerate} BTC/kvB")
+        self.log.info(f"Creating 2p1c package with parent1={parent1_feerate} COIN/kvB, parent2={parent2_feerate} COIN/kvB")
 
         parent1 = wallet.create_self_transfer(fee_rate=parent1_feerate, confirmed_only=True)
         parent2 = wallet.create_self_transfer(fee_rate=parent2_feerate, confirmed_only=True)

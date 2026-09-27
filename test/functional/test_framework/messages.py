@@ -33,6 +33,9 @@ from test_framework.util import assert_equal
 
 MAX_LOCATOR_SZ = 101
 MAX_BLOCK_WEIGHT = 4000000
+# Block weight while Knots RDTS is active. This chain buries Blake2b at
+# genesis, so mined blocks are held to this cap, not MAX_BLOCK_WEIGHT.
+REDUCED_DATA_MAX_BLOCK_WEIGHT = 800000
 DEFAULT_BLOCK_RESERVED_WEIGHT = 8000
 MINIMUM_BLOCK_RESERVED_WEIGHT = 2000
 MAX_BLOOM_FILTER_SIZE = 36000
@@ -82,9 +85,9 @@ MAX_OP_RETURN_RELAY = 83
 DEFAULT_MEMPOOL_EXPIRY_HOURS = 336  # hours
 
 MAGIC_BYTES = {
-    "mainnet": b"\xf9\xbe\xb4\xd9",   # mainnet
-    "testnet3": b"\x0b\x11\x09\x07",  # testnet3
-    "regtest": b"\xfa\xbf\xb5\xda",   # regtest
+    "mainnet": b"\x00\x00\x00\x00",   # dummy main, not launched
+    "testnet3": b"\xfc\xe3\x1e\xc3",  # testnet
+    "regtest": b"\xfc\xe7\x1e\xc7",   # regtest
     "signet": b"\x0a\x03\xcf\x40",    # signet
 }
 
@@ -982,6 +985,8 @@ class CBlock(CBlockHeader):
         return True
 
     def solve(self):
+        if self.m_header_v2:
+            self.m_txcount = len(self.vtx)
         self.rehash()
         target = uint256_from_compact(self.nBits)
         while self.sha256 > target:

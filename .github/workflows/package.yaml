@@ -203,6 +203,8 @@ jobs:
             -DWITH_ZMQ=ON \
             -DWITH_MINIUPNPC=ON \
             -DREDUCE_EXPORTS=ON
+          # deploy builds the Qt app only. The mill extra is the daemon.
+          cmake --build build --target federationcoind
           cmake --build build --target deploy
           zip="build/Federation-Coin.zip"
           if [ ! -f "$zip" ]; then

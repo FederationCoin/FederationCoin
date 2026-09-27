@@ -150,18 +150,28 @@ jobs:
             find "${BASE_BUILD_DIR}" -name '*win64-setup.exe' >&2 || true
             exit 1
           fi
+          # CI wraps the Windows PE as a bash wine launcher and keeps the
+          # real binary beside it as federationcoind.exe_orig. The mill zip
+          # must be that PE, named federationcoind.exe.
           daemon="${BASE_BUILD_DIR}/release/federationcoind.exe"
-          if [ ! -f "$daemon" ]; then
+          if [ -f "${daemon}_orig" ]; then
+            daemon="${daemon}_orig"
+          elif [ ! -f "$daemon" ] && [ -f "${BASE_BUILD_DIR}/bin/federationcoind.exe" ]; then
             daemon="${BASE_BUILD_DIR}/bin/federationcoind.exe"
           fi
           if [ ! -f "$daemon" ]; then
             echo "missing federationcoind.exe under ${BASE_BUILD_DIR}" >&2
-            find "${BASE_BUILD_DIR}" -name 'federationcoind.exe' >&2 || true
+            find "${BASE_BUILD_DIR}" -name 'federationcoind.exe*' >&2 || true
+            exit 1
+          fi
+          if head -n 1 "$daemon" | grep -q '^#!'; then
+            echo "refusing to package the wine wrapper at ${daemon}" >&2
             exit 1
           fi
           mkdir -p dist
           cp -a "$exe" dist/federationcoin-win64-setup.exe
-          python3 .github/scripts/zip-one.py "$daemon" dist/federationcoind-win-x64.zip
+          cp -a "$daemon" dist/federationcoind.exe
+          python3 .github/scripts/zip-one.py dist/federationcoind.exe dist/federationcoind-win-x64.zip
           ls -la dist/
       - uses: actions/upload-artifact@v4
         with:

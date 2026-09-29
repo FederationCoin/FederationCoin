@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <consensus/settlement_fee.h>
 #include <consensus/validation.h>
 #include <key_io.h>
 #include <policy/packages.h>
@@ -22,9 +23,15 @@
 
 using namespace util::hex_literals;
 
-// A fee amount that is above 1sat/vB but below 5sat/vB for most transactions created within these
-// unit tests.
+// A starting fee. Callers raise it to the consensus floor (3 per virtual byte)
+// when this is short. It stays under the 5sat/vB mempool line used below.
 static const CAmount low_fee_amt{200};
+
+static CAmount MinimumPackageFee(const CTransaction& tx, CAmount offered)
+{
+    const CAmount floor{MIN_TX_FEE_RATE * static_cast<CAmount>(GetVirtualTransactionSize(tx))};
+    return std::max(offered, floor);
+}
 
 struct TxPackageTest : TestChain100Setup {
 // Create placeholder transactions that have no meaning.
@@ -765,14 +772,19 @@ BOOST_AUTO_TEST_CASE(package_witness_swap_tests)
     package_mixed.push_back(ptx_parent2_v1);
 
     // parent3 will be a new transaction. Put a low feerate to make it invalid on its own.
-    auto mtx_parent3 = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[3], /*input_vout=*/0,
+    auto mtx_parent3_probe = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[3], /*input_vout=*/0,
                                                      /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
                                                      /*output_destination=*/acs_spk,
                                                      /*output_amount=*/CAmount(50 * COIN - low_fee_amt), /*submit=*/false);
+    const CAmount parent3_fee{MinimumPackageFee(CTransaction(mtx_parent3_probe), low_fee_amt)};
+    auto mtx_parent3 = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[3], /*input_vout=*/0,
+                                                     /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
+                                                     /*output_destination=*/acs_spk,
+                                                     /*output_amount=*/CAmount(50 * COIN - parent3_fee), /*submit=*/false);
     CTransactionRef ptx_parent3 = MakeTransactionRef(mtx_parent3);
     package_mixed.push_back(ptx_parent3);
-    BOOST_CHECK(m_node.mempool->GetMinFee().GetFee(GetVirtualTransactionSize(*ptx_parent3)) > low_fee_amt);
-    BOOST_CHECK(m_node.mempool->m_opts.min_relay_feerate.GetFee(GetVirtualTransactionSize(*ptx_parent3)) <= low_fee_amt);
+    BOOST_CHECK(m_node.mempool->GetMinFee().GetFee(GetVirtualTransactionSize(*ptx_parent3)) > parent3_fee);
+    BOOST_CHECK(m_node.mempool->m_opts.min_relay_feerate.GetFee(GetVirtualTransactionSize(*ptx_parent3)) <= parent3_fee);
 
     // child spends parent1, parent2, and parent3
     CKey mixed_grandchild_key = GenerateRandomKey();
@@ -785,7 +797,7 @@ BOOST_AUTO_TEST_CASE(package_witness_swap_tests)
     mtx_mixed_child.vin[0].scriptWitness = acs_witness;
     mtx_mixed_child.vin[1].scriptWitness = acs_witness;
     mtx_mixed_child.vin[2].scriptWitness = acs_witness;
-    mtx_mixed_child.vout.emplace_back((48 + 49 + 50 - 1) * COIN, mixed_child_spk);
+    mtx_mixed_child.vout.emplace_back((48 + 49) * COIN + mtx_parent3.vout[0].nValue - COIN, mixed_child_spk);
     CTransactionRef ptx_mixed_child = MakeTransactionRef(mtx_mixed_child);
     package_mixed.push_back(ptx_mixed_child);
 
@@ -811,7 +823,7 @@ BOOST_AUTO_TEST_CASE(package_witness_swap_tests)
             BOOST_CHECK_EQUAL(ptx_parent2_v2->GetWitnessHash(), it_parent2->second.m_other_wtxid.value());
 
             // package feerate should include parent3 and child. It should not include parent1 or parent2_v1.
-            const CFeeRate expected_feerate(1 * COIN, GetVirtualTransactionSize(*ptx_parent3) + GetVirtualTransactionSize(*ptx_mixed_child));
+            const CFeeRate expected_feerate(parent3_fee + 1 * COIN, GetVirtualTransactionSize(*ptx_parent3) + GetVirtualTransactionSize(*ptx_mixed_child));
             BOOST_CHECK(it_parent3->second.m_effective_feerate.value() == expected_feerate);
             BOOST_CHECK(it_child->second.m_effective_feerate.value() == expected_feerate);
             std::vector<Wtxid> expected_wtxids({ptx_parent3->GetWitnessHash(), ptx_mixed_child->GetWitnessHash()});
@@ -834,14 +846,18 @@ BOOST_AUTO_TEST_CASE(package_cpfp_tests)
 
     // low-fee parent and high-fee child package
     const CAmount coinbase_value{50 * COIN};
-    const CAmount parent_value{coinbase_value - low_fee_amt};
-    const CAmount child_value{parent_value - COIN};
-
     Package package_cpfp;
+    auto mtx_parent_probe = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[0], /*input_vout=*/0,
+                                                    /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
+                                                    /*output_destination=*/parent_spk,
+                                                    /*output_amount=*/coinbase_value - low_fee_amt, /*submit=*/false);
+    const CAmount cpfp_parent_fee{MinimumPackageFee(CTransaction(mtx_parent_probe), low_fee_amt)};
     auto mtx_parent = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[0], /*input_vout=*/0,
                                                     /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
                                                     /*output_destination=*/parent_spk,
-                                                    /*output_amount=*/parent_value, /*submit=*/false);
+                                                    /*output_amount=*/coinbase_value - cpfp_parent_fee, /*submit=*/false);
+    const CAmount parent_value{mtx_parent.vout[0].nValue};
+    const CAmount child_value{parent_value - COIN};
     CTransactionRef tx_parent = MakeTransactionRef(mtx_parent);
     package_cpfp.push_back(tx_parent);
 
@@ -909,8 +925,11 @@ BOOST_AUTO_TEST_CASE(package_cpfp_tests)
     // The mempool minimum feerate is 5sat/vB, but this package just pays 800 satoshis total.
     // The child fees would be able to pay for itself, but isn't enough for the entire package.
     Package package_still_too_low;
-    const CAmount parent_fee{200};
-    const CAmount child_fee{600};
+    auto mtx_parent_cheap_probe = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[1], /*input_vout=*/0,
+                                                          /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
+                                                          /*output_destination=*/parent_spk,
+                                                          /*output_amount=*/coinbase_value - low_fee_amt, /*submit=*/false);
+    const CAmount parent_fee{MinimumPackageFee(CTransaction(mtx_parent_cheap_probe), low_fee_amt)};
     auto mtx_parent_cheap = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[1], /*input_vout=*/0,
                                                           /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
                                                           /*output_destination=*/parent_spk,
@@ -920,6 +939,11 @@ BOOST_AUTO_TEST_CASE(package_cpfp_tests)
     BOOST_CHECK(m_node.mempool->GetMinFee().GetFee(GetVirtualTransactionSize(*tx_parent_cheap)) > parent_fee);
     BOOST_CHECK(m_node.mempool->m_opts.min_relay_feerate.GetFee(GetVirtualTransactionSize(*tx_parent_cheap)) <= parent_fee);
 
+    auto mtx_child_probe = CreateValidMempoolTransaction(/*input_transaction=*/tx_parent_cheap, /*input_vout=*/0,
+                                                         /*input_height=*/101, /*input_signing_key=*/child_key,
+                                                         /*output_destination=*/child_spk,
+                                                         /*output_amount=*/coinbase_value - parent_fee - 600, /*submit=*/false);
+    const CAmount child_fee{std::max(CAmount{600}, m_node.mempool->GetMinFee().GetFee(GetVirtualTransactionSize(CTransaction(mtx_child_probe))))};
     auto mtx_child_cheap = CreateValidMempoolTransaction(/*input_transaction=*/tx_parent_cheap, /*input_vout=*/0,
                                                          /*input_height=*/101, /*input_signing_key=*/child_key,
                                                          /*output_destination=*/child_spk,

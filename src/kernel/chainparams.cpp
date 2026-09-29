@@ -12,6 +12,7 @@
 #include <hash.h>
 #include <kernel/messagestartchars.h>
 #include <logging.h>
+#include <pow.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
@@ -107,7 +108,6 @@ static void SetFederationBlake2bAndRdts(Consensus::Params& consensus)
     consensus.Blake2bHeight = 0;
     consensus.Blake2bTargetShift = 0;
     consensus.Blake2bHeadline.assign(kFederationHeadline.begin(), kFederationHeadline.end());
-    consensus.RdtsExpiryTime = 1819756800; // September 1st, 2027 00:00 UTC (Knots value this pass)
 }
 
 static void SetFederationTaprootDeployment(Consensus::Params& consensus)
@@ -515,14 +515,6 @@ public:
             consensus.Blake2bHeadline = *opts.blake2b_headline;
         }
 
-        // Optionally schedule the RDTS deployment (see -rdtsexpiry). RDTS
-        // activates at the BLAKE2b fork height scheduled above; only the
-        // expiry is separately settable, as on mainnet. Left unscheduled by
-        // default, so regtest behaviour is unchanged.
-        if (opts.rdts_expiry_time) {
-            consensus.RdtsExpiryTime = *opts.rdts_expiry_time;
-        }
-
         for (const auto& [deployment_pos, version_bits_params] : opts.version_bits_parameters) {
             consensus.vDeployments[deployment_pos].nStartTime = version_bits_params.start_time;
             consensus.vDeployments[deployment_pos].nTimeout = version_bits_params.timeout;
@@ -537,9 +529,23 @@ public:
         }
 
         genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin regtest: time is the unit, not the state", UnspendableGenesisScript(), 1789600819, 4948480, 0, 0x207fffff, 1, 50 * COIN);
+        // A regtest that moves the BLAKE2b fork past height 0 needs a SHA256d
+        // genesis. The default fork is height 0, and that block hash stays put.
+        if (consensus.Blake2bHeight != 0) {
+            genesis.m_header_v2 = false;
+            genesis.m_nonce2 = 0;
+            genesis.m_txcount = 0;
+            genesis.m_height = 0;
+            genesis.nNonce = 0;
+            while (!CheckProofOfWork(genesis.GetHash(), genesis.nBits, consensus)) {
+                ++genesis.nNonce;
+            }
+        }
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256{"751a65c1c058cce240ab96f65b5f1bc91783fcdeade3079f1240d64d1929bd30"});
         assert(genesis.hashMerkleRoot == uint256{"48b1813ae1ccc93c2ae1e82e6766babb3b4997b40d358745d68bf53cc524a346"});
+        if (consensus.Blake2bHeight == 0) {
+            assert(consensus.hashGenesisBlock == uint256{"751a65c1c058cce240ab96f65b5f1bc91783fcdeade3079f1240d64d1929bd30"});
+        }
 
         vFixedSeeds.clear();
         vSeeds.clear();

@@ -33,14 +33,11 @@ from test_framework.messages import (
     CTxInWitness,
     CTxOut,
     hash256,
-    MAX_OP_RETURN_RELAY,
 )
 from test_framework.script import (
     CScript,
-    OP_1,
     OP_DROP,
     OP_NOP,
-    OP_RETURN,
     OP_TRUE,
     sign_input_legacy,
     taproot_construct,
@@ -121,75 +118,38 @@ class MiniWallet:
     def _create_utxo(self, *, txid, vout, value, height, coinbase, confirmations):
         return {"txid": txid, "vout": vout, "value": value, "height": height, "coinbase": coinbase, "confirmations": confirmations}
 
-    def _pad_op_return(self, data_len):
-        return CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + [OP_1] * data_len))
-
-    def _trim_pad_outputs(self, tx, target_vsize):
-        """Drop or shorten trailing OP_RETURN pads until vsize is at or under target."""
-        while tx.get_vsize() > target_vsize and tx.vout and tx.vout[-1].scriptPubKey[0] == OP_RETURN:
-            over = tx.get_vsize() - target_vsize
-            script = tx.vout[-1].scriptPubKey
-            if len(script) <= 1 + over:
-                tx.vout.pop()
-                continue
-            tx.vout[-1] = CTxOut(nValue=0, scriptPubKey=CScript(script[:-over]))
-
     def _bulk_tx(self, tx, target_vsize):
-        """Pad a transaction with extra outputs until it reaches a target vsize.
-        returns the tx
+        """Grow one transaction to target_vsize with payment outputs.
+
+        A data script is not a size knob. Tests that need a heavier block add
+        transactions instead of calling this.
         """
-        cur = tx.get_vsize()
-        if target_vsize < cur:
-            raise RuntimeError(f"target_vsize {target_vsize} is less than transaction virtual size {cur}")
+        if target_vsize < tx.get_vsize():
+            raise RuntimeError(f"target_vsize {target_vsize} is less than transaction virtual size {tx.get_vsize()}")
 
-        # OP_RETURN scripts are capped at 83 bytes. Size the pads from the current
-        # vsize so a 1 MB target does not serialize once per output.
-        max_data = MAX_OP_RETURN_RELAY - 1
-        max_out = 10 + max_data
+        def pay(length):
+            return CTxOut(nValue=0, scriptPubKey=CScript([OP_TRUE] * length))
 
-        def compact_size_len(n):
-            if n < 253:
-                return 1
-            if n <= 0xFFFF:
-                return 3
-            if n <= 0xFFFFFFFF:
-                return 5
-            return 9
-
-        n_base = len(tx.vout)
-        added = 0
-        predicted = cur
-        while True:
-            growth = max_out + compact_size_len(n_base + added + 1) - compact_size_len(n_base + added)
-            if predicted + growth > target_vsize:
+        while tx.get_vsize() + 10 <= target_vsize:
+            tx.vout.append(pay(1))
+            if tx.get_vsize() > target_vsize:
+                tx.vout.pop()
                 break
-            added += 1
-            predicted += growth
-        if added:
-            tx.vout.extend(self._pad_op_return(max_data) for _ in range(added))
-
-        cur = tx.get_vsize()
-        short = target_vsize - cur
-        if short >= 10:
-            tx.vout.append(self._pad_op_return(min(max_data, short - 10)))
-            cur = tx.get_vsize()
-            short = target_vsize - cur
-
-        # A legal OP_RETURN output is at least 10 vbytes. If we are 1-9 short,
-        # shrink a trailing pad and add a 10-byte pad so we can land on target.
-        if 0 < short < 10:
-            steal = 10 - short
-            for i in range(len(tx.vout) - 1, -1, -1):
-                script = tx.vout[i].scriptPubKey
-                if script and script[0] == OP_RETURN and len(script) > 1 + steal:
-                    tx.vout[i] = CTxOut(nValue=0, scriptPubKey=CScript(script[:-steal]))
-                    tx.vout.append(self._pad_op_return(0))
+            while len(tx.vout[-1].scriptPubKey) < 25 and tx.get_vsize() < target_vsize:
+                grown = CScript(bytes(tx.vout[-1].scriptPubKey) + bytes([OP_TRUE]))
+                tx.vout[-1] = CTxOut(nValue=0, scriptPubKey=grown)
+                if tx.get_vsize() > target_vsize:
+                    tx.vout[-1] = CTxOut(nValue=0, scriptPubKey=CScript(bytes(grown)[:-1]))
                     break
-
-        self._trim_pad_outputs(tx, target_vsize)
-        # Virtual size rounds in steps of 1, and a legal OP_RETURN cannot always land on the exact target.
+        if tx.vout and tx.get_vsize() < target_vsize:
+            need = target_vsize - tx.get_vsize()
+            room = 34 - len(tx.vout[-1].scriptPubKey)
+            extra = min(need, room)
+            if extra > 0:
+                script = bytes(tx.vout[-1].scriptPubKey) + bytes([OP_TRUE]) * extra
+                tx.vout[-1] = CTxOut(nValue=0, scriptPubKey=CScript(script))
         assert tx.get_vsize() <= target_vsize
-        assert tx.get_vsize() + 4 >= target_vsize
+        assert tx.get_vsize() + 1 >= target_vsize
 
     def get_balance(self):
         return sum(u['value'] for u in self._utxos)
@@ -337,6 +297,12 @@ class MiniWallet:
         assert_greater_than_or_equal(tx.vout[0].nValue, amount + fee)
         tx.vout[0].nValue -= (amount + fee)           # change output -> MiniWallet
         tx.vout.append(CTxOut(amount, scriptPubKey))  # arbitrary output -> to be returned
+        # Consensus requires 3 tokens per virtual byte. A flat fee on a large
+        # transaction can land under that rate. Take the shortfall from change.
+        short = 3 * tx.get_vsize() - fee
+        if short > 0:
+            assert_greater_than_or_equal(tx.vout[0].nValue, short)
+            tx.vout[0].nValue -= short
         txid = self.sendrawtransaction(from_node=from_node, tx_hex=tx.serialize().hex())
         return {
             "sent_vout": 1,

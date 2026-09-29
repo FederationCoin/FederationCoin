@@ -18,10 +18,10 @@ class FeatureFastpruneTest(BitcoinTestFramework):
     def run_test(self):
         self.log.info("ensure that large blocks don't crash or freeze in -fastprune")
         wallet = MiniWallet(self.nodes[0])
-        # Fastprune block files are 64KiB. A taproot annex is not a valid
-        # witness on this chain, so the large tx is padded with legal outputs.
-        tx = wallet.create_self_transfer(target_vsize=70000)["tx"]
-        self.generateblock(self.nodes[0], output="raw(55)", transactions=[tx.serialize().hex()])
+        # Fastprune block files are 64KiB. Fill the block with payments.
+        # One self-transfer is about 100 bytes; 700 of them cross one file.
+        chain = wallet.create_self_transfer_chain(chain_length=700)
+        self.generateblock(self.nodes[0], output="raw(55)", transactions=[tx["hex"] for tx in chain])
         assert_equal(self.nodes[0].getblockcount(), 201)
 
 

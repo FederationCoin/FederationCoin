@@ -6,6 +6,7 @@
 #include <coins.h>
 #include <common/system.h>
 #include <consensus/consensus.h>
+#include <consensus/settlement_fee.h>
 #include <consensus/merkle.h>
 #include <consensus/tx_verify.h>
 #include <interfaces/mining.h>
@@ -74,6 +75,18 @@ BOOST_FIXTURE_TEST_SUITE(miner_tests, MinerTestingSetup)
 
 static CFeeRate blockMinFeeRate = CFeeRate(DEFAULT_BLOCK_MIN_TX_FEE);
 
+static CAmount PayAtLeastMinimum(CMutableTransaction& tx, CAmount input_value)
+{
+    CAmount outputs{0};
+    for (const auto& out : tx.vout) outputs += out.nValue;
+    const CAmount floor{MIN_TX_FEE_RATE * static_cast<CAmount>(GetVirtualTransactionSize(CTransaction(tx)))};
+    const CAmount paid{input_value - outputs};
+    if (paid < floor) tx.vout[0].nValue -= floor - paid;
+    outputs = 0;
+    for (const auto& out : tx.vout) outputs += out.nValue;
+    return input_value - outputs;
+}
+
 // Compiled-in extraNonce/nonce pairs. CI only checks these rows meet PoW; it
 // never searches. After a dummy MAIN genesis change, regenerate locally and
 // paste the table (do not leave a live nonce loop in this test).
@@ -119,6 +132,11 @@ void MinerTestingSetup::TestPackageSelection(const CScript& scriptPubKey, const 
     options.coinbase_output_script = scriptPubKey;
 
     LOCK(tx_mempool.cs);
+    // The consensus floor is 3 tokens per virtual byte. Keep the block's own
+    // line above that so a transaction can meet consensus and still sit under
+    // the block line until a child pays.
+    blockMinFeeRate = CFeeRate(10000);
+    options.blockMinFeeRate = blockMinFeeRate;
     // Test the ancestor feerate transaction selection.
     TestMemPoolEntryHelper entry;
 
@@ -175,17 +193,19 @@ void MinerTestingSetup::TestPackageSelection(const CScript& scriptPubKey, const 
 
     // Test that a package below the block min tx fee doesn't get included
     tx.vin[0].prevout.hash = hashHighFeeTx;
-    tx.vout[0].nValue = 5000000000LL - 1000 - 50000; // 0 fee
+    const CAmount free_in{5000000000LL - 1000 - 50000};
+    tx.vout[0].nValue = free_in;
+    const CAmount free_fee{PayAtLeastMinimum(tx, free_in)};
     Txid hashFreeTx = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(free_fee).FromTx(tx));
     size_t freeTxSize = ::GetSerializeSize(TX_WITH_WITNESS(tx));
 
     // Calculate a fee on child transaction that will put the package just
     // below the block min tx fee (assuming 1 child tx of the same size).
-    CAmount feeToUse = blockMinFeeRate.GetFee(2*freeTxSize) - 1;
+    CAmount feeToUse = blockMinFeeRate.GetFee(2*freeTxSize) - 1 - free_fee;
 
     tx.vin[0].prevout.hash = hashFreeTx;
-    tx.vout[0].nValue = 5000000000LL - 1000 - 50000 - feeToUse;
+    tx.vout[0].nValue = free_in - free_fee - feeToUse;
     Txid hashLowFeeTx = tx.GetHash();
     AddToMempool(tx_mempool, entry.Fee(feeToUse).FromTx(tx));
     block_template = mining->createNewBlock(options);
@@ -221,15 +241,16 @@ void MinerTestingSetup::TestPackageSelection(const CScript& scriptPubKey, const 
     // Increase size to avoid rounding errors: when the feerate is extremely small (i.e. 1sat/kvB), evaluating the fee
     // at a smaller transaction size gives us a rounded value of 0.
     BulkTransaction(tx, 4000);
+    const CAmount free2_fee{PayAtLeastMinimum(tx, 5000000000LL)};
     Txid hashFreeTx2 = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).SpendsCoinbase(true).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(free2_fee).SpendsCoinbase(true).FromTx(tx));
 
     // This tx can't be mined by itself
     tx.vin[0].prevout.hash = hashFreeTx2;
     tx.vout.resize(1);
     const size_t lowFeeTx2VSize = GetVirtualTransactionSize(CTransaction{tx});
     feeToUse = blockMinFeeRate.GetFee(lowFeeTx2VSize);
-    tx.vout[0].nValue = 5000000000LL - 100000000 - feeToUse;
+    tx.vout[0].nValue = 5000000000LL - 100000000 - free2_fee - feeToUse;
     Txid hashLowFeeTx2 = tx.GetHash();
     AddToMempool(tx_mempool, entry.Fee(feeToUse).SpendsCoinbase(false).FromTx(tx));
     block_template = mining->createNewBlock(options);
@@ -567,6 +588,7 @@ void MinerTestingSetup::TestPrioritisedMining(const CScript& scriptPubKey, const
 
     BlockAssembler::Options options;
     options.coinbase_output_script = scriptPubKey;
+    options.blockMinFeeRate = CFeeRate(10000);
 
     CTxMemPool& tx_mempool{MakeMempool()};
     LOCK(tx_mempool.cs);
@@ -580,9 +602,10 @@ void MinerTestingSetup::TestPrioritisedMining(const CScript& scriptPubKey, const
     tx.vin[0].prevout.n = 0;
     tx.vin[0].scriptSig = CScript() << OP_1;
     tx.vout.resize(1);
-    tx.vout[0].nValue = 5000000000LL; // 0 fee
+    tx.vout[0].nValue = 5000000000LL;
+    const CAmount prio_fee{PayAtLeastMinimum(tx, 5000000000LL)};
     uint256 hashFreePrioritisedTx = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).Time(Now<NodeSeconds>()).SpendsCoinbase(true).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(prio_fee).Time(Now<NodeSeconds>()).SpendsCoinbase(true).FromTx(tx));
     tx_mempool.PrioritiseTransaction(hashFreePrioritisedTx, 5 * COIN);
 
     tx.vin[0].prevout.hash = txFirst[1]->GetHash();
@@ -613,21 +636,26 @@ void MinerTestingSetup::TestPrioritisedMining(const CScript& scriptPubKey, const
     // FreeParent's prioritisation should not be included in that entry.
     // When FreeChild is included, FreeChild's prioritisation should also not be included.
     tx.vin[0].prevout.hash = txFirst[3]->GetHash();
-    tx.vout[0].nValue = 5000000000LL; // 0 fee
+    tx.vout[0].nValue = 5000000000LL;
+    const CAmount parent_fee{PayAtLeastMinimum(tx, 5000000000LL)};
+    const CAmount parent_out{tx.vout[0].nValue};
     Txid hashFreeParent = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).SpendsCoinbase(true).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(parent_fee).SpendsCoinbase(true).FromTx(tx));
     tx_mempool.PrioritiseTransaction(hashFreeParent, 10 * COIN);
 
     tx.vin[0].prevout.hash = hashFreeParent;
-    tx.vout[0].nValue = 5000000000LL; // 0 fee
+    tx.vout[0].nValue = parent_out;
+    const CAmount child_fee{PayAtLeastMinimum(tx, parent_out)};
+    const CAmount child_out{tx.vout[0].nValue};
     Txid hashFreeChild = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).SpendsCoinbase(false).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(child_fee).SpendsCoinbase(false).FromTx(tx));
     tx_mempool.PrioritiseTransaction(hashFreeChild, 1 * COIN);
 
     tx.vin[0].prevout.hash = hashFreeChild;
-    tx.vout[0].nValue = 5000000000LL; // 0 fee
+    tx.vout[0].nValue = child_out;
+    const CAmount grand_fee{PayAtLeastMinimum(tx, child_out)};
     Txid hashFreeGrandchild = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).SpendsCoinbase(false).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(grand_fee).SpendsCoinbase(false).FromTx(tx));
 
     auto block_template = mining->createNewBlock(options);
     BOOST_REQUIRE(block_template);

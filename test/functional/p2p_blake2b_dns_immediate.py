@@ -8,12 +8,12 @@ Case A: >1000 non-HF, 0 NODE_BLAKE2B   -> "Loading addresses from DNS seed", no 
 Case B: same + 1 NODE_BLAKE2B (few HF) -> FEW-peers delay ("Waiting 11 seconds"),
                                           not MANY, though total addrman > 1000.
 """
-from test_framework.messages import NODE_NETWORK, NODE_WITNESS, NODE_BLAKE2B
+from test_framework.messages import NODE_NETWORK, NODE_WITNESS, NODE_REDUCED_DATA, NODE_BLAKE2B
 from test_framework.netutil import UNREACHABLE_PROXY_ARG
 from test_framework.test_framework import BitcoinTestFramework
 
 NON_HF = NODE_NETWORK | NODE_WITNESS
-HF = NODE_NETWORK | NODE_WITNESS | NODE_BLAKE2B
+HF = NODE_NETWORK | NODE_WITNESS | NODE_REDUCED_DATA | NODE_BLAKE2B
 
 
 class Blake2bDnsImmediate(BitcoinTestFramework):

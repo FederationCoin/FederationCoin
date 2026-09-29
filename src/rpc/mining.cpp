@@ -1078,7 +1078,7 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
     // (gbt_force semantics: clients need no special support, there is no
     // client-side block construction involved).
     const bool rdts_active{pindexPrev != nullptr &&
-        consensusParams.RdtsActiveAt(pindexPrev->nHeight + 1, pindexPrev->GetMedianTimePast())};
+        consensusParams.RdtsActiveAt(pindexPrev->nHeight + 1)};
     if (rdts_active) {
         aRules.push_back("reduced_data");
     }

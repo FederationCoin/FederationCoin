@@ -20,7 +20,7 @@ from test_framework.messages import (
 )
 from test_framework.script import (
     CScript,
-    OP_RETURN,
+    OP_0,
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -41,16 +41,15 @@ BLOCKFILE_CHUNK = 16 * 1024 * 1024
 PRUNE_BYTES = 550 * 1024 * 1024
 
 def _rdts_pad_outputs():
-    """Zero-value OP_RETURN outputs that fill a coinbase up to the RDTS weight cap.
+    """Payment outputs that fill a coinbase up to the reduced-data weight cap.
 
-    A 950KB coinbase script is over the 83-byte OP_RETURN cap. Build the
-    output list once; every large block in this test reuses it.
+    The test is about block-file bytes. A data script is not how a block gets
+    large. Build the output list once; every large block reuses it.
     """
     cached = getattr(_rdts_pad_outputs, "vout", None)
     if cached is not None:
         return cached
-    pad = CScript([OP_RETURN, b"x" * 80])
-    one = CTxOut(0, pad)
+    one = CTxOut(0, CScript([OP_0, b"\x11" * 32]))
     lo, hi = 0, 4000
     best = 0
     while lo <= hi:

@@ -6,7 +6,7 @@
 
 This test verifies all 7 consensus rules enforced by RDTS:
 
-1. Output scriptPubKeys exceeding 34 bytes are invalid (except OP_RETURN up to 83 bytes)
+1. Output scriptPubKeys exceeding 34 bytes are invalid. A user OP_RETURN is invalid. The coinbase witness commitment is the only data output.
 2. OP_PUSHDATA* with payloads larger than 256 bytes are invalid (except BIP16 redeemScript)
 3. Spending undefined witness versions (not v0/v1) is invalid
 4. Witness stacks with a Taproot annex are invalid
@@ -114,11 +114,9 @@ class ReducedDataTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
-        # Blake2b is buried at height 0, so the fork is already active.
-        # A far-future expiry keeps RDTS on for every block this test crafts.
+        # Blake2b is buried at height 0, so reduced-data rules are already on.
         self.extra_args = [[
             '-testactivationheight=blake2b@0',
-            '-rdtsexpiry=2000000000',
             '-acceptnonstdtxn=1',
         ]]
 
@@ -200,8 +198,9 @@ class ReducedDataTest(BitcoinTestFramework):
 
         tx_valid = self.create_test_transaction(script_opreturn_82, value=0)
         result = node.testmempoolaccept([tx_valid.serialize().hex()])[0]
-        # OP_RETURN with value=0 may be rejected by standardness policy
-        self.log.info(f"  ✓ OP_RETURN with {len(script_opreturn_82)} bytes: {result.get('allowed', False)}")
+        assert_equal(result['allowed'], False)
+        assert 'datacarrier' in result['reject-reason']
+        self.log.info(f"  ✓ OP_RETURN with {len(script_opreturn_82)} bytes rejected")
 
         # Test 1.5: OP_RETURN with 85 bytes (exceeds 83-byte exception)
         data_82 = b'\x00' * 82
@@ -932,8 +931,8 @@ class ReducedDataTest(BitcoinTestFramework):
         assert_equal(result, 'bad-txns-vout-script-toolarge')
         self.log.info("  ✓ 35-byte P2PK generation tx output rejected")
 
-        # Test 3: Generation tx with OP_RETURN at 83 bytes (at OP_RETURN limit - should pass)
-        self.log.info("  Test: Generation tx with 83-byte OP_RETURN extra output (at limit)")
+        # Test 3: a coinbase OP_RETURN that is not the witness commitment is rejected.
+        self.log.info("  Test: generation tx with an extra OP_RETURN is rejected")
         # 80 bytes data = OP_RETURN (1) + push opcode (1) + data (80) = 82 bytes
         # We need 83 bytes, so use 81 bytes of data with PUSHDATA1
         # OP_RETURN (1) + OP_PUSHDATA1 (1) + len (1) + data (80) = 83 bytes
@@ -953,10 +952,8 @@ class ReducedDataTest(BitcoinTestFramework):
         block_opreturn_valid.solve()
 
         result = node.submitblock(block_opreturn_valid.serialize().hex())
-        if result is None:
-            self.log.info("  ✓ Generation tx with 83-byte OP_RETURN output accepted")
-        else:
-            self.log.info(f"  Note: Generation tx OP_RETURN result: {result}")
+        assert_equal(result, 'bad-txns-datacarrier')
+        self.log.info("  ✓ Generation tx with an extra OP_RETURN rejected")
 
         # Test 4: Generation tx with OP_RETURN at 84 bytes (exceeds limit - should fail)
         self.log.info("  Test: Generation tx with 84-byte OP_RETURN extra output (exceeds limit)")

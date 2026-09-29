@@ -21,21 +21,16 @@ class FeatureFrameworkMiniWalletTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
 
-    def test_tx_padding(self):
-        """Verify that MiniWallet's transaction padding (`target_vsize` parameter)
-           works accurately with all modes."""
+    def test_transfers_are_payments(self):
+        """A run of payments is several transactions. None of them carry an OP_RETURN."""
         for mode_name, wallet in self.wallets:
-            self.log.info(f"Test tx padding with MiniWallet mode {mode_name}...")
-            utxo = wallet.get_utxo(mark_as_spent=False)
-            for target_vsize in [250, 500, 1250, 2500, 5000, 12500, 25000, 50000, 1000000,
-                                 248, 501, 1085, 3343, 5805, 12289, 25509, 55855,  999998]:
-                tx = wallet.create_self_transfer(utxo_to_spend=utxo, target_vsize=target_vsize)
-                # OP_RETURN pads are capped at 83 bytes, so vsize can land up to 4 under target.
-                assert tx['tx'].get_vsize() <= target_vsize
-                assert tx['tx'].get_vsize() + 4 >= target_vsize
-                child_tx = wallet.create_self_transfer_multi(utxos_to_spend=[tx["new_utxo"]], target_vsize=target_vsize)
-                assert child_tx['tx'].get_vsize() <= target_vsize
-                assert child_tx['tx'].get_vsize() + 4 >= target_vsize
+            self.log.info(f"Test a chain of payments with MiniWallet mode {mode_name}...")
+            chain = wallet.create_self_transfer_chain(chain_length=4)
+            assert_equal(len(chain), 4)
+            for tx in chain:
+                assert tx['tx'].get_vsize() < 300
+                for vout in tx['tx'].vout:
+                    assert len(vout.scriptPubKey) == 0 or vout.scriptPubKey[0] != 0x6a
 
 
     def test_wallet_tagging(self):
@@ -63,7 +58,7 @@ class FeatureFrameworkMiniWalletTest(BitcoinTestFramework):
             self.generate(wallet, 10)
         self.generate(wallet, COINBASE_MATURITY)
 
-        self.test_tx_padding()
+        self.test_transfers_are_payments()
         self.test_wallet_tagging()
 
 

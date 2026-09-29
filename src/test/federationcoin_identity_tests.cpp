@@ -57,7 +57,8 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
         BOOST_CHECK_EQUAL(params->Checkpoints().GetHeight(), 0);
         BOOST_CHECK_EQUAL(c.Blake2bHeight, 0);
         BOOST_CHECK_EQUAL(c.Blake2bTargetShift, 0);
-        BOOST_CHECK_EQUAL(c.RdtsExpiryTime, 1819756800);
+        BOOST_CHECK(c.RdtsActiveAt(0));
+        BOOST_CHECK(!c.RdtsActiveAt(-1));
         BOOST_CHECK(c.Blake2bHeadline.size() == headline.size());
         BOOST_CHECK(std::equal(headline.begin(), headline.end(), c.Blake2bHeadline.begin()));
         BOOST_CHECK_EQUAL(c.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime,

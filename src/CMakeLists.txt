@@ -240,6 +240,7 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   blockencodings.cpp
   blockfilter.cpp
   consensus/tx_verify.cpp
+  consensus/settlement_fee.cpp
   dbwrapper.cpp
   deploymentstatus.cpp
   flatfile.cpp

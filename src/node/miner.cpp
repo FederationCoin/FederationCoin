@@ -170,7 +170,7 @@ std::shared_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     // REDUCED_DATA_MAX_BLOCK_WEIGHT (see RdtsActiveAt, the same predicate the
     // validation rules key off); never assemble past it.
     m_effective_max_weight = m_options.nBlockMaxWeight;
-    if (chainparams.GetConsensus().RdtsActiveAt(nHeight, pindexPrev->GetMedianTimePast())) {
+    if (chainparams.GetConsensus().RdtsActiveAt(nHeight)) {
         m_effective_max_weight = std::min<size_t>(m_effective_max_weight, REDUCED_DATA_MAX_BLOCK_WEIGHT);
     }
 

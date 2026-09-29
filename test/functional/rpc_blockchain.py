@@ -250,7 +250,6 @@ class BlockchainTest(BitcoinTestFramework):
             'reduced_data': {
                 'type': 'flagday',
                 'height': 0,
-                'expiry_time': 1819756800,
                 'active': True,
             },
           },

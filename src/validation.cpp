@@ -14,6 +14,7 @@
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
+#include <consensus/settlement_fee.h>
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
@@ -1022,6 +1023,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     if (!Consensus::CheckTxInputs(tx, state, m_view, block_height_next, ws.m_base_fees, CheckTxInputsRules::OutputSizeLimit)) {
         return false; // state filled in by CheckTxInputs
     }
+    if (!Consensus::RejectUserDataCarrier(tx, state)) return false;
 
     if (m_pool.m_opts.minrelaymaturity) {
         auto max_coin_height = block_height_next - m_pool.m_opts.minrelaymaturity;
@@ -1157,6 +1159,14 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "min relay fee not met",
                              strprintf("%d < %d", ws.m_modified_fees, m_pool.m_opts.min_relay_feerate.GetFee(ws.m_vsize)));
     }
+    {
+        const int64_t min_fee_vbytes{static_cast<int64_t>(GetTransactionWeight(*ws.m_ptx) / WITNESS_SCALE_FACTOR)};
+        if (!FeeMeetsMinimumRate(ws.m_base_fees, min_fee_vbytes)) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-min-fee",
+                                 strprintf("fee %d is below %d tokens per virtual byte", ws.m_base_fees, MIN_TX_FEE_RATE));
+        }
+    }
+
     // No individual transactions are allowed below the mempool min feerate except from disconnected
     // blocks and transactions in a package. Package transactions will be checked using package
     // feerate later.
@@ -2756,10 +2766,11 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
         flags |= SCRIPT_VERIFY_UNIFIED_SIGHASH;
     }
 
-    // RDTS (see RdtsActiveAt). Genesis has no parent median-time-past and is
-    // never subject to the RDTS rules.
+    // RDTS (see RdtsActiveAt). Genesis has no parent, so the script flags
+    // start on the first block that has one. The rules themselves are on
+    // from the BLAKE2b height, which is the first block on this chain.
     if (block_index.pprev != nullptr &&
-        consensusparams.RdtsActiveAt(block_index.nHeight, block_index.pprev->GetMedianTimePast())) {
+        consensusparams.RdtsActiveAt(block_index.nHeight)) {
         flags |= REDUCED_DATA_MANDATORY_VERIFY_FLAGS;
     }
 
@@ -2977,14 +2988,13 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     std::vector<PrecomputedTransactionData> txsdata(block.vtx.size());
     CCheckQueueControl<CScriptCheck> control(fScriptChecks && parallel_script_checks ? &m_chainman.GetCheckQueue() : nullptr);
 
-    // RDTS (see RdtsActiveAt): active from the BLAKE2b fork height
-    // until the parent's median-time-past reaches expiry. When RDTS is
-    // inactive the start height is 0, so no input is treated as pre-activation and
-    // flags_per_input stays empty (keeping the script-execution cache enabled).
-    // Grandfathering below compares each input's creating height against the
-    // fork height: activation and the exemption boundary are the same instant
-    // by construction.
-    const bool reduced_data_active{params.GetConsensus().RdtsActiveAt(pindex->nHeight, Assert(pindex->pprev)->GetMedianTimePast())};
+    // RDTS (see RdtsActiveAt): active from the BLAKE2b fork height, with no
+    // expiry. When RDTS is inactive the start height is 0, so no input is
+    // treated as pre-activation and flags_per_input stays empty (keeping the
+    // script-execution cache enabled). Grandfathering below compares each
+    // input's creating height against the fork height: activation and the
+    // exemption boundary are the same instant by construction.
+    const bool reduced_data_active{params.GetConsensus().RdtsActiveAt(pindex->nHeight)};
     const auto reduced_data_start_height = reduced_data_active
         ? params.GetConsensus().RdtsActivationHeight()
         : 0;
@@ -3005,6 +3015,14 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     if (chk_input_rules.test(CheckTxInputsRules::OutputSizeLimit)) {
         TxValidationState tx_state;
         if (!Consensus::CheckOutputSizes(*block.vtx[0], tx_state)) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                 tx_state.GetRejectReason(),
+                                 tx_state.GetDebugMessage() + " in generation tx " + block.vtx[0]->GetHash().ToString());
+        }
+    }
+    {
+        TxValidationState tx_state;
+        if (!Consensus::RejectCoinbaseDataCarrier(*block.vtx[0], tx_state)) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                  tx_state.GetRejectReason(),
                                  tx_state.GetDebugMessage() + " in generation tx " + block.vtx[0]->GetHash().ToString());
@@ -3035,10 +3053,22 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
                               tx_state.GetDebugMessage() + " in transaction " + tx.GetHash().ToString());
                 break;
             }
+            if (!Consensus::RejectUserDataCarrier(tx, tx_state)) {
+                state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                              tx_state.GetRejectReason(),
+                              tx_state.GetDebugMessage() + " in transaction " + tx.GetHash().ToString());
+                break;
+            }
             nFees += txfee;
             if (!MoneyRange(nFees)) {
                 state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-accumulated-fee-outofrange",
                               "accumulated fee in the block out of range");
+                break;
+            }
+            const int64_t min_fee_vbytes{static_cast<int64_t>(GetTransactionWeight(tx) / WITNESS_SCALE_FACTOR)};
+            if (!FeeMeetsMinimumRate(txfee, min_fee_vbytes)) {
+                state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-min-fee",
+                              strprintf("fee %d is below %d tokens per virtual byte", txfee, MIN_TX_FEE_RATE));
                 break;
             }
 
@@ -4489,7 +4519,7 @@ static bool CheckWitnessMalleation(const CBlock& block, bool expect_witness_comm
             assert(!block.vtx.empty() && !block.vtx[0]->vin.empty());
             const auto& witness_stack{block.vtx[0]->vin[0].scriptWitness.stack};
 
-            if (witness_stack.size() != 1 || witness_stack[0].size() != 32) {
+            if (witness_stack.size() != 1 || witness_stack[0].size() != 32 || !Consensus::WitnessNonceIsZero(witness_stack[0])) {
                 return state.Invalid(
                     /*result=*/BlockValidationResult::BLOCK_MUTATED,
                     /*reject_reason=*/"bad-witness-nonce-size",
@@ -4566,14 +4596,26 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
         if (block.vtx[i]->IsCoinBase())
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-multiple", "more than one coinbase");
 
-    if (block.m_height == consensusParams.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)) {
+    const int blake2b_height{consensusParams.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)};
+    if (block.m_height == blake2b_height) {
         const auto& coinbase = block.vtx[0]->vin[0].scriptSig;
         if (std::search(coinbase.begin(), coinbase.end(), consensusParams.Blake2bHeadline.begin(), consensusParams.Blake2bHeadline.end()) == coinbase.end()) {
             return state.Invalid(
-                /*result=*/BlockValidationResult::BLOCK_MUTATED,
-                /*reject_reason=*/"bad-headline",
-                /*debug_message=*/"Headline is wrong");
+                BlockValidationResult::BLOCK_CONSENSUS,
+                "bad-headline",
+                "block does not contain the required headline");
         }
+    }
+    // The short cap applies after the headline block, once BLAKE2b rules
+    // apply. Genesis carries the chain timestamp. The headline block carries
+    // that sentence. A v1 header stores height 0, and those blocks are before
+    // the fork, so they keep the 100-byte limit.
+    const bool short_coinbase{consensusParams.IsBlake2bHeight(block.m_height) && block.m_height != blake2b_height};
+    const bool coinbase_fits{short_coinbase
+        ? Consensus::MiningCoinbaseScriptSigFits(block.vtx[0]->vin[0].scriptSig.size())
+        : Consensus::HeadlineCoinbaseScriptSigFits(block.vtx[0]->vin[0].scriptSig.size())};
+    if (!coinbase_fits) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-length", "coinbase scriptsig too long");
     }
 
     // Check transactions
@@ -4885,7 +4927,7 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
     // RDTS active (see RdtsActiveAt). Checked here, after the coinbase
     // witness, for the same malleability reason as the limit above.
     if (pindexPrev != nullptr &&
-        chainman.GetConsensus().RdtsActiveAt(nHeight, pindexPrev->GetMedianTimePast()) &&
+        chainman.GetConsensus().RdtsActiveAt(nHeight) &&
         block_weight > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight-reduced_data", strprintf("%s : RDTS weight limit failed", __func__));
     }
@@ -5669,21 +5711,6 @@ bool Chainstate::CorrectRdtsInvalidBlocks(bilingual_str& error)
         // is corrected by the next normal startup.
         if (m_chain.Tip() == nullptr) return true;
         const CBlockIndex& tip{*m_chain.Tip()};
-        const Consensus::Params& params{m_chainman.GetConsensus()};
-        // The expiry is a fixed date while the fork is a height: a fork
-        // scheduled late enough that the expiry has already passed would make
-        // RDTS never apply, silently. Say so.
-        if (params.Blake2bHeight != std::numeric_limits<int>::max() &&
-                params.RdtsExpiryTime != std::numeric_limits<int64_t>::min() &&
-                tip.nHeight < params.Blake2bHeight && tip.GetMedianTimePast() >= params.RdtsExpiryTime) {
-            LogWarning("RDTS: the BLAKE2b hardfork height %d has not been reached but the chain's median-time-past (%d) "
-                       "already exceeds the RDTS expiry (%d); the RDTS rules will never be enforced on this chain\n",
-                       params.Blake2bHeight, tip.GetMedianTimePast(), params.RdtsExpiryTime);
-        }
-        // A previous correction (or an invalidateblock) cut short between the
-        // block-index write and the coins write leaves the active tip marked
-        // invalid. LoadChainTip kept its valid ancestors as candidates;
-        // reconnecting the best chain below finishes the rewind.
         tip_failed = tip.nStatus & BLOCK_FAILED_MASK;
         violators = m_chainman.FindInheritedInvalidBlocks();
     }

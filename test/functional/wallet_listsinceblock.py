@@ -477,17 +477,11 @@ class ListSinceBlockTest(BitcoinTestFramework):
         assert all(self.nodes[2].getaddressinfo(c["address"])["ischange"] for c in coins)
 
     def test_op_return(self):
-        """Test if OP_RETURN outputs will be displayed correctly."""
-        block_hash = self.nodes[2].getbestblockhash()
-
+        """A user OP_RETURN is not a valid transaction."""
         raw_tx = self.nodes[2].createrawtransaction([], [{'data': 'aa'}])
         funded_tx = self.nodes[2].fundrawtransaction(raw_tx)
         signed_tx = self.nodes[2].signrawtransactionwithwallet(funded_tx['hex'])
-        tx_id = self.nodes[2].sendrawtransaction(signed_tx['hex'])
-
-        op_ret_tx = [tx for tx in self.nodes[2].listsinceblock(blockhash=block_hash)["transactions"] if tx['txid'] == tx_id][0]
-
-        assert 'address' not in op_ret_tx
+        assert_raises_rpc_error(-26, "bad-txns-datacarrier", self.nodes[2].sendrawtransaction, signed_tx['hex'])
 
     def test_label(self):
         self.log.info('Test passing "label" argument fetches incoming transactions having the specified label')

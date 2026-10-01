@@ -4596,25 +4596,9 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
         if (block.vtx[i]->IsCoinBase())
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-multiple", "more than one coinbase");
 
-    const int blake2b_height{consensusParams.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)};
-    if (block.m_height == blake2b_height) {
-        const auto& coinbase = block.vtx[0]->vin[0].scriptSig;
-        if (std::search(coinbase.begin(), coinbase.end(), consensusParams.Blake2bHeadline.begin(), consensusParams.Blake2bHeadline.end()) == coinbase.end()) {
-            return state.Invalid(
-                BlockValidationResult::BLOCK_CONSENSUS,
-                "bad-headline",
-                "block does not contain the required headline");
-        }
-    }
-    // The short cap applies after the headline block, once BLAKE2b rules
-    // apply. Genesis carries the chain timestamp. The headline block carries
-    // that sentence. A v1 header stores height 0, and those blocks are before
-    // the fork, so they keep the 100-byte limit.
-    const bool short_coinbase{consensusParams.IsBlake2bHeight(block.m_height) && block.m_height != blake2b_height};
-    const bool coinbase_fits{short_coinbase
-        ? Consensus::MiningCoinbaseScriptSigFits(block.vtx[0]->vin[0].scriptSig.size())
-        : Consensus::HeadlineCoinbaseScriptSigFits(block.vtx[0]->vin[0].scriptSig.size())};
-    if (!coinbase_fits) {
+    // One cap for every block, including genesis. The scriptSig holds the
+    // height, a tag of at most 6 bytes, the gateway ids, and the extranonce.
+    if (!Consensus::MiningCoinbaseScriptSigFits(block.vtx[0]->vin[0].scriptSig.size())) {
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-length", "coinbase scriptsig too long");
     }
 

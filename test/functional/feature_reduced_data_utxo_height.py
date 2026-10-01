@@ -51,8 +51,6 @@ from test_framework.wallet import MiniWallet
 # RDTS activates at the BLAKE2b fork height (see -testactivationheight below)
 ACTIVATION_HEIGHT = 432
 # The first BLAKE2b block's coinbase must contain the headline; this value
-# must match the test framework's default -blake2b_headline argument
-HEADLINE = b'BLAKE2b functional test headline'
 
 # REDUCED_DATA enforces MAX_SCRIPT_ELEMENT_SIZE_REDUCED (256) instead of MAX_SCRIPT_ELEMENT_SIZE (520)
 MAX_ELEMENT_SIZE_STANDARD = 520
@@ -66,7 +64,7 @@ class ReducedDataUTXOHeightTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         # Activate RDTS at the BLAKE2b fork height, with a far-future expiry
         self.extra_args = [[
-            f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}', '-blake2b_headline=BLAKE2b functional test headline',
+            f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}',
         ]]
 
     def create_p2wsh_funding_and_spending_tx(self, wallet, node, witness_element_size):
@@ -119,10 +117,6 @@ class ReducedDataUTXOHeightTest(BitcoinTestFramework):
         tip_header = self.nodes[0].getblockheader(tip)
         block_time = tip_header['time'] + 1
         coinbase = create_coinbase(height)
-        if height == ACTIVATION_HEIGHT:
-            # The first BLAKE2b block must carry the headline in its coinbase
-            coinbase.vin[0].scriptSig = CScript(bytes(coinbase.vin[0].scriptSig) + HEADLINE)
-            coinbase.rehash()
         block = create_block(int(tip, 16), coinbase, ntime=block_time, txlist=txs,
                              height=height, header_v2=height >= ACTIVATION_HEIGHT)
         add_witness_commitment(block)
@@ -399,7 +393,7 @@ class ReducedDataUTXOHeightTest(BitcoinTestFramework):
         assert_equal(node.submitblock(block.serialize().hex()), None)
         assert_equal(node.getblockcount(), ACTIVATION_HEIGHT - 1)
 
-        self.restart_node(0, extra_args=[f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}', '-blake2b_headline=BLAKE2b functional test headline', '-par=1'])  # Use single-threaded validation to maximize chance of hitting cache-related issues.
+        self.restart_node(0, extra_args=[f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}', '-par=1'])  # Use single-threaded validation to maximize chance of hitting cache-related issues.
 
         # Validate-only block at height 432. This calls TestBlockValidity(fJustCheck=true),
         # which populates the tx-wide script-execution cache under STRICT flags, even though
@@ -453,7 +447,7 @@ class ReducedDataUTXOHeightTest(BitcoinTestFramework):
         node.reconsiderblock(activation_tip)
         tip_before_reindex = node.getbestblockhash()
         self.restart_node(0, extra_args=[
-            f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}', '-blake2b_headline=BLAKE2b functional test headline', '-reindex'])
+            f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}', '-reindex'])
         self.wait_until(lambda: node.getbestblockhash() == tip_before_reindex, timeout=60)
         self.log.info("✓ SUCCESS: -reindex reconnected the chain with exempt spends intact")
 

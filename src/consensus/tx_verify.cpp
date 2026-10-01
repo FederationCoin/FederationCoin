@@ -209,11 +209,6 @@ bool Consensus::RejectCoinbaseDataCarrier(const CTransaction& tx, TxValidationSt
     return true;
 }
 
-bool Consensus::HeadlineCoinbaseScriptSigFits(size_t script_sig_size)
-{
-    return script_sig_size >= 2 && script_sig_size <= 100;
-}
-
 bool Consensus::MiningCoinbaseScriptSigFits(size_t script_sig_size)
 {
     return script_sig_size >= 2 && script_sig_size <= MAX_COINBASE_SCRIPTSIG_SIZE;

@@ -83,15 +83,15 @@ class EphemeralDustTest(BitcoinTestFramework):
         self.log.info("Create 0-value dusty output, show that it works inside truc when spent in package")
 
         assert_equal(self.nodes[0].getrawmempool(), [])
-        dusty_tx, sweep_tx = self.create_ephemeral_dust_package(tx_version=3)
+        dusty_tx, sweep_tx = self.create_ephemeral_dust_package(tx_version=3, dust_tx_fee=1000)
 
-        # Test doesn't work because lack of package feerates
+        # The parent pays the consensus rate. It is still rejected alone because of the dust output.
         test_res = self.nodes[0].testmempoolaccept([dusty_tx["hex"], sweep_tx["hex"]])
         assert not test_res[0]["allowed"]
-        assert_equal(test_res[0]["reject-reason"], "min relay fee not met")
+        assert_equal(test_res[0]["reject-reason"], "dust")
 
         # And doesn't work on its own
-        assert_raises_rpc_error(-26, "min relay fee not met", self.nodes[0].sendrawtransaction, dusty_tx["hex"])
+        assert_raises_rpc_error(-26, "dust", self.nodes[0].sendrawtransaction, dusty_tx["hex"])
 
         # If we add modified fees, it is still not allowed due to dust check
         self.nodes[0].prioritisetransaction(txid=dusty_tx["txid"], fee_delta=COIN)

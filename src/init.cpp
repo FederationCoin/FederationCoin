@@ -861,11 +861,17 @@ void InitParameterInteraction(ArgsManager& args)
     g_pcp_warn_for_unauthorized = args.GetBoolArg("-natpmp", false);
 
     if (args.GetBoolArg("-corepolicy", DEFAULT_COREPOLICY)) {
+        CAmount incremental{CORE_INCREMENTAL_RELAY_FEE};
+        if (const auto parsed{ParseMoney(args.GetArg("-incrementalrelayfee", ""))}) {
+            incremental = *parsed;
+        }
         args.SoftSetArg("-incrementalrelayfee", FormatMoney(CORE_INCREMENTAL_RELAY_FEE));
         if (!args.IsArgSet("-minrelaytxfee")) {
-            args.ForceSetArg("-minrelaytxfee", FormatMoney(std::max(ParseMoney(args.GetArg("-incrementalrelayfee", "")).value_or(0), CORE_INCREMENTAL_RELAY_FEE)));
+            // Consensus requires 3 tokens per virtual byte. A higher
+            // incremental relay fee raises the relay floor with it.
+            args.ForceSetArg("-minrelaytxfee", FormatMoney(std::max<CAmount>(DEFAULT_MIN_RELAY_TX_FEE, incremental)));
         }
-        args.SoftSetArg("-blockmintxfee", "0.00000001");
+        args.SoftSetArg("-blockmintxfee", FormatMoney(DEFAULT_BLOCK_MIN_TX_FEE));
         args.SoftSetArg("-acceptnonstddatacarrier", "1");
         args.SoftSetArg("-blockreconstructionextratxn", "100");
         args.SoftSetArg("-blockreconstructionextratxnsize", strprintf("%s", std::numeric_limits<size_t>::max() / 1000000 + 1));

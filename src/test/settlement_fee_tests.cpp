@@ -58,9 +58,7 @@ BOOST_AUTO_TEST_CASE(data_carrier_nonce_and_scriptsig)
     BOOST_CHECK(!Consensus::WitnessNonceIsZero(marked));
     BOOST_CHECK(!Consensus::WitnessNonceIsZero(std::vector<unsigned char>(31, 0)));
 
-    BOOST_CHECK(Consensus::HeadlineCoinbaseScriptSigFits(2));
-    BOOST_CHECK(Consensus::HeadlineCoinbaseScriptSigFits(100));
-    BOOST_CHECK(!Consensus::HeadlineCoinbaseScriptSigFits(101));
+    BOOST_CHECK(Consensus::MiningCoinbaseScriptSigFits(2));
     BOOST_CHECK(Consensus::MiningCoinbaseScriptSigFits(MAX_COINBASE_SCRIPTSIG_SIZE));
     BOOST_CHECK(!Consensus::MiningCoinbaseScriptSigFits(MAX_COINBASE_SCRIPTSIG_SIZE + 1));
     BOOST_CHECK(SeedsServiceFlags() & NODE_REDUCED_DATA);

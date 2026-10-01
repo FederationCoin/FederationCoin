@@ -38,7 +38,7 @@ static constexpr int64_t MAX_TIMEWARP = 600;
 
 static constexpr unsigned int MAX_OUTPUT_SCRIPT_SIZE{34};
 static constexpr unsigned int MAX_OUTPUT_DATA_SIZE{83};
-/** Coinbase scriptSig after the headline block: height, 6-byte tag, gateway ids, extranonce. */
+/** Coinbase scriptSig on every block: height, 6-byte tag, gateway ids, extranonce. */
 static constexpr unsigned int MAX_COINBASE_SCRIPTSIG_SIZE{48};
 
 #endif // BITCOIN_CONSENSUS_CONSENSUS_H

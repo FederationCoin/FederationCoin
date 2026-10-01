@@ -19,9 +19,9 @@ from .wallet import (
 )
 
 ORPHAN_TX_EXPIRE_TIME = 1200
-# Default for -minrelaytxfee in sat/kvB
-DEFAULT_MIN_RELAY_TX_FEE = 100
-# Default for -incrementalrelayfee in sat/kvB
+# Default for -minrelaytxfee in sat/kvB. Matches the consensus rate of 3 per virtual byte.
+DEFAULT_MIN_RELAY_TX_FEE = 3000
+# -corepolicy keeps the historical incremental relay fee. Satoshis per kvB.
 DEFAULT_INCREMENTAL_RELAY_FEE = 100
 
 def assert_mempool_contents(test_framework, node, expected=None, sync=True):
@@ -44,8 +44,8 @@ def fill_mempool(test_framework, node, *, tx_sync_fun=None):
     """Fill mempool until eviction.
 
     Allows for simpler testing of scenarios with floating mempoolminfee > minrelay
-    Requires -datacarriersize=100000 and -maxmempool=5 and assumes -minrelaytxfee
-    is 1 sat/vbyte.
+    Requires -maxmempool=5. The filler transactions are payments, and each
+    pays at least the consensus rate of 3 tokens per virtual byte.
     To avoid unintentional tx dependencies, the mempool filling txs are created with a
     tagged ephemeral miniwallet instance.
     """

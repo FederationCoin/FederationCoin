@@ -173,7 +173,6 @@ public:
         std::unordered_map<Consensus::BuriedDeployment, int> activation_heights{};
         bool fastprune{false};
         bool enforce_bip94{false};
-        std::optional<std::vector<unsigned char>> blake2b_headline{};
     };
 
     static std::unique_ptr<const CChainParams> RegTest(const RegTestOptions& options);

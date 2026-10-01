@@ -61,10 +61,7 @@ bool RejectUserDataCarrier(const CTransaction& tx, TxValidationState& state);
 /** Reject every OP_RETURN except the witness commitment. Used for the coinbase. */
 bool RejectCoinbaseDataCarrier(const CTransaction& tx, TxValidationState& state);
 
-/** The headline block may use a scriptSig up to 100 bytes. */
-bool HeadlineCoinbaseScriptSigFits(size_t script_sig_size);
-
-/** Later blocks keep only the bytes mining needs. */
+/** Every block keeps only the bytes mining needs. */
 bool MiningCoinbaseScriptSigFits(size_t script_sig_size);
 
 /** The 32-byte witness nonce carries no message. */

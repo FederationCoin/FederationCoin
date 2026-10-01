@@ -159,13 +159,13 @@ class RpcCreateMultiSigTest(BitcoinTestFramework):
             assert mredeemw == mredeem
 
         spk = address_to_scriptpubkey(madd)
-        value = decimal.Decimal("0.00004000")
+        value = decimal.Decimal("0.00030000")
         tx = self.wallet.send_to(from_node=self.nodes[0], scriptPubKey=spk, amount=int(value * COIN))
         prevtxs = [{"txid": tx["txid"], "vout": tx["sent_vout"], "scriptPubKey": spk.hex(), "redeemScript": mredeem, "amount": value}]
 
         self.generate(node0, 1)
 
-        outval = value - decimal.Decimal("0.00002000")  # deduce fee (must be higher than the min relay fee)
+        outval = value - decimal.Decimal("0.00015000")  # fee stays above 3 tokens per virtual byte
         # send coins to node2 when wallet is enabled
         node2_balance = node2.getbalances()['mine']['trusted'] if self.is_wallet_compiled() else 0
         out_addr = node2.getnewaddress() if self.is_wallet_compiled() else getnewdestination('bech32')[2]

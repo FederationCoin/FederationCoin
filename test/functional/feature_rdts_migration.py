@@ -71,18 +71,13 @@ PRUNE_TIP = 432        # violator + MIN_BLOCKS_TO_KEEP
 # the violator's file independently prunable. A data script is not the filler.
 PAY = CScript([OP_0, b"\x11" * 32])
 BIG_OUTPUT_COUNT = 1600
-# The first BLAKE2b block's coinbase must contain the headline; this value must
-# match the test framework's default -blake2b_headline argument.
-HEADLINE = b'BLAKE2b functional test headline'
 REDUCED_DATA_MAX_BLOCK_WEIGHT = 800000
 
-
-HEADLINE_ARG = '-blake2b_headline=BLAKE2b functional test headline'
 # Far enough that the first run is a SHA256d chain. The default fork is height 0.
 SHA256D = '-testactivationheight=blake2b@1000000'
 
 def fork_args(height=FORK_HEIGHT, *extra):
-    return [f'-testactivationheight=blake2b@{height}', HEADLINE_ARG, *extra]
+    return [f'-testactivationheight=blake2b@{height}', *extra]
 
 
 class RdtsMigrationTest(BitcoinTestFramework):
@@ -109,10 +104,6 @@ class RdtsMigrationTest(BitcoinTestFramework):
     def make_block(self, node, parent_hash, parent_time, height, *, v2=False, txs=None, coinbase=None):
         if coinbase is None:
             coinbase = create_coinbase(height)
-            if v2:
-                # The first BLAKE2b block must carry the headline.
-                coinbase.vin[0].scriptSig = CScript(bytes(coinbase.vin[0].scriptSig) + HEADLINE)
-                coinbase.rehash()
         block = create_block(int(parent_hash, 16), coinbase, ntime=parent_time + 1,
                              txlist=txs, height=height, header_v2=v2)
         add_witness_commitment(block)
@@ -404,7 +395,6 @@ class RdtsMigrationTest(BitcoinTestFramework):
         self.mine_to(n_content, FORK_HEIGHT - 1)
         tip = n_content.getbestblockhash()
         cb = create_coinbase(FORK_HEIGHT)
-        cb.vin[0].scriptSig = CScript(bytes(cb.vin[0].scriptSig) + HEADLINE)
         for _ in range(4700):  # 34-byte payments, over the 800k weight cap
             cb.vout.append(CTxOut(0, PAY))
         cb.rehash()

@@ -42,10 +42,6 @@ DEFAULT_BLOCK_RESERVED_WEIGHT = 8000
 # illegal under RDTS (256 bytes) unless the coin spent predates the fork.
 VIOLATING_PUSH_SIZE = 300
 # The first BLAKE2b block's coinbase must contain the headline; this value
-# must match the test framework's default -blake2b_headline argument
-HEADLINE = b'BLAKE2b functional test headline'
-
-
 class TemporaryDeploymentTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
@@ -54,10 +50,8 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
         # no expiry.
         self.extra_args = [
             [f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}',
-             '-blake2b_headline=BLAKE2b functional test headline',
              '-acceptnonstdtxn=1'],
             [f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}',
-             '-blake2b_headline=BLAKE2b functional test headline',
              '-acceptnonstdtxn=1'],
         ]
 
@@ -74,10 +68,6 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
         tip_header = node.getblockheader(tip)
         block_time = tip_header['time'] + 1 + time_offset
         coinbase = create_coinbase(height)
-        if height == ACTIVATION_HEIGHT:
-            # The first BLAKE2b block must carry the headline in its coinbase
-            coinbase.vin[0].scriptSig = CScript(bytes(coinbase.vin[0].scriptSig) + HEADLINE)
-            coinbase.rehash()
         block = create_block(int(tip, 16), coinbase, ntime=block_time, txlist=txs,
                              height=height, header_v2=height >= ACTIVATION_HEIGHT)
         add_witness_commitment(block)
@@ -141,8 +131,6 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
 
         def build(num_full, last_len, short_by):
             coinbase = create_coinbase(height)
-            if height == ACTIVATION_HEIGHT:
-                coinbase.vin[0].scriptSig = CScript(bytes(coinbase.vin[0].scriptSig) + HEADLINE)
             scripts = [pay for _ in range(num_full)]
             if short_by and scripts:
                 scripts[-1] = CScript(bytes(pay)[:-short_by])

@@ -187,8 +187,8 @@ class MempoolLimitTest(BitcoinTestFramework):
         self.restart_node(0, extra_args=self.extra_args[0])
 
         # Restarting the node resets mempool minimum feerate
-        assert_equal(node.getmempoolinfo()['minrelaytxfee'], Decimal('0.00000100'))
-        assert_equal(node.getmempoolinfo()['mempoolminfee'], Decimal('0.00000100'))
+        assert_equal(node.getmempoolinfo()['minrelaytxfee'], Decimal('0.00003000'))
+        assert_equal(node.getmempoolinfo()['mempoolminfee'], Decimal('0.00003000'))
 
         fill_mempool(self, node)
         current_info = node.getmempoolinfo()
@@ -397,7 +397,7 @@ class MempoolLimitTest(BitcoinTestFramework):
         # Package with 2 parents and 1 child. One parent has a high feerate due to modified fees,
         # another is below the mempool minimum feerate but bumped by the child.
         tx_poor = miniwallet.create_self_transfer(fee_rate=relayfee)
-        tx_rich = miniwallet.create_self_transfer(fee=0, fee_rate=0)
+        tx_rich = miniwallet.create_self_transfer(fee_rate=relayfee)
         node.prioritisetransaction(tx_rich["txid"], 0, int(DEFAULT_FEE * COIN))
         package_txns = [tx_rich, tx_poor]
         coins = [tx["new_utxo"] for tx in package_txns]

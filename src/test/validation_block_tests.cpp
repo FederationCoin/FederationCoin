@@ -91,9 +91,6 @@ std::shared_ptr<CBlock> MinerTestingSetup::Block(const uint256& prev_hash)
     txCoinbase.vin[0].scriptWitness.SetNull();
     const int height{WITH_LOCK(::cs_main, return m_node.chainman->m_blockman.LookupBlockIndex(prev_hash)->nHeight + 1)};
     txCoinbase.vin[0].scriptSig = CScript{} << height << OP_0;
-    if (height == Params().GetConsensus().Blake2bHeight) {
-        txCoinbase.vin[0].scriptSig << Params().GetConsensus().Blake2bHeadline;
-    }
     pblock->vtx[0] = MakeTransactionRef(std::move(txCoinbase));
     if (pblock->m_header_v2) {
         pblock->m_txcount = pblock->vtx.size();

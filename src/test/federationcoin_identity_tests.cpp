@@ -35,7 +35,6 @@ BOOST_FIXTURE_TEST_SUITE(federationcoin_identity_tests, BasicTestingSetup)
 
 BOOST_AUTO_TEST_CASE(chain_params_identity)
 {
-    constexpr std::string_view headline{"09/Sep/2026 FederationCoin: time is the unit, not the state"};
     const CScript genesis_spk = CScript() << std::vector<unsigned char>(33, 0x00) << OP_CHECKSIG;
 
     const std::array chains{
@@ -59,8 +58,8 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
         BOOST_CHECK_EQUAL(c.Blake2bTargetShift, 0);
         BOOST_CHECK(c.RdtsActiveAt(0));
         BOOST_CHECK(!c.RdtsActiveAt(-1));
-        BOOST_CHECK(c.Blake2bHeadline.size() == headline.size());
-        BOOST_CHECK(std::equal(headline.begin(), headline.end(), c.Blake2bHeadline.begin()));
+        const CScript& genesis_sig{params->GenesisBlock().vtx[0]->vin[0].scriptSig};
+        BOOST_CHECK(genesis_sig == (CScript() << 0 << OP_0));
         BOOST_CHECK_EQUAL(c.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime,
                           Consensus::BIP9Deployment::NEVER_ACTIVE);
         BOOST_CHECK(params->GenesisBlock().m_header_v2);

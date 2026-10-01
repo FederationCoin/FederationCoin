@@ -27,6 +27,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         self.extra_args = [[
             "-printpriority=1",
             "-datacarriersize=100000",
+            "-minrelaytxfee=0.00010000",
         ]] * self.num_nodes
         self.supports_cli = False
 
@@ -268,7 +269,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         assert tx_id_zero_del not in self.nodes[0].getprioritisedtransactions()
 
         # Create a free transaction.  Should be rejected.
-        tx_res = self.wallet.create_self_transfer(fee_rate=0)
+        tx_res = self.wallet.create_self_transfer(fee_rate=Decimal("0.00003000"))
         tx_hex = tx_res['hex']
         tx_id = tx_res['txid']
 

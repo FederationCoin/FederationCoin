@@ -107,7 +107,6 @@ struct Params {
     int SegwitHeight;
     /** Block height at which BLAKE2b hardfork becomes active */
     int Blake2bHeight{std::numeric_limits<int>::max()};
-    std::vector<unsigned char> Blake2bHeadline;
     uint8_t Blake2bTargetShift{20};
     /** Don't warn about unknown BIP 9 activations below this height.
      * This prevents us from warning about the CSV and segwit activations. */

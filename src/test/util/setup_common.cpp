@@ -365,7 +365,7 @@ TestChain100Setup::TestChain100Setup(
     {
         LOCK(::cs_main);
         const std::string tip_hash{m_node.chainman->ActiveChain().Tip()->GetBlockHash().ToString()};
-        Assert(tip_hash == "7090073de1976e738aafd0f197e6055894ae5cc0ae1a160d7903e856b1cdfe14");
+        Assert(tip_hash == "40fd6a45cc7863e25252c4c667c0be0c0e2a98827de4606440cb631df75805ab");
     }
 }
 

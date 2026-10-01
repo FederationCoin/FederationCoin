@@ -59,6 +59,17 @@ class PackageRelayTest(BitcoinTestFramework):
 
     def create_basic_1p1c(self, wallet):
         low_fee_parent = wallet.create_self_transfer(fee_rate=Decimal(DEFAULT_MIN_RELAY_TX_FEE) / COIN, confirmed_only=True)
+        tx = low_fee_parent["tx"]
+        short = 3 * tx.get_vsize() - int(low_fee_parent["fee"] * COIN)
+        if short > 0:
+            tx.vout[0].nValue -= short
+            low_fee_parent["fee"] += Decimal(short) / COIN
+            low_fee_parent["txid"] = tx.rehash()
+            low_fee_parent["wtxid"] = tx.getwtxid()
+            low_fee_parent["hex"] = tx.serialize().hex()
+            low_fee_parent["new_utxo"]["value"] = Decimal(tx.vout[0].nValue) / COIN
+            low_fee_parent["new_utxo"]["txid"] = low_fee_parent["txid"]
+            low_fee_parent["new_utxo"]["wtxid"] = low_fee_parent["wtxid"]
         high_fee_child = wallet.create_self_transfer(utxo_to_spend=low_fee_parent["new_utxo"], fee_rate=999*Decimal(DEFAULT_MIN_RELAY_TX_FEE)/ COIN)
         package_hex_basic = [low_fee_parent["hex"], high_fee_child["hex"]]
         return package_hex_basic, low_fee_parent["tx"], high_fee_child["tx"]
@@ -72,9 +83,8 @@ class PackageRelayTest(BitcoinTestFramework):
             num_outputs=2,
         )
 
-        # Target 1sat/vB so the number of satoshis is equal to the vsize.
-        # Round up. The goal is to be between min relay feerate and mempool min feerate.
-        fee_2outs = ceil(low_fee_parent_2outs_tester["tx"].get_vsize() / 2)
+        # Pay 3 tokens per vbyte, which is still under the raised mempool minimum.
+        fee_2outs = ceil(3 * low_fee_parent_2outs_tester["tx"].get_vsize() / 2)
 
         low_fee_parent_2outs = wallet.create_self_transfer_multi(
             utxos_to_spend=[utxo_for_2outs],

@@ -65,8 +65,10 @@ class GetblockstatsTest(BitcoinTestFramework):
         wallet.sendtoaddress(address=address, amount=10, subtractfeefromamount=False)
         wallet.settxfee(amount=0.003)
         wallet.sendtoaddress(address=address, amount=1, subtractfeefromamount=True)
-        # Send to OP_RETURN output to test its exclusion from statistics
-        wallet.send(outputs={"data": "21"})
+        sent = wallet.send(outputs={"data": "21"})
+        rejected = self.nodes[0].testmempoolaccept([self.nodes[0].gettransaction(sent["txid"])["hex"]])[0]
+        assert_equal(rejected["allowed"], False)
+        assert_equal(rejected["reject-reason"], "bad-txns-datacarrier")
         self.sync_all()
         self.generate(self.nodes[0], 1)
 
@@ -183,12 +185,12 @@ class GetblockstatsTest(BitcoinTestFramework):
         assert_equal(genesis_stats["utxo_increase_actual"], 0)
         assert_equal(genesis_stats["utxo_size_inc_actual"], 0)
 
-        self.log.info('Test tip including OP_RETURN')
+        self.log.info('Test tip without a data output')
         tip_stats = self.nodes[0].getblockstats(tip)
-        assert_equal(tip_stats["utxo_increase"], 6)
-        assert_equal(tip_stats["utxo_size_inc"], 438)
+        assert_equal(tip_stats["utxo_increase"], 5)
+        assert_equal(tip_stats["utxo_size_inc"], 388)
         assert_equal(tip_stats["utxo_increase_actual"], 4)
-        assert_equal(tip_stats["utxo_size_inc_actual"], 297)
+        assert_equal(tip_stats["utxo_size_inc_actual"], 300)
 
         self.log.info("Test when only header is known")
         block = self.generateblock(self.nodes[0], output="raw(55)", transactions=[], submit=False)

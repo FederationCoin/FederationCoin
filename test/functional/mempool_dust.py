@@ -46,11 +46,17 @@ class DustRelayFeeTest(BitcoinTestFramework):
                          output_script: CScript, type_desc: str) -> None:
         # determine dust threshold (see `GetDustThreshold`)
         if output_script[0] == OP_RETURN:
-            dust_threshold = 0
-        else:
-            tx_size = len(CTxOut(nValue=0, scriptPubKey=output_script).serialize())
-            tx_size += 67 if output_script.IsWitnessProgram() else 148
-            dust_threshold = int(get_fee(tx_size, dust_relay_fee) * COIN)
+            self.log.info(f"-> Test {type_desc} output (rejected)")
+            tx = self.wallet.create_self_transfer()["tx"]
+            tx.vout.append(CTxOut(nValue=0, scriptPubKey=output_script))
+            res = node.testmempoolaccept([tx.serialize().hex()])[0]
+            assert_equal(res['allowed'], False)
+            assert_equal(res['reject-reason'], 'bad-txns-datacarrier')
+            return
+
+        tx_size = len(CTxOut(nValue=0, scriptPubKey=output_script).serialize())
+        tx_size += 67 if output_script.IsWitnessProgram() else 148
+        dust_threshold = int(get_fee(tx_size, dust_relay_fee) * COIN)
         self.log.info(f"-> Test {type_desc} output (size {len(output_script)}, limit {dust_threshold})")
 
         # amount right on the dust threshold should pass

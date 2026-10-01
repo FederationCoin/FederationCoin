@@ -163,7 +163,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.generate(self.wallet, COINBASE_MATURITY)
 
         total_value = block.vtx[0].vout[0].nValue
-        out_value = total_value // 10
+        fee = 20000
+        out_value = (total_value - fee) // 10
         tx = CTransaction()
         tx.vin.append(CTxIn(COutPoint(block.vtx[0].sha256, 0), b''))
         for _ in range(10):

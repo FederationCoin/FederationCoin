@@ -74,6 +74,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         tx_o_a = self.wallet.send_self_transfer_multi(
             from_node=self.nodes[0],
             num_outputs=2,
+            fee_per_output=10000,
         )
         txid_a = tx_o_a["txid"]
 
@@ -90,6 +91,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
                 self.wallet.get_utxo(txid=txid_b),
                 self.wallet.get_utxo(txid=txid_c),
             ],
+            fee_per_output=10000,
         )
         txid_d = tx_o_d["txid"]
 
@@ -302,6 +304,11 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         new_template = self.nodes[0].getblocktemplate({'rules': ['segwit', 'blake2b']})
 
         assert template != new_template
+
+        self.log.info("Priority does not waive a base fee under 3 tokens per virtual byte")
+        zero_fee = self.wallet.create_self_transfer(fee=0, fee_rate=0)
+        self.nodes[0].prioritisetransaction(txid=zero_fee["txid"], fee_delta=int(COIN))
+        assert_raises_rpc_error(-26, "bad-txns-min-fee", self.nodes[0].sendrawtransaction, zero_fee["hex"])
 
 if __name__ == '__main__':
     PrioritiseTransactionTest(__file__).main()

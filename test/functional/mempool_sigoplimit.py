@@ -64,7 +64,7 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         fund = self.wallet.send_to(
             from_node=self.nodes[0],
             scriptPubKey=script_to_p2wsh_script(witness_script),
-            amount=1000000,
+            amount=5000000,
         )
 
         # create spending transaction
@@ -72,7 +72,7 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         tx.vin = [CTxIn(COutPoint(int(fund["txid"], 16), fund["sent_vout"]))]
         tx.wit.vtxinwit = [CTxInWitness()]
         tx.wit.vtxinwit[0].scriptWitness.stack = [bytes(witness_script)]
-        tx.vout = [CTxOut(500000, output_script)]
+        tx.vout = [CTxOut(4500000, output_script)]
         return tx
 
     def test_sigops_limit(self, bytes_per_sigop, num_sigops):
@@ -92,72 +92,29 @@ class BytesPerSigOpTest(BitcoinTestFramework):
 
         # Create transaction ONCE with a small output
         # This creates ONE funding transaction in the mempool
-        tx = self.create_p2wsh_spending_tx(witness_script, CScript([OP_RETURN, b'test123']))
+        tx = self.create_p2wsh_spending_tx(witness_script, CScript([OP_TRUE]))
 
-        # Helper function to pad transaction to target vsize using multiple OP_RETURN outputs
         def pad_tx_to_vsize(tx, target_vsize):
-            """Adjust transaction size by adding/removing multiple OP_RETURN outputs"""
-            # Keep only the first output, remove all padding outputs
+            """Grow the transaction with small payment outputs, not data outputs."""
             while len(tx.vout) > 1:
+                tx.vout[0].nValue += tx.vout[-1].nValue
                 tx.vout.pop()
 
-            # MAX_OP_RETURN_RELAY = 83, so max script is: OP_RETURN + 82 bytes data
-            max_script_size = MAX_OP_RETURN_RELAY
-
-            # Iteratively add outputs until we reach or slightly exceed the target
-            while True:
-                current_vsize = tx.get_vsize()
-                if current_vsize >= target_vsize:
+            while tx.get_vsize() < target_vsize:
+                need = target_vsize - tx.get_vsize()
+                script_len = min(34, max(1, need - 9))
+                script = CScript([OP_TRUE] * script_len)
+                value = 700
+                assert tx.vout[0].nValue > value
+                tx.vout[0].nValue -= value
+                tx.vout.append(CTxOut(nValue=value, scriptPubKey=script))
+                if tx.get_vsize() > target_vsize and len(tx.vout) > 1:
+                    tx.vout[0].nValue += tx.vout[-1].nValue
+                    tx.vout.pop()
                     break
-
-                vsize_needed = target_vsize - current_vsize
-
-                # CTxOut serialization: nValue (8) + compact_size(script_len) + script
-                # For script_len <= 252: compact_size = 1 byte
-                # So total = 8 + 1 + script_len = 9 + script_len
-
-                # Maximum output: 8 + 1 + 83 = 92 vbytes
-                if vsize_needed >= 92:
-                    # Add a max-size output
-                    tx.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + [OP_1] * (max_script_size - 1))))
-                elif vsize_needed >= 10:
-                    # Need to add exactly vsize_needed bytes
-                    # 8 + 1 + script_len = vsize_needed
-                    # script_len = vsize_needed - 9
-                    script_len = vsize_needed - 9
-                    # Script is [OP_RETURN] + data, so len = 1 + data_len
-                    # data_len = script_len - 1
-                    data_len = script_len - 1
-                    if data_len >= 0:
-                        tx.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + [OP_1] * data_len)))
-                    else:
-                        # Just add the minimum and overshoot slightly
-                        tx.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN])))
-                        break
-                else:
-                    # vsize_needed < 10, can't add a new output
-                    # Instead, adjust the first output's size by adding to its script
-                    if vsize_needed > 0 and len(tx.vout[0].scriptPubKey) < max_script_size:
-                        # Extend the first output's script
-                        current_script = tx.vout[0].scriptPubKey
-                        # Add vsize_needed more bytes to the script
-                        new_script = bytes(current_script) + bytes([1] * vsize_needed)
-                        # But cap at max_script_size
-                        if len(new_script) <= max_script_size:
-                            tx.vout[0].scriptPubKey = CScript(new_script)
-                    break
-
-            # If we overshot, try to trim the last output
-            if tx.get_vsize() > target_vsize and len(tx.vout) > 1:
-                tx.vout.pop()
-                # Try again with a smaller output
-                current_vsize = tx.get_vsize()
-                vsize_needed = target_vsize - current_vsize
-                if vsize_needed >= 10:
-                    script_len = vsize_needed - 9
-                    data_len = script_len - 1
-                    if data_len >= 0:
-                        tx.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + [OP_1] * data_len)))
+            short = target_vsize - tx.get_vsize()
+            if 0 < short <= 34 - len(tx.vout[0].scriptPubKey):
+                tx.vout[0].scriptPubKey = CScript(bytes(tx.vout[0].scriptPubKey) + bytes([OP_TRUE]) * short)
 
         # Pad to reach sigop-limit equivalent size
         pad_tx_to_vsize(tx, sigop_equivalent_vsize)
@@ -195,9 +152,9 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         # tx by getting rid of the large padding output)
         while len(tx.vout) > 1:
             tx.vout.pop()
-        tx.vout[0].scriptPubKey = CScript([OP_RETURN, b'test123'])
+        tx.vout[0].scriptPubKey = CScript([OP_TRUE] * 34)
         assert_greater_than(sigop_equivalent_vsize, tx.get_vsize())
-        self.nodes[0].sendrawtransaction(hexstring=tx.serialize().hex(), maxburnamount='1.0')
+        self.nodes[0].sendrawtransaction(hexstring=tx.serialize().hex())
 
         # fetch parent tx, which doesn't contain any sigops
         parent_txid = tx.vin[0].prevout.hash.to_bytes(32, 'big').hex()
@@ -245,7 +202,7 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         p2wsh_script = script_to_p2wsh_script(witness_script)
 
         # Pre-fund two P2WSH outputs that we'll spend as parent and child
-        funding_amount = 1000000
+        funding_amount = 600000
         fund_parent = self.wallet.send_to(
             from_node=self.nodes[0],
             scriptPubKey=p2wsh_script,
@@ -264,7 +221,7 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         tx_parent.wit.vtxinwit = [CTxInWitness()]
         tx_parent.wit.vtxinwit[0].scriptWitness.stack = [bytes(witness_script)]
         # Output back to a standard address (MiniWallet's default)
-        tx_parent.vout = [CTxOut(funding_amount - 10000, self.wallet.get_output_script())]
+        tx_parent.vout = [CTxOut(funding_amount - 250000, self.wallet.get_output_script())]
         tx_parent.rehash()
 
         # Child tx: spends second P2WSH (high sigops) AND spends parent's output (to form package)
@@ -276,7 +233,7 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         tx_child.wit.vtxinwit = [CTxInWitness(), CTxInWitness()]
         tx_child.wit.vtxinwit[0].scriptWitness.stack = [bytes(witness_script)]  # For P2WSH input
         tx_child.wit.vtxinwit[1].scriptWitness.stack = [b'']  # Placeholder for wallet input
-        tx_child.vout = [CTxOut(2 * funding_amount - 30000, self.wallet.get_output_script())]
+        tx_child.vout = [CTxOut(2 * funding_amount - 500000, self.wallet.get_output_script())]
         tx_child.rehash()
 
         # Separately, the parent tx is ok
@@ -325,7 +282,7 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         # Spending all these outputs at once accounts for 2505 legacy sigops and is non-standard.
         nonstd_tx = CTransaction()
         nonstd_tx.vin = [CTxIn(op, CScript([b"", packed_redeem_script])) for op in outpoints]
-        nonstd_tx.vout = [CTxOut(0, CScript([OP_RETURN, b""]))]
+        nonstd_tx.vout = [CTxOut(1000, self.wallet.get_output_script())]
         assert_raises_rpc_error(-26, "bad-txns-input-sigops-toomany-overall", self.nodes[0].sendrawtransaction, nonstd_tx.serialize().hex())
 
         # Spending one less accounts for 2490 legacy sigops and is standard.

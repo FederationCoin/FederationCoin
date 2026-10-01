@@ -543,10 +543,11 @@ class PackageRBFTest(BitcoinTestFramework):
         child2 = self.wallet.create_self_transfer(utxo_to_spend=parent2["new_utxo"], fee=fees_package1*10, version=3)
         package_hex2 = [parent2["hex"], child2["hex"]]
 
+        # A parent under the consensus rate is not rescued by the child.
         submitres2 = node.submitpackage(package_hex2)
-        assert_equal(submitres2["package_msg"], "success")
-        assert_equal(set(submitres2["replaced-transactions"]), set([parent1["txid"], child1["txid"]]))
-        self.assert_mempool_contents([parent2["tx"], child2["tx"]])
+        assert submitres2["package_msg"] != "success"
+        assert "bad-txns-min-fee" in submitres2["tx-results"][parent2["wtxid"]]["error"]
+        self.assert_mempool_contents([parent1["tx"], child1["tx"]])
 
         self.generate(node, 1)
 

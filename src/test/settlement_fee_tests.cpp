@@ -18,12 +18,19 @@ BOOST_FIXTURE_TEST_SUITE(settlement_fee_tests, BasicTestingSetup)
 
 BOOST_AUTO_TEST_CASE(minimum_fee_rate)
 {
-    BOOST_CHECK_EQUAL(MIN_TX_FEE_RATE, 3);
+    BOOST_CHECK_EQUAL(MinimumFee(0), 0);
+    BOOST_CHECK_EQUAL(MinimumFee(11), 0);
+    BOOST_CHECK_EQUAL(MinimumFee(12), 1);
+    BOOST_CHECK_EQUAL(MinimumFee(1075), 89);
     BOOST_CHECK(FeeMeetsMinimumRate(0, 0));
-    BOOST_CHECK(FeeMeetsMinimumRate(30, 10));
-    BOOST_CHECK(!FeeMeetsMinimumRate(29, 10));
-    BOOST_CHECK(!FeeMeetsMinimumRate(0, 1));
-    BOOST_CHECK(!FeeMeetsMinimumRate(MAX_MONEY, MAX_MONEY / MIN_TX_FEE_RATE + 1));
+    BOOST_CHECK(FeeMeetsMinimumRate(0, 11));
+    BOOST_CHECK(!FeeMeetsMinimumRate(0, 12));
+    BOOST_CHECK(FeeMeetsMinimumRate(1, 12));
+    // A simple ML-DSA payment is about 1,075 virtual bytes: 88 is short, 89 meets the floor.
+    BOOST_CHECK(!FeeMeetsMinimumRate(88, 1075));
+    BOOST_CHECK(FeeMeetsMinimumRate(89, 1075));
+    // Any higher fee is valid, including the old 3-token rate.
+    BOOST_CHECK(FeeMeetsMinimumRate(1075 * 3, 1075));
 }
 
 BOOST_AUTO_TEST_CASE(data_carrier_nonce_and_scriptsig)

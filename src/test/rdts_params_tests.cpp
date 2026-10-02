@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chainparams.h>
+#include <consensus/consensus.h>
 #include <consensus/params.h>
 #include <test/util/setup_common.h>
 #include <util/chaintype.h>
@@ -36,6 +37,16 @@ BOOST_AUTO_TEST_CASE(rdts_active_from_first_block)
         BOOST_CHECK_EQUAL(c.Blake2bHeight, 0);
         BOOST_CHECK(c.RdtsActiveAt(0));
     }
+}
+
+BOOST_AUTO_TEST_CASE(reduced_data_weight_cap)
+{
+    // A block that fits in 2,400,000 weight is inside the cap.
+    // A block over that cap is not. 800,000 was the old cap.
+    BOOST_CHECK_EQUAL(REDUCED_DATA_MAX_BLOCK_WEIGHT, 2400000U);
+    BOOST_CHECK(800000U < REDUCED_DATA_MAX_BLOCK_WEIGHT);
+    BOOST_CHECK(2400000U <= REDUCED_DATA_MAX_BLOCK_WEIGHT);
+    BOOST_CHECK(2400001U > REDUCED_DATA_MAX_BLOCK_WEIGHT);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

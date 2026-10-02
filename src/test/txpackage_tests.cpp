@@ -23,13 +23,15 @@
 
 using namespace util::hex_literals;
 
-// A starting fee. Callers raise it to the consensus floor (3 per virtual byte)
-// when this is short. It stays under the 5sat/vB mempool line used below.
+// A starting fee. Callers raise it to at least the consensus floor. The
+// 3-token rate stays so these cases clear the mempool line used below.
 static const CAmount low_fee_amt{200};
+static constexpr CAmount PACKAGE_TEST_FEE_RATE{3};
 
 static CAmount MinimumPackageFee(const CTransaction& tx, CAmount offered)
 {
-    const CAmount floor{MIN_TX_FEE_RATE * static_cast<CAmount>(GetVirtualTransactionSize(tx))};
+    const int64_t vsize{static_cast<int64_t>(GetVirtualTransactionSize(tx))};
+    const CAmount floor{std::max(MinimumFee(vsize), PACKAGE_TEST_FEE_RATE * vsize)};
     return std::max(offered, floor);
 }
 

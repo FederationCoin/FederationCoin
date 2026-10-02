@@ -6,10 +6,14 @@
 
 #include <consensus/amount.h>
 
+CAmount MinimumFee(int64_t virtual_bytes)
+{
+    if (virtual_bytes <= 0) return 0;
+    return virtual_bytes / MIN_FEE_VSIZE_DIVISOR;
+}
+
 bool FeeMeetsMinimumRate(CAmount fee, int64_t virtual_bytes)
 {
     if (virtual_bytes <= 0) return true;
-    if (virtual_bytes > MAX_MONEY / MIN_TX_FEE_RATE) return false;
-    const CAmount required{MIN_TX_FEE_RATE * virtual_bytes};
-    return fee >= required;
+    return fee >= MinimumFee(virtual_bytes);
 }

@@ -1163,7 +1163,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         const int64_t min_fee_vbytes{static_cast<int64_t>(GetTransactionWeight(*ws.m_ptx) / WITNESS_SCALE_FACTOR)};
         if (!FeeMeetsMinimumRate(ws.m_base_fees, min_fee_vbytes)) {
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-min-fee",
-                                 strprintf("fee %d is below %d tokens per virtual byte", ws.m_base_fees, MIN_TX_FEE_RATE));
+                                 strprintf("fee %d is below the minimum %d", ws.m_base_fees, MinimumFee(min_fee_vbytes)));
         }
     }
 
@@ -3068,7 +3068,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             const int64_t min_fee_vbytes{static_cast<int64_t>(GetTransactionWeight(tx) / WITNESS_SCALE_FACTOR)};
             if (!FeeMeetsMinimumRate(txfee, min_fee_vbytes)) {
                 state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-min-fee",
-                              strprintf("fee %d is below %d tokens per virtual byte", txfee, MIN_TX_FEE_RATE));
+                              strprintf("fee %d is below the minimum %d", txfee, MinimumFee(min_fee_vbytes)));
                 break;
             }
 

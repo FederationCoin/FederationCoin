@@ -71,7 +71,7 @@ PRUNE_TIP = 432        # violator + MIN_BLOCKS_TO_KEEP
 # the violator's file independently prunable. A data script is not the filler.
 PAY = CScript([OP_0, b"\x11" * 32])
 BIG_OUTPUT_COUNT = 1600
-REDUCED_DATA_MAX_BLOCK_WEIGHT = 800000
+REDUCED_DATA_MAX_BLOCK_WEIGHT = 2400000
 
 # Far enough that the first run is a SHA256d chain. The default fork is height 0.
 SHA256D = '-testactivationheight=blake2b@1000000'
@@ -395,7 +395,7 @@ class RdtsMigrationTest(BitcoinTestFramework):
         self.mine_to(n_content, FORK_HEIGHT - 1)
         tip = n_content.getbestblockhash()
         cb = create_coinbase(FORK_HEIGHT)
-        for _ in range(4700):  # 34-byte payments, over the 800k weight cap
+        for _ in range(15000):  # 34-byte payments, over the 2,400,000 weight cap
             cb.vout.append(CTxOut(0, PAY))
         cb.rehash()
         heavy = self.make_block(n_content, tip, n_content.getblockheader(tip)['time'],

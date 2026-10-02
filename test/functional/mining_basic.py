@@ -367,7 +367,7 @@ class MiningTest(BitcoinTestFramework):
         self.log.info("Testing default and custom -blockmaxweight startup options.")
 
         # Reduced-data caps the assembled block below MAX_BLOCK_WEIGHT.
-        block_weight_cap = 800000
+        block_weight_cap = 2400000
 
         # Restart the node to allow large transactions
         LARGE_TXS_COUNT = 10

@@ -167,6 +167,13 @@ void sanity_check_chainparams(const ArgsManager& args, ChainType chain_type)
 
     // target timespan is an even multiple of spacing
     BOOST_CHECK_EQUAL(consensus.nPowTargetTimespan % consensus.nPowTargetSpacing, 0);
+    // Twelve-minute blocks. 600 was the old ten-minute spacing.
+    BOOST_CHECK_EQUAL(consensus.nPowTargetSpacing, 12 * 60);
+    // Window stays one timespan of wall clock: 1680 on the two-week nets, 120 on regtest.
+    const int64_t expected_window = consensus.nPowTargetTimespan / consensus.nPowTargetSpacing;
+    BOOST_CHECK_EQUAL(consensus.nMinerConfirmationWindow, expected_window);
+    const bool ninety_percent = chain_type == ChainType::MAIN || chain_type == ChainType::SIGNET;
+    BOOST_CHECK_EQUAL(consensus.nRuleChangeActivationThreshold, expected_window * (ninety_percent ? 90 : 75) / 100);
 
     // genesis nBits is positive, doesn't overflow and is lower than powLimit
     arith_uint256 pow_compact;

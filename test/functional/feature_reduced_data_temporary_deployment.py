@@ -34,7 +34,7 @@ from test_framework.wallet import MiniWallet
 # RDTS activates at the BLAKE2b fork height (see -testactivationheight below)
 ACTIVATION_HEIGHT = 432
 # Consensus weight limits: the reduced one applies while RDTS is active
-REDUCED_DATA_MAX_BLOCK_WEIGHT = 800000
+REDUCED_DATA_MAX_BLOCK_WEIGHT = 2400000
 MAX_BLOCK_WEIGHT = 4000000
 # Weight the assembler keeps free for the header and coinbase (-blockreservedweight)
 DEFAULT_BLOCK_RESERVED_WEIGHT = 8000
@@ -360,7 +360,7 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
         # Phase 3c: block assembly under the reduced limit
         # =====================================================================
         self.log.info("Phase 3c: the assembler stays within the reduced limit")
-        for _ in range(9):
+        for _ in range(30):
             wallet.send_self_transfer_multi(from_node=node_bip110, num_outputs=600)
         assert node_bip110.getmempoolinfo()['bytes'] * 4 > REDUCED_DATA_MAX_BLOCK_WEIGHT
         tmpl = node_bip110.getblocktemplate({'rules': ['segwit', 'blake2b']})

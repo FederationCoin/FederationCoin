@@ -9,13 +9,15 @@
 
 #include <cstdint>
 
-/** Permanent minimum fee, in tokens per virtual byte. A token is one smallest
- *  unit. A virtual byte is transaction weight divided by four. Changing this
- *  is a fork. */
-static constexpr CAmount MIN_TX_FEE_RATE{3};
+/** Consensus minimum fee is floor(virtual bytes / this). A virtual byte is
+ *  transaction weight divided by four. Changing this is a fork. */
+static constexpr int64_t MIN_FEE_VSIZE_DIVISOR{12};
 
-/** fee is at least MIN_TX_FEE_RATE times virtual bytes. virtual_bytes is
- *  transaction weight divided by four. The multiply does not wrap. */
+/** Floor of virtual bytes over MIN_FEE_VSIZE_DIVISOR. Zero when virtual_bytes
+ *  is not positive. Coinbase transactions are not passed here. */
+CAmount MinimumFee(int64_t virtual_bytes);
+
+/** fee is at least MinimumFee(virtual_bytes). */
 bool FeeMeetsMinimumRate(CAmount fee, int64_t virtual_bytes);
 
 #endif // BITCOIN_CONSENSUS_SETTLEMENT_FEE_H

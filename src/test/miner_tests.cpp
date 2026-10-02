@@ -79,7 +79,8 @@ static CAmount PayAtLeastMinimum(CMutableTransaction& tx, CAmount input_value)
 {
     CAmount outputs{0};
     for (const auto& out : tx.vout) outputs += out.nValue;
-    const CAmount floor{MIN_TX_FEE_RATE * static_cast<CAmount>(GetVirtualTransactionSize(CTransaction(tx)))};
+    const int64_t vsize{static_cast<int64_t>(GetVirtualTransactionSize(CTransaction(tx)))};
+    const CAmount floor{std::max(MinimumFee(vsize), blockMinFeeRate.GetFee(static_cast<uint32_t>(vsize)))};
     const CAmount paid{input_value - outputs};
     if (paid < floor) tx.vout[0].nValue -= floor - paid;
     outputs = 0;

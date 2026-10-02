@@ -884,11 +884,10 @@ class SegWitTest(BitcoinTestFramework):
         # This should give us plenty of room to tweak the spending tx's
         # virtual size.
         # Size the witness so the block starts under the reduced-data cap
-        # (800000) and can be padded to one unit over it. The old 4MB case
-        # does not fit.
+        # (2,400,000) and can be padded to one unit over it.
         NUM_DROPS = 80
-        NUM_OUTPUTS = 20
-        weight_cap = 800000
+        NUM_OUTPUTS = 50
+        weight_cap = REDUCED_DATA_MAX_BLOCK_WEIGHT
 
         witness_script = CScript([OP_2DROP] * NUM_DROPS + [OP_TRUE])
         script_pubkey = script_to_p2wsh_script(witness_script)
@@ -908,7 +907,7 @@ class SegWitTest(BitcoinTestFramework):
         child_tx = CTransaction()
         for i in range(NUM_OUTPUTS):
             child_tx.vin.append(CTxIn(COutPoint(parent_tx.sha256, i), b""))
-        child_fee = 800000
+        child_fee = 2000000
         child_inputs = sum(out.nValue for out in parent_tx.vout)
         child_tx.vout = [CTxOut(child_inputs - child_fee, CScript([OP_TRUE]))]
         for _ in range(NUM_OUTPUTS):
@@ -921,7 +920,7 @@ class SegWitTest(BitcoinTestFramework):
         i = 0
         while additional_bytes > 0:
             # Add some more bytes to each input until we hit the cap plus one.
-            extra_bytes = min(additional_bytes + 1, 55)
+            extra_bytes = min(additional_bytes + 1, 200)
             block.vtx[-1].wit.vtxinwit[int(i / (2 * NUM_DROPS))].scriptWitness.stack[i % (2 * NUM_DROPS)] = b'a' * (195 + extra_bytes)
             additional_bytes -= extra_bytes
             i += 1
@@ -930,8 +929,8 @@ class SegWitTest(BitcoinTestFramework):
         add_witness_commitment(block)
         block.solve()
         assert_equal(block.get_weight(), weight_cap + 1)
-        # The reduced-data cap is below the old 2MB network-message limit.
-        assert len(block.serialize()) < 2 * 1024 * 1024
+        # A full reduced-data block stays under the 4 MB serialized limit.
+        assert len(block.serialize()) < 4 * 1024 * 1024
 
         test_witness_block(self.nodes[0], self.test_node, block, accepted=False, reason='bad-blk-weight-reduced_data')
 

@@ -80,7 +80,7 @@ class CBrokenBlock(CBlock):
 
 DUPLICATE_COINBASE_SCRIPT_SIG = b'\x01\x78'  # Valid for block at height 120
 # This chain's block weight cap while reduced-data rules are active.
-MAX_BLOCK_WEIGHT = 800000
+MAX_BLOCK_WEIGHT = 2400000
 
 
 class FullBlockTest(BitcoinTestFramework):

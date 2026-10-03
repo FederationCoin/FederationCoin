@@ -59,6 +59,10 @@ class BIP68Test(BitcoinTestFramework):
             ],
         ]
 
+    def skip_test_if_missing_module(self):
+        # Heritage: BIP68 sequence locks on secp. Closed spend is ML-DSA-44.
+        self.skip_heritage_secp_script()
+
     def run_test(self):
         self.relayfee = self.nodes[0].getnetworkinfo()["relayfee"]
         self.wallet = MiniWallet(self.nodes[0])

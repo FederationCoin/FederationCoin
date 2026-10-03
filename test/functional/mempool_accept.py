@@ -101,6 +101,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         tx.vout.append(deepcopy(tx.vout[0]))
         tx.vout[0].nValue = int(0.3 * COIN)
         tx.vout[1].nValue = int(49 * COIN)
+        self.wallet.resign(tx)
         raw_tx_in_block = tx.serialize().hex()
         txid_in_block = self.wallet.sendrawtransaction(from_node=node, tx_hex=raw_tx_in_block)
         self.generate(node, 1)
@@ -125,10 +126,12 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         )
 
         self.log.info('A transaction not in the mempool')
-        fee = Decimal('0.000007')
         utxo_to_spend = self.wallet.get_utxo(txid=txid_in_block)  # use 0.3 BTC UTXO
         tx = self.wallet.create_self_transfer(utxo_to_spend=utxo_to_spend, sequence=MAX_BIP125_RBF_SEQUENCE)['tx']
+        need = max(700, 3 * tx.get_vsize(), tx.get_vsize() // 12)
+        fee = Decimal(need) / COIN
         tx.vout[0].nValue = int((Decimal('0.3') - fee) * COIN)
+        self.wallet.resign(tx)
         raw_tx_0 = tx.serialize().hex()
         txid_0 = tx.rehash()
         self.check_mempool_result(

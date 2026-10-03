@@ -57,6 +57,10 @@ class BytesPerSigOpTest(BitcoinTestFramework):
         # allow large datacarrier output to pad transactions
         self.extra_args = [['-datacarriersize=100000']]
 
+    def skip_test_if_missing_module(self):
+        # Heritage: P2WSH CHECKSIG sigops. Closed spend is ML-DSA-44.
+        self.skip_heritage_secp_script()
+
     def create_p2wsh_spending_tx(self, witness_script, output_script):
         """Create a 1-input-1-output P2WSH spending transaction with only the
            witness script in the witness stack and the given output script."""

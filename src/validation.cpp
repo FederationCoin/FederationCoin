@@ -14,6 +14,7 @@
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
+#include <consensus/mldsa_spend.h>
 #include <consensus/settlement_fee.h>
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
@@ -2451,13 +2452,25 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txund
 std::optional<std::pair<ScriptError, std::string>> CScriptCheck::operator()() {
     const CScript &scriptSig = ptxTo->vin[nIn].scriptSig;
     const CScriptWitness *witness = &ptxTo->vin[nIn].scriptWitness;
-    ScriptError error{SCRIPT_ERR_UNKNOWN_ERROR};
-    if (VerifyScript(scriptSig, m_tx_out.scriptPubKey, witness, nFlags, CachingTransactionSignatureChecker(ptxTo, nIn, m_tx_out.nValue, cacheStore, *m_signature_cache, *txdata), &error)) {
-        return std::nullopt;
-    } else {
-        auto debug_str = strprintf("input %i of %s (wtxid %s), spending %s:%i", nIn, ptxTo->GetHash().ToString(), ptxTo->GetWitnessHash().ToString(), ptxTo->vin[nIn].prevout.hash.ToString(), ptxTo->vin[nIn].prevout.n);
-        return std::make_pair(error, std::move(debug_str));
+    auto debug_str = strprintf("input %i of %s (wtxid %s), spending %s:%i", nIn, ptxTo->GetHash().ToString(), ptxTo->GetWitnessHash().ToString(), ptxTo->vin[nIn].prevout.hash.ToString(), ptxTo->vin[nIn].prevout.n);
+    if (!scriptSig.empty()) {
+        return std::make_pair(SCRIPT_ERR_WITNESS_MALLEATED, std::move(debug_str));
     }
+    int witness_version{0};
+    std::vector<unsigned char> witness_program;
+    if (m_tx_out.scriptPubKey.IsWitnessProgram(witness_version, witness_program) && witness_version == 0 && witness_program.size() == 32) {
+        uint256 sighash;
+        const bool hashed{txdata != nullptr && SignatureHashUnified(sighash, CScript{}, *ptxTo, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, *txdata)};
+        const uint256 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
+        const std::span<const unsigned char> message{sighash.begin(), 32};
+        // A 1-of-1 policy witness is the same shape as a single-key spend. Try
+        // both; the output program selects which hash tag applies.
+        const bool ok{hashed && (Consensus::CheckSingleKeySpend(program, witness->stack, message) || Consensus::CheckMultisigSpend(program, witness->stack, message))};
+        if (ok) return std::nullopt;
+        return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
+    }
+    // secp256k1, P2SH, P2WSH, and Taproot are not spends on this chain.
+    return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
 }
 
 ValidationCache::ValidationCache(const size_t script_execution_cache_bytes, const size_t signature_cache_bytes)

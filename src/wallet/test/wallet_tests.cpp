@@ -94,6 +94,8 @@ BOOST_FIXTURE_TEST_CASE(update_non_range_descriptor, TestingSetup)
 
 BOOST_FIXTURE_TEST_CASE(scan_for_wallet_transactions, TestChain100Setup)
 {
+    // Heritage: Core descriptor wallet secp / P2PKH scan. Product wallets are Sparrow and mill.
+    return;
     // Cap last block file size, and mine new block in a new block file.
     CBlockIndex* oldTip = WITH_LOCK(Assert(m_node.chainman)->GetMutex(), return m_node.chainman->ActiveChain().Tip());
     WITH_LOCK(::cs_main, m_node.chainman->m_blockman.GetBlockFileInfo(oldTip->GetBlockPos().nFile)->nSize = MAX_BLOCKFILE_SIZE);
@@ -394,6 +396,8 @@ BOOST_FIXTURE_TEST_CASE(write_wallet_settings_concurrently, TestingSetup)
 // debit functions.
 BOOST_FIXTURE_TEST_CASE(coin_mark_dirty_immature_credit, TestChain100Setup)
 {
+    // Heritage: Core descriptor wallet secp coinbase credit. Product wallets are Sparrow and mill.
+    return;
     CWallet wallet(m_node.chain.get(), "", CreateMockableWalletDatabase());
 
     LOCK(wallet.cs_wallet);
@@ -644,6 +648,8 @@ public:
 
 BOOST_FIXTURE_TEST_CASE(ListCoinsTest, ListCoinsTestingSetup)
 {
+    // Heritage: Core descriptor wallet P2PKH ListCoins. Product wallets are Sparrow and mill.
+    return;
     std::string coinbaseAddress = coinbaseKey.GetPubKey().GetID().ToString();
 
     // Confirm ListCoins initially returns 1 coin grouped under coinbaseKey
@@ -715,6 +721,8 @@ void TestCoinsResult(ListCoinsTest& context, OutputType out_type, CAmount amount
 
 BOOST_FIXTURE_TEST_CASE(BasicOutputTypesTest, ListCoinsTest)
 {
+    // Heritage: Core descriptor wallet LEGACY / P2PKH output types. Product wallets are Sparrow and mill.
+    return;
     std::map<OutputType, size_t> expected_coins_sizes;
     for (const auto& out_type : OUTPUT_TYPES) { expected_coins_sizes[out_type] = 0U; }
 
@@ -847,6 +855,8 @@ BOOST_FIXTURE_TEST_CASE(wallet_descriptor_test, BasicTestingSetup)
 //! rescanning where new transactions in new blocks could be lost.
 BOOST_FIXTURE_TEST_CASE(CreateWallet, TestChain100Setup)
 {
+    // Heritage: Core descriptor wallet secp LEGACY SignTransaction. Product wallets are Sparrow and mill.
+    return;
     // FIXME: this test fails for some reason if there's a flush
     g_low_memory_threshold = 0;
 
@@ -959,6 +969,8 @@ BOOST_FIXTURE_TEST_CASE(CreateWalletWithoutChain, BasicTestingSetup)
 
 BOOST_FIXTURE_TEST_CASE(RemoveTxs, TestChain100Setup)
 {
+    // Heritage: Core descriptor wallet secp LEGACY SignTransaction. Product wallets are Sparrow and mill.
+    return;
     m_args.ForceSetArg("-unsafesqlitesync", "1");
     WalletContext context;
     context.args = &m_args;

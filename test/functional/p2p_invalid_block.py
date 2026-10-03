@@ -35,6 +35,10 @@ class InvalidBlockRequestTest(BitcoinTestFramework):
         # whitelist peers to speed up tx relay / mempool sync
         self.noban_tx_relay = True
 
+    def skip_test_if_missing_module(self):
+        # Heritage: secp/P2WSH invalid-block templates. Closed coinbase is ML-DSA-44.
+        self.skip_heritage_secp_script()
+
     def run_test(self):
         # Add p2p connection to node0
         node = self.nodes[0]  # convenience reference to the node

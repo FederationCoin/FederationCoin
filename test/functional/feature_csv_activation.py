@@ -102,6 +102,10 @@ class BIP68_112_113Test(BitcoinTestFramework):
         ]]
         self.supports_cli = False
 
+    def skip_test_if_missing_module(self):
+        # Heritage: BIP68/112/113 CSV on secp. Closed spend is ML-DSA-44.
+        self.skip_heritage_secp_script()
+
     def create_self_transfer_from_utxo(self, input_tx):
         utxo = self.miniwallet.get_utxo(txid=input_tx.rehash(), mark_as_spent=False)
         tx = self.miniwallet.create_self_transfer(utxo_to_spend=utxo)['tx']

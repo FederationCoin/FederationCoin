@@ -123,8 +123,6 @@ class ZMQTest (BitcoinTestFramework):
         # whitelist peers to speed up tx relay / mempool sync
         self.noban_tx_relay = True
         self.zmq_port_base = p2p_port(self.num_nodes + 1)
-        if self.is_wallet_compiled():
-            self.skip_if_no_wallet()
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_py3_zmq()

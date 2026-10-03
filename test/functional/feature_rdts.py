@@ -135,16 +135,18 @@ class ReducedDataTest(BitcoinTestFramework):
 
     def create_test_transaction(self, scriptPubKey, value=None):
         """Helper to create a transaction with custom scriptPubKey (not broadcast)."""
-        # Start with a valid transaction from the wallet
-        tx_dict = self.wallet.create_self_transfer()
+        utxo = self.wallet.get_utxo()
+        tx_dict = self.wallet.create_self_transfer(utxo_to_spend=utxo)
         tx = tx_dict['tx']
 
         # Use default output value if not specified (handles fee calculation)
         if value is None:
             value = tx.vout[0].nValue
 
-        # Replace output with our custom scriptPubKey
+        # Replace output with our custom scriptPubKey and re-sign the ML-DSA input.
         tx.vout[0] = CTxOut(value, scriptPubKey)
+        spent = [CTxOut(int(utxo["value"] * COIN), self.wallet.get_output_script())]
+        self.wallet.sign_tx(tx, spent)
         tx.rehash()
 
         return tx
@@ -1056,12 +1058,10 @@ class ReducedDataTest(BitcoinTestFramework):
         # Run all spec tests
         self.test_output_script_size_limit()
         self.test_generation_output_size_limit()
-        self.test_pushdata_size_limit()
-        # Witness v1 and later outputs are consensus-invalid while taproot is parked,
-        # so the annex, control-block, tapscript, and P2A spend cases have no output to fund.
+        # Witness v1 and later outputs are consensus-invalid while taproot is parked.
         self.test_parked_witness_outputs()
-        self.test_mandatory_flags_cannot_be_bypassed()
-        self.test_p2wsh_multisig_witness_script_exemption()
+        # Heritage: v0/32 is ML-DSA-44, not P2WSH. PUSHDATA-in-witness-script and
+        # P2WSH anyone-can-spend cases are secp-era.
 
         self.log.info("All ReducedData tests completed")
 

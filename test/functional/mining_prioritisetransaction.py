@@ -74,7 +74,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         tx_o_a = self.wallet.send_self_transfer_multi(
             from_node=self.nodes[0],
             num_outputs=2,
-            fee_per_output=10000,
+            fee_per_output=30_000,
         )
         txid_a = tx_o_a["txid"]
 
@@ -91,7 +91,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
                 self.wallet.get_utxo(txid=txid_b),
                 self.wallet.get_utxo(txid=txid_c),
             ],
-            fee_per_output=10000,
+            fee_per_output=30_000,
         )
         txid_d = tx_o_d["txid"]
 
@@ -177,7 +177,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         # Four 66KB transactions already exceed a quarter of an RDTS block
         # (200KB virtual). Ninety was the count for a 4MB block.
         utxo_count = 12
-        utxos = self.wallet.send_self_transfer_multi(from_node=self.nodes[0], num_outputs=utxo_count)['new_utxos']
+        utxos = self.wallet.send_self_transfer_multi(from_node=self.nodes[0], num_outputs=utxo_count, fee_per_output=30_000)['new_utxos']
         self.generate(self.wallet, 1)
         assert_equal(len(self.nodes[0].getrawmempool()), 0)
 

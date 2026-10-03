@@ -59,6 +59,10 @@ class NULLDUMMYTest(BitcoinTestFramework):
             '-addresstype=legacy',
         ]]
 
+    def skip_test_if_missing_module(self):
+        # Heritage: NULLDUMMY on secp P2SH/P2WSH. Closed spend is ML-DSA-44.
+        self.skip_heritage_secp_script()
+
     def create_transaction(self, *, txid, input_details=None, addr, amount, privkey, prev_amount=None):
         input = {"txid": txid, "vout": 0}
         output = {addr: amount}

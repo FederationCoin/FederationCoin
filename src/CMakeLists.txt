@@ -241,6 +241,17 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   blockfilter.cpp
   consensus/tx_verify.cpp
   consensus/settlement_fee.cpp
+  consensus/mldsa_spend.cpp
+  crypto/mldsa44/fips202.c
+  crypto/mldsa44/ntt.c
+  crypto/mldsa44/packing.c
+  crypto/mldsa44/poly.c
+  crypto/mldsa44/polyvec.c
+  crypto/mldsa44/randombytes.c
+  crypto/mldsa44/reduce.c
+  crypto/mldsa44/rounding.c
+  crypto/mldsa44/sign.c
+  crypto/mldsa44/symmetric-shake.c
   dbwrapper.cpp
   deploymentstatus.cpp
   flatfile.cpp
@@ -361,6 +372,14 @@ if(BUILD_DAEMON)
     $<TARGET_NAME_IF_EXISTS:bitcoin_wallet>
   )
   install_binary_component(federationcoind HAS_MANPAGE)
+endif()
+
+if(BUILD_DAEMON)
+  add_executable(mldsa44-tool mldsa44_tool.cpp)
+  target_link_libraries(mldsa44-tool
+    core_interface
+    bitcoin_node
+  )
 endif()
 if(WITH_MULTIPROCESS AND BUILD_DAEMON)
   add_executable(federationcoin-node

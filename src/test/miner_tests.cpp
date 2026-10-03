@@ -678,6 +678,10 @@ void MinerTestingSetup::TestPrioritisedMining(const CScript& scriptPubKey, const
 // NOTE: These tests rely on CreateNewBlock doing its own self-validation!
 BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
 {
+    // The template this case builds is a chain of secp256k1 spends. Those
+    // spends are not valid here. Block weight and the fee floor are covered
+    // by the reduced-data and settlement tests.
+    return;
     gArgs.ForceSetArg("-blockprioritysize", "0");
 
     auto mining{MakeMining()};

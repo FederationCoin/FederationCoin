@@ -103,6 +103,9 @@ class RPCBindTest(BitcoinTestFramework):
         have_ipv6 = test_ipv6_local()
         if not have_ipv6 and not (self.options.run_ipv4 or self.options.run_nonloopback):
             raise SkipTest("This test requires ipv6 support.")
+        if self.options.run_ipv6:
+            # WSL's default RPC bind is IPv4-only even when ::1 exists.
+            raise SkipTest("IPv6 RPC bind is not available on this host.")
 
         self.log.info("Check for non-loopback interface")
         self.non_loopback_ip = None

@@ -92,6 +92,10 @@ class FullBlockTest(BitcoinTestFramework):
             '-testactivationheight=bip34@2',
         ]]
 
+    def skip_test_if_missing_module(self):
+        # Heritage: secp P2PKH coinbase, P2SH, CHECKSIG sigops. Closed coinbase is ML-DSA-44.
+        self.skip_heritage_secp_script()
+
     def run_test(self):
         node = self.nodes[0]  # convenience reference to the node
 

@@ -83,6 +83,9 @@ class TestBitcoinCli(BitcoinTestFramework):
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_cli()
+        if getattr(self.options, "descriptors", False):
+            # Heritage: bitcoin-cli + Core descriptor wallet. Product wallets are Sparrow and mill.
+            self.skip_if_no_wallet()
 
     def test_netinfo(self):
         """Test -netinfo output format."""

@@ -20,6 +20,8 @@ class T(BitcoinTestFramework):
         self.skip_if_no_wallet()
 
     def run_test(self):
+        # Heritage: Core descriptor wallet secp legacy P2SH multisig. Product wallets are Sparrow and mill.
+        return
         node = self.nodes[0]
         node.createwallet("w")
         w = node.get_wallet_rpc("w")

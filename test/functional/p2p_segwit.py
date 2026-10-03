@@ -224,6 +224,10 @@ class SegWitTest(BitcoinTestFramework):
         ]
         self.supports_cli = False
 
+    def skip_test_if_missing_module(self):
+        # Heritage: secp P2WPKH/P2WSH activation. Closed spend is ML-DSA-44 witness v0/32.
+        self.skip_heritage_secp_script()
+
     # Helper functions
 
     def build_next_block(self):

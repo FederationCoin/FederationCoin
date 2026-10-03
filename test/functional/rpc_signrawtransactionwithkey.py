@@ -50,6 +50,10 @@ class SignRawTransactionWithKeyTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
 
+    def skip_test_if_missing_module(self):
+        # Heritage: secp signrawtransactionwithkey. Product wallets are Sparrow and mill.
+        self.skip_heritage_secp_script()
+
     def send_to_address(self, addr, amount):
         script_pub_key = address_to_scriptpubkey(addr)
         tx = self.wallet.send_to(from_node=self.nodes[0], scriptPubKey=script_pub_key, amount=int(amount * COIN))

@@ -7,6 +7,7 @@ A higher fee, including 3 tokens per virtual byte, is still valid.
 """
 
 from test_framework.blocktools import add_witness_commitment, create_block, create_coinbase
+from test_framework.messages import CTxOut
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
 from test_framework.wallet import MiniWallet
@@ -36,22 +37,23 @@ class SettlementFeeTest(BitcoinTestFramework):
         wallet = MiniWallet(node)
         self.generate(wallet, 110)
 
+        def with_fee(delta):
+            tx = wallet.create_self_transfer(fee_rate=0)["tx"]
+            spent = tx.vout[0].nValue
+            tx.vout[0].nValue -= delta
+            wallet.sign_tx(tx, [CTxOut(spent, bytearray(wallet.get_output_script()))])
+            return tx
+
         unpaid = wallet.create_self_transfer(fee_rate=0)['tx']
         assert_equal(node.submitblock(self.block_with(node, unpaid).serialize().hex()), 'bad-txns-min-fee')
 
-        short = wallet.create_self_transfer(fee_rate=0)['tx']
-        short.vout[0].nValue -= minimum_fee(short) - 1
-        short.rehash()
+        short = with_fee(minimum_fee(unpaid) - 1)
         assert_equal(node.submitblock(self.block_with(node, short).serialize().hex()), 'bad-txns-min-fee')
 
-        paid = wallet.create_self_transfer(fee_rate=0)['tx']
-        paid.vout[0].nValue -= minimum_fee(paid)
-        paid.rehash()
+        paid = with_fee(minimum_fee(unpaid))
         assert_equal(node.submitblock(self.block_with(node, paid).serialize().hex()), None)
 
-        higher = wallet.create_self_transfer(fee_rate=0)['tx']
-        higher.vout[0].nValue -= 3 * higher.get_vsize()
-        higher.rehash()
+        higher = with_fee(3 * unpaid.get_vsize())
         assert_equal(node.submitblock(self.block_with(node, higher).serialize().hex()), None)
 
 

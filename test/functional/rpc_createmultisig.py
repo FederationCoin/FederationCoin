@@ -38,6 +38,10 @@ class RpcCreateMultiSigTest(BitcoinTestFramework):
         self.supports_cli = False
         self.enable_wallet_if_possible()
 
+    def skip_test_if_missing_module(self):
+        # Heritage: secp createmultisig / descriptor wallet. Product wallets are Sparrow and mill.
+        self.skip_heritage_secp_script()
+
     def create_keys(self, num_keys):
         self.pub = []
         self.priv = []

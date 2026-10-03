@@ -35,9 +35,9 @@ class ReplaceByFeeTest(BitcoinTestFramework):
             [
                 "-mempoolfullrbf=0",
                 "-limitancestorcount=50",
-                "-limitancestorsize=101",
+                "-limitancestorsize=250",
                 "-limitdescendantcount=200",
-                "-limitdescendantsize=101",
+                "-limitdescendantsize=250",
                 "-mempooltruc=accept",
                 "-paytxfee=0.00003",  # this test confuses the fee estimator into nearly 1 BTC fees
             ],
@@ -159,7 +159,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
 
         # Should fail because we haven't changed the fee
         tx.vout[0].scriptPubKey[-1] ^= 1
-        tx.rehash()
+        self.wallet.resign(tx)
         tx_hex = tx.serialize().hex()
 
         # This will raise an exception due to insufficient fee
@@ -174,6 +174,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
 
         # Extra 0.1 BTC fee
         tx.vout[0].nValue -= int(0.1 * COIN)
+        self.wallet.resign(tx)
         tx1b_hex = tx.serialize().hex()
         # Replacement still disabled even with "enough fee"
         assert_raises_rpc_error(-26, "txn-mempool-conflict", self.nodes[2].sendrawtransaction, tx1b_hex, 0)
@@ -335,7 +336,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx1b_hex = self.wallet.create_self_transfer_multi(
             utxos_to_spend=[tx0_outpoint],
             sequence=0,
-            num_outputs=100,
+            num_outputs=400,
             amount_per_output=1000,
         )["hex"]
 
@@ -540,7 +541,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
             # would invalidate `num_txs_invalidated` transactions.
             tx_hex = wallet.create_self_transfer_multi(
                 utxos_to_spend=root_utxos,
-                fee_per_output=10_000_000,  # absurdly high feerate
+                fee_per_output=100_000_000,  # above ML-DSA child-package fees
             )["hex"]
 
             if failure_expected:

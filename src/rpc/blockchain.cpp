@@ -55,6 +55,7 @@
 #include <util/strencodings.h>
 #include <util/string.h>
 #include <util/syserror.h>
+#include <util/time.h>
 #include <validation.h>
 
 #ifdef ENABLE_WALLET
@@ -1904,6 +1905,8 @@ RPCHelpMan getblockchaininfo()
     }
 
     NodeContext& node = EnsureAnyNodeContext(request.context);
+    const int64_t tip_age{TicksSinceEpoch<std::chrono::seconds>(NodeClock::now()) - tip.GetBlockTime()};
+    node::UpdateStallWarning(*CHECK_NONFATAL(node.warnings), tip_age);
     obj.pushKV("warnings", node::GetWarningsForRpc(*CHECK_NONFATAL(node.warnings), IsDeprecatedRPCEnabled("warnings")));
     return obj;
 },

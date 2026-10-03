@@ -323,8 +323,19 @@ BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
 
     // Tests for CheckConflictTopology
 
-    // Tx4 has 23 descendants
-    BOOST_CHECK_EQUAL(pool.CheckConflictTopology(set_34_cpfp).value(), strprintf("%s has 23 descendants, max 1 allowed", entry4_high->GetSharedTx()->GetHash().ToString()));
+    // Parent and child both exceed the 1-descendant cap. setEntries order
+    // follows txid, so report whichever the checker visits first.
+    {
+        std::string expected;
+        for (const auto& entry : set_34_cpfp) {
+            const auto descendants = entry->GetCountWithDescendants();
+            if (descendants > 2) {
+                expected = strprintf("%s has %u descendants, max 1 allowed", entry->GetSharedTx()->GetHash().ToString(), descendants - 1);
+                break;
+            }
+        }
+        BOOST_CHECK_EQUAL(pool.CheckConflictTopology(set_34_cpfp).value(), expected);
+    }
 
     // No descendants yet
     BOOST_CHECK(pool.CheckConflictTopology({entry9_unchained}) == std::nullopt);
@@ -565,7 +576,8 @@ BOOST_FIXTURE_TEST_CASE(calc_feerate_diagram_rbf, TestChain100Setup)
         for (const auto* e : {&entry_low, &entry_high, &entry_normal}) {
             const std::string txid{(*e)->GetSharedTx()->GetHash().ToString()};
             if (err_too_large == strprintf("%s has 2 descendants, max 1 allowed", txid) ||
-                err_too_large == strprintf("%s has 2 ancestors, max 1 allowed", txid)) {
+                err_too_large == strprintf("%s has 2 ancestors, max 1 allowed", txid) ||
+                err_too_large == strprintf("%s has both ancestor and descendant, exceeding cluster limit of 2", txid)) {
                 matched_too_large = true;
             }
         }

@@ -16,6 +16,10 @@ class GetBlocksActivityTest(BitcoinTestFramework):
         self.num_nodes = 1
         self.setup_clean_chain = True
 
+    def skip_test_if_missing_module(self):
+        # Heritage: secp getnewdestination / RAW_OP_TRUE. Closed MiniWallet is ML-DSA-44.
+        self.skip_heritage_secp_script()
+
     def run_test(self):
         node = self.nodes[0]
         wallet = MiniWallet(node)

@@ -25,6 +25,7 @@ add_library(bitcoinkernel
   ../compressor.cpp
   ../consensus/merkle.cpp
   ../consensus/mldsa_spend.cpp
+  ../consensus/settlement_fee.cpp
   ../consensus/tx_check.cpp
   ../consensus/tx_verify.cpp
   ../crypto/mldsa44/fips202.c

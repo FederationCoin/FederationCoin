@@ -116,6 +116,7 @@ add_library(bitcoin_consensus STATIC EXCLUDE_FROM_ALL
   arith_uint256.cpp
   consensus/merkle.cpp
   consensus/mldsa_spend.cpp
+  consensus/settlement_fee.cpp
   consensus/tx_check.cpp
   crypto/mldsa44/fips202.c
   crypto/mldsa44/ntt.c
@@ -251,7 +252,6 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   blockencodings.cpp
   blockfilter.cpp
   consensus/tx_verify.cpp
-  consensus/settlement_fee.cpp
   dbwrapper.cpp
   deploymentstatus.cpp
   flatfile.cpp

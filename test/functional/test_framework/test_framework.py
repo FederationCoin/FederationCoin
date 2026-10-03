@@ -20,7 +20,8 @@ import sys
 import tempfile
 import time
 
-from .address import script_to_p2wsh
+from .address import program_to_witness, script_to_p2wsh
+from .mldsa import keygen
 from .authproxy import JSONRPCException
 from .script import CScript, OP_TRUE
 from . import coverage
@@ -831,6 +832,10 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         CACHE_NODE_ID = 0  # Use node 0 to create the cache for all other nodes
         cache_node_dir = get_datadir_path(self.options.cachedir, CACHE_NODE_ID)
         assert self.num_nodes <= MAX_NODES
+        # The premine pays MiniWallet's ML-DSA key. An older cache pays P2WSH.
+        cache_marker = os.path.join(cache_node_dir, "mldsa-spend")
+        if os.path.isdir(cache_node_dir) and not os.path.isfile(cache_marker):
+            shutil.rmtree(cache_node_dir)
 
         if not os.path.isdir(cache_node_dir):
             self.log.debug("Creating cache directory {}".format(cache_node_dir))
@@ -867,9 +872,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             # block in the cache does not age too much (have an old tip age).
             # This is needed so that we are out of IBD when the test starts,
             # see the tip age check in IsInitialBlockDownload().
-            # The fourth address is MiniWallet's untagged P2WSH(OP_TRUE). Taproot
-            # is not active, so the premine cannot use a bech32m output.
-            gen_addresses = [k.address for k in TestNode.PRIV_KEYS][:3] + [script_to_p2wsh(CScript([OP_TRUE]))]
+            # The fourth address is MiniWallet's untagged ML-DSA-44 key.
+            program = bytes.fromhex(keygen(self.options.bitcoind)["program"])
+            gen_addresses = [k.address for k in TestNode.PRIV_KEYS][:3] + [program_to_witness(0, program)]
             assert_equal(len(gen_addresses), 4)
             for i in range(8):
                 self.generatetoaddress(
@@ -891,6 +896,8 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             for entry in os.listdir(cache_path()):
                 if entry not in ['chainstate', 'blocks', 'indexes']:  # Only indexes, chainstate and blocks folders
                     os.remove(cache_path(entry))
+            with open(cache_marker, "w", encoding="utf8") as marker:
+                marker.write("mldsa\n")
 
         for i in range(self.num_nodes):
             self.log.debug("Copy cache directory {} to node {}".format(cache_node_dir, i))
@@ -953,15 +960,14 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         if not self.is_zmq_compiled():
             raise SkipTest("bitcoind has not been built with zmq enabled.")
 
+    def skip_heritage_secp_script(self):
+        """Heritage secp/P2WSH/DER/Taproot script paths. Closed spend is ML-DSA-44."""
+        raise SkipTest("Heritage secp/P2WSH/DER script; closed spend is ML-DSA-44.")
+
     def skip_if_no_wallet(self):
-        """Skip the running test if wallet has not been compiled."""
+        """Heritage: Knots descriptor/secp wallet. Product wallets are Sparrow and mill."""
         self._requires_wallet = True
-        if not self.is_wallet_compiled():
-            raise SkipTest("wallet has not been compiled.")
-        if self.options.descriptors:
-            self.skip_if_no_sqlite()
-        else:
-            self.skip_if_no_bdb()
+        raise SkipTest("Heritage Core descriptor wallet; product wallets are Sparrow and mill.")
 
     def skip_if_no_sqlite(self):
         """Skip the running test if sqlite has not been compiled."""
@@ -974,9 +980,8 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             raise SkipTest("BDB has not been compiled.")
 
     def skip_if_no_wallet_tool(self):
-        """Skip the running test if bitcoin-wallet has not been compiled."""
-        if not self.is_wallet_tool_compiled():
-            raise SkipTest("bitcoin-wallet has not been compiled")
+        """Heritage: bitcoin-wallet descriptor/secp tool. Product wallets are Sparrow and mill."""
+        raise SkipTest("Heritage Core wallet tool; product wallets are Sparrow and mill.")
 
     def skip_if_no_bitcoin_util(self):
         """Skip the running test if bitcoin-util has not been compiled."""

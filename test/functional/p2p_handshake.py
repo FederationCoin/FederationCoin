@@ -148,7 +148,8 @@ class P2PHandshakeTest(BitcoinTestFramework):
                                           BASE_SERVICE_FLAGS_FULL, expect_disconnect=False)
 
         self.log.info("Check that limited peers are only desired if the local chain is close to the tip (<24h)")
-        self.generate_at_mocktime(int(time.time()) - 25 * 3600)  # tip outside the 24h window, should fail
+        # 144 blocks * 12 minutes is 28.8 hours. 25 hours is still inside that window.
+        self.generate_at_mocktime(int(time.time()) - 36 * 3600)
         self.test_desirable_service_flags(node, [FULL_SERVICE_FLAGS_PRUNED],
                                           BASE_SERVICE_FLAGS_FULL, expect_disconnect=True)
         self.generate_at_mocktime(int(time.time()) - 23 * 3600)  # tip inside the 24h window, should succeed

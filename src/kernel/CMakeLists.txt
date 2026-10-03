@@ -24,8 +24,20 @@ add_library(bitcoinkernel
   ../common/system_ram.cpp
   ../compressor.cpp
   ../consensus/merkle.cpp
+  ../consensus/mldsa_spend.cpp
+  ../consensus/settlement_fee.cpp
   ../consensus/tx_check.cpp
   ../consensus/tx_verify.cpp
+  ../crypto/mldsa44/fips202.c
+  ../crypto/mldsa44/ntt.c
+  ../crypto/mldsa44/packing.c
+  ../crypto/mldsa44/poly.c
+  ../crypto/mldsa44/polyvec.c
+  ../crypto/mldsa44/randombytes.c
+  ../crypto/mldsa44/reduce.c
+  ../crypto/mldsa44/rounding.c
+  ../crypto/mldsa44/sign.c
+  ../crypto/mldsa44/symmetric-shake.c
   ../core_read.cpp
   ../dbwrapper.cpp
   ../deploymentinfo.cpp
@@ -90,6 +102,21 @@ target_compile_definitions(bitcoinkernel
   PRIVATE
     BUILDING_FOR_LIBBITCOINKERNEL
 )
+if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+  set_source_files_properties(
+    ../crypto/mldsa44/fips202.c
+    ../crypto/mldsa44/ntt.c
+    ../crypto/mldsa44/packing.c
+    ../crypto/mldsa44/poly.c
+    ../crypto/mldsa44/polyvec.c
+    ../crypto/mldsa44/randombytes.c
+    ../crypto/mldsa44/reduce.c
+    ../crypto/mldsa44/rounding.c
+    ../crypto/mldsa44/sign.c
+    ../crypto/mldsa44/symmetric-shake.c
+    PROPERTIES COMPILE_OPTIONS "-fno-sanitize=integer"
+  )
+endif()
 target_link_libraries(bitcoinkernel
   PRIVATE
     core_interface

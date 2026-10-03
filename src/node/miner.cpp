@@ -170,7 +170,7 @@ std::shared_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     // REDUCED_DATA_MAX_BLOCK_WEIGHT (see RdtsActiveAt, the same predicate the
     // validation rules key off); never assemble past it.
     m_effective_max_weight = m_options.nBlockMaxWeight;
-    if (chainparams.GetConsensus().RdtsActiveAt(nHeight, pindexPrev->GetMedianTimePast())) {
+    if (chainparams.GetConsensus().RdtsActiveAt(nHeight)) {
         m_effective_max_weight = std::min<size_t>(m_effective_max_weight, REDUCED_DATA_MAX_BLOCK_WEIGHT);
     }
 
@@ -211,9 +211,6 @@ std::shared_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     coinbaseTx.vout[0].scriptPubKey = m_options.coinbase_output_script;
     coinbaseTx.vout[0].nValue = nFees + GetBlockSubsidy(nHeight, chainparams.GetConsensus());
     coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
-    if (nHeight == chainparams.GetConsensus().DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)) {
-        coinbaseTx.vin[0].scriptSig << chainparams.GetConsensus().Blake2bHeadline;
-    }
     pblock->vtx[0] = MakeTransactionRef(std::move(coinbaseTx));
     pblocktemplate->vchCoinbaseCommitment = m_chainstate.m_chainman.GenerateCoinbaseCommitment(*pblock, pindexPrev);
     pblocktemplate->vTxFees[0] = -nFees;

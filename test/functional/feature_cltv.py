@@ -92,6 +92,10 @@ class BIP65Test(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.rpc_timeout = 480
 
+    def skip_test_if_missing_module(self):
+        # Heritage: BIP65 CHECKLOCKTIMEVERIFY on secp. Closed spend is ML-DSA-44.
+        self.skip_heritage_secp_script()
+
     def test_cltv_info(self, *, is_active):
         assert_equal(self.nodes[0].getdeploymentinfo()['deployments']['bip65'], {
                 "active": is_active,

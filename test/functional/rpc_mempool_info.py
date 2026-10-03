@@ -38,6 +38,7 @@ class RPCMempoolInfoTest(BitcoinTestFramework):
         def create_tx(**kwargs):
             return self.wallet.send_self_transfer_multi(
                 from_node=self.nodes[0],
+                fee_per_output=10_000,
                 **kwargs,
             )
 

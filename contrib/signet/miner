@@ -79,7 +79,10 @@ def decode_psbt(b64psbt):
     return from_binary(CBlock, psbt.g.map[PSBT_SIGNET_BLOCK]), ser_string(scriptSig) + scriptWitness
 
 def finish_block(block, signet_solution, grind_cmd):
-    block.vtx[0].vout[-1].scriptPubKey += CScriptOp.encode_op_pushdata(SIGNET_HEADER + signet_solution)
+    # OP_TRUE needs no solution. Appending one makes the witness commitment
+    # longer than 38 bytes, which is rejected as bad-txns-datacarrier.
+    if signet_solution != b"\x00\x00":
+        block.vtx[0].vout[-1].scriptPubKey += CScriptOp.encode_op_pushdata(SIGNET_HEADER + signet_solution)
     block.vtx[0].rehash()
     block.hashMerkleRoot = block.calc_merkle_root()
     if grind_cmd is None:

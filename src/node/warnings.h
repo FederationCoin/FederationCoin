@@ -24,6 +24,7 @@ enum class Warning {
     CLOCK_OUT_OF_SYNC,
     PRE_RELEASE_TEST_BUILD,
     FATAL_INTERNAL_ERROR,
+    STALL_TIP,
 };
 
 /**
@@ -91,6 +92,9 @@ public:
  * set to true, or a UniValue::VARR with all warnings otherwise.
  */
 UniValue GetWarningsForRpc(const Warnings& warnings, bool use_deprecated);
+
+/** Tip older than 36 minutes: warn, name the node, do not exit. Unset when the tip is fresh. */
+void UpdateStallWarning(Warnings& warnings, int64_t tip_age_seconds);
 } // namespace node
 
 #endif // BITCOIN_NODE_WARNINGS_H

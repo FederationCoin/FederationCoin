@@ -142,6 +142,10 @@ class TestP2PConn(P2PInterface):
         self.wait_for_disconnect(timeout=timeout)
 
 class CompactBlocksTest(BitcoinTestFramework):
+    def skip_test_if_missing_module(self):
+        # Fan-out UTXOs are OP_TRUE anyone-can-spend, not an ML-DSA-44 spend.
+        self.skip_heritage_secp_script()
+
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
@@ -163,7 +167,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.generate(self.wallet, COINBASE_MATURITY)
 
         total_value = block.vtx[0].vout[0].nValue
-        out_value = total_value // 10
+        fee = 20000
+        out_value = (total_value - fee) // 10
         tx = CTransaction()
         tx.vin.append(CTxIn(COutPoint(block.vtx[0].sha256, 0), b''))
         for _ in range(10):

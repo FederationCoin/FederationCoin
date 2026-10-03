@@ -101,6 +101,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         tx.vout.append(deepcopy(tx.vout[0]))
         tx.vout[0].nValue = int(0.3 * COIN)
         tx.vout[1].nValue = int(49 * COIN)
+        self.wallet.resign(tx)
         raw_tx_in_block = tx.serialize().hex()
         txid_in_block = self.wallet.sendrawtransaction(from_node=node, tx_hex=raw_tx_in_block)
         self.generate(node, 1)
@@ -125,10 +126,12 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         )
 
         self.log.info('A transaction not in the mempool')
-        fee = Decimal('0.000007')
         utxo_to_spend = self.wallet.get_utxo(txid=txid_in_block)  # use 0.3 BTC UTXO
         tx = self.wallet.create_self_transfer(utxo_to_spend=utxo_to_spend, sequence=MAX_BIP125_RBF_SEQUENCE)['tx']
+        need = max(700, 3 * tx.get_vsize(), tx.get_vsize() // 12)
+        fee = Decimal(need) / COIN
         tx.vout[0].nValue = int((Decimal('0.3') - fee) * COIN)
+        self.wallet.resign(tx)
         raw_tx_0 = tx.serialize().hex()
         txid_0 = tx.rehash()
         self.check_mempool_result(
@@ -143,6 +146,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
             locktime=node.getblockcount() + 2000,  # Can be anything
         )['tx']
         tx.vout[0].nValue = int(output_amount * COIN)
+        self.wallet.resign(tx)
         raw_tx_final = tx.serialize().hex()
         tx = tx_from_hex(raw_tx_final)
         fee_expected = Decimal('50.0') - output_amount
@@ -166,6 +170,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         tx = tx_from_hex(raw_tx_0)
         tx.vout[0].nValue -= int(fee * COIN)  # Double the fee
         tx.vin[0].nSequence = MAX_BIP125_RBF_SEQUENCE + 1  # Now, opt out of RBF
+        self.wallet.resign(tx)
         raw_tx_0 = tx.serialize().hex()
         txid_0 = tx.rehash()
         self.check_mempool_result(
@@ -179,6 +184,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         # take original raw_tx_0
         tx = tx_from_hex(raw_tx_0)
         tx.vout[0].nValue -= int(4 * fee * COIN)  # Set more fee
+        self.wallet.resign(tx)
         self.check_mempool_result(
             result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'txn-mempool-conflict'}],
             rawtxs=[tx.serialize().hex()],
@@ -196,6 +202,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         self.log.info('A transaction with missing inputs, that existed once in the past')
         tx = tx_from_hex(raw_tx_0)
         tx.vin[0].prevout.n = 1  # Set vout to 1, to spend the other outpoint (49 coins) of the in-chain-tx we want to double spend
+        self.wallet.resign(tx)
         raw_tx_1 = tx.serialize().hex()
         txid_1 = node.sendrawtransaction(hexstring=raw_tx_1, maxfeerate=0)
         # Now spend both to "clearly hide" the outputs, ie. remove the coins from the utxo set by spending them
@@ -205,6 +212,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         tx.vin[0].prevout = COutPoint(hash=int(txid_0, 16), n=0)
         tx.vin[1].prevout = COutPoint(hash=int(txid_1, 16), n=0)
         tx.vout[0].nValue = int(0.1 * COIN)
+        self.wallet.resign(tx)
         raw_tx_spend_both = tx.serialize().hex()
         txid_spend_both = self.wallet.sendrawtransaction(from_node=node, tx_hex=raw_tx_spend_both)
         self.generate(node, 1)
@@ -223,6 +231,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         utxo_to_spend = self.wallet.get_utxo(txid=txid_spend_both)
         tx = self.wallet.create_self_transfer(utxo_to_spend=utxo_to_spend, sequence=SEQUENCE_FINAL)['tx']
         tx.vout[0].nValue = int(0.05 * COIN)
+        self.wallet.resign(tx)
         raw_tx_reference = tx.serialize().hex()
         # Reference tx should be valid on itself
         self.check_mempool_result(
@@ -380,23 +389,23 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         tx.vin.append(CTxIn(COutPoint(int(seed_tx["txid"], 16), seed_tx["sent_vout"]), b"", SEQUENCE_FINAL))
         tx.wit.vtxinwit = [CTxInWitness()]
         tx.wit.vtxinwit[0].scriptWitness.stack = [CScript([OP_TRUE])]
-        tx.vout.append(CTxOut(0, CScript([OP_RETURN] + ([OP_0] * (MIN_PADDING - 2)))))
+        tx.vout.append(CTxOut(10000, CScript([OP_TRUE] * (MIN_PADDING - 1))))
         # Note it's only non-witness size that matters!
         assert_equal(len(tx.serialize_without_witness()), 64)
         assert_equal(MIN_STANDARD_TX_NONWITNESS_SIZE - 1, 64)
         assert_greater_than(len(tx.serialize()), 64)
 
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'tx-size-small'}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
             rawtxs=[tx.serialize().hex()],
             maxfeerate=0,
         )
 
-        self.log.info('Minimally-small transaction(in non-witness bytes) that is allowed')
-        tx.vout[0] = CTxOut(COIN - 1000, DUMMY_MIN_OP_RETURN_SCRIPT)
+        self.log.info('Minimally-small transaction(in non-witness bytes) is not a standard script')
+        tx.vout[0] = CTxOut(COIN - 1000, CScript([OP_TRUE] * MIN_PADDING))
         assert_equal(len(tx.serialize_without_witness()), MIN_STANDARD_TX_NONWITNESS_SIZE)
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': True, 'vsize': tx.get_vsize(), 'fees': { 'base': Decimal('0.00001000')}}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
             rawtxs=[tx.serialize().hex()],
             maxfeerate=0,
         )
@@ -410,6 +419,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         self.log.info('A pay-to-anchor script nested in p2sh cannot be spent from the mempool')
         nested_anchor_tx = self.wallet.create_self_transfer(sequence=SEQUENCE_FINAL)['tx']
         nested_anchor_tx.vout[0].scriptPubKey = script_to_p2sh_script(PAY_TO_ANCHOR)
+        self.wallet.resign(nested_anchor_tx)
         nested_anchor_tx.rehash()
         self.generateblock(node, self.wallet.get_address(), [nested_anchor_tx.serialize().hex()])
 
@@ -420,12 +430,12 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         nested_anchor_spend.rehash()
 
         self.check_mempool_result(
-            result_expected=[{'txid': nested_anchor_spend.rehash(), 'allowed': False, 'reject-reason': 'mempool-script-verify-flag-failed (Witness version reserved for soft-fork upgrades)'}],
+            result_expected=[{'txid': nested_anchor_spend.rehash(), 'allowed': False, 'reject-reason': 'mempool-script-verify-flag-failed (Witness requires empty scriptSig)'}],
             rawtxs=[nested_anchor_spend.serialize().hex()],
             maxfeerate=0,
         )
         assert_raises_rpc_error(
-            -25, "Witness version reserved for soft-fork upgrades",
+            -25, "Witness requires empty scriptSig",
             self.generateblock, node, self.wallet.get_address(), [nested_anchor_spend.serialize().hex()],
         )
 

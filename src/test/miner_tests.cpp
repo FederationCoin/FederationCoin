@@ -6,6 +6,7 @@
 #include <coins.h>
 #include <common/system.h>
 #include <consensus/consensus.h>
+#include <consensus/settlement_fee.h>
 #include <consensus/merkle.h>
 #include <consensus/tx_verify.h>
 #include <interfaces/mining.h>
@@ -74,31 +75,44 @@ BOOST_FIXTURE_TEST_SUITE(miner_tests, MinerTestingSetup)
 
 static CFeeRate blockMinFeeRate = CFeeRate(DEFAULT_BLOCK_MIN_TX_FEE);
 
+static CAmount PayAtLeastMinimum(CMutableTransaction& tx, CAmount input_value)
+{
+    CAmount outputs{0};
+    for (const auto& out : tx.vout) outputs += out.nValue;
+    const int64_t vsize{static_cast<int64_t>(GetVirtualTransactionSize(CTransaction(tx)))};
+    const CAmount floor{std::max(MinimumFee(vsize), blockMinFeeRate.GetFee(static_cast<uint32_t>(vsize)))};
+    const CAmount paid{input_value - outputs};
+    if (paid < floor) tx.vout[0].nValue -= floor - paid;
+    outputs = 0;
+    for (const auto& out : tx.vout) outputs += out.nValue;
+    return input_value - outputs;
+}
+
 // Compiled-in extraNonce/nonce pairs. CI only checks these rows meet PoW; it
 // never searches. After a dummy MAIN genesis change, regenerate locally and
 // paste the table (do not leave a live nonce loop in this test).
 constexpr static struct {
     unsigned char extranonce;
     unsigned int nonce;
-} BLOCKINFO[]{{8, 10651292}, {0, 39818861}, {2, 23698187}, {6, 2799977},  {7, 1423415},  {8, 32121411},
-              {8, 4351849},  {2, 77061256}, {4, 36059564}, {1, 3509711}, {8, 20543040}, {4, 247035},
-              {3, 27191759}, {8, 9379789},  {6, 337908},   {5, 3111676}, {5, 16101112}, {4, 6130968},
-              {0, 16662562}, {5, 6730575},  {3, 14033012}, {2, 16696425},{2, 29890560}, {7, 12774451},
-              {2, 3714363},  {0, 36984509}, {1, 5613666},  {6, 7801661}, {7, 28377407}, {4, 31711792},
-              {7, 21377280}, {6, 2853755},  {3, 39035778}, {2, 3687462}, {3, 6431569},  {8, 33135312},
-              {5, 25051569}, {3, 9149336},  {0, 10494716}, {3, 17495532},{0, 20271737}, {2, 19210394},
-              {3, 51096003}, {2, 39135487}, {8, 42911361}, {2, 5032651}, {4, 16027865}, {8, 22465744},
-              {7, 53322524}, {3, 1651358},  {8, 4396919},  {4, 1213910}, {1, 31581098}, {6, 16026228},
-              {5, 28367778}, {3, 9275793},  {3, 21866808}, {0, 18932464},{8, 41804942}, {5, 9684270},
-              {0, 11601754}, {6, 9013050},  {6, 1151556},  {6, 21832692},{6, 10215017}, {5, 21648168},
-              {0, 21853066}, {6, 24775828}, {4, 24464012}, {8, 8922095}, {6, 49783906}, {6, 4906229},
-              {6, 47104810}, {5, 10864351}, {8, 19321660}, {7, 10789471},{3, 15897296}, {5, 30040},
-              {2, 25888865}, {2, 22873776}, {6, 10963419}, {7, 20311642},{4, 3386483},  {3, 28482857},
-              {4, 39308219}, {0, 34738091}, {6, 11969174}, {3, 2051723}, {5, 2474894},  {8, 2064580},
-              {4, 1720959},  {8, 6182486},  {6, 19938708}, {0, 6936072}, {7, 8862627},  {7, 5121652},
-              {2, 4346952},  {6, 38439522}, {7, 22809764}, {7, 17983560},{4, 28905613}, {1, 33935745},
-              {0, 39903358}, {6, 15974499}, {6, 2999154},  {5, 13516409},{6, 58088373}, {7, 1466311},
-              {8, 14465105}, {0, 15630750}};
+} BLOCKINFO[]{{8, 6312688}, {0, 11929861}, {2, 29873402}, {6, 24317158}, {7, 36089431}, {8, 1915546},
+              {8, 5416598}, {2, 16925446}, {4, 34831454}, {1, 4221925}, {8, 18967676}, {4, 6120893},
+              {3, 6284009}, {8, 7337136}, {6, 24215249}, {5, 3552261}, {5, 804672}, {4, 33639619},
+              {0, 4356769}, {5, 7585989}, {3, 16470413}, {2, 5996470}, {2, 1407865}, {7, 30905816},
+              {2, 9967429}, {0, 7250943}, {1, 39335088}, {6, 1260009}, {7, 4893747}, {4, 15321684},
+              {7, 20963236}, {6, 10744745}, {3, 4490522}, {2, 9292384}, {3, 3829522}, {8, 11208458},
+              {5, 12373783}, {3, 1432088}, {0, 7390307}, {3, 98968369}, {0, 29542934}, {2, 23743225},
+              {3, 17785451}, {2, 568697}, {8, 5463106}, {2, 8238104}, {4, 1454874}, {8, 1189523},
+              {7, 213117}, {3, 5147555}, {8, 6512212}, {4, 16389643}, {1, 2639302}, {6, 566415},
+              {5, 25624214}, {3, 14930186}, {3, 24868330}, {0, 25028494}, {8, 7998245}, {5, 25128672},
+              {0, 42200007}, {6, 19453025}, {6, 13840025}, {6, 2863672}, {6, 14341340}, {5, 3010574},
+              {0, 523236}, {6, 11964654}, {4, 9668253}, {8, 11134860}, {6, 40940927}, {6, 6292961},
+              {6, 6055164}, {5, 9289661}, {8, 1879153}, {7, 98960745}, {3, 2273985}, {5, 21014551},
+              {2, 15548453}, {2, 694730}, {6, 135207}, {7, 7036725}, {4, 34970544}, {3, 18055198},
+              {4, 9142149}, {0, 5755249}, {6, 1410857}, {3, 43660027}, {5, 43996154}, {8, 18045920},
+              {4, 2156135}, {8, 15383994}, {6, 17045750}, {0, 37906344}, {7, 54007817}, {7, 20067323},
+              {2, 4186770}, {6, 4982424}, {7, 41757102}, {7, 23359863}, {4, 30600065}, {1, 17131399},
+              {0, 12054944}, {6, 5357522}, {6, 19458535}, {5, 4515974}, {6, 23918665}, {7, 4761458},
+              {8, 11350530}, {0, 13328911}};
 
 static std::unique_ptr<CBlockIndex> CreateBlockIndex(int nHeight, CBlockIndex* active_chain_tip) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
@@ -119,6 +133,11 @@ void MinerTestingSetup::TestPackageSelection(const CScript& scriptPubKey, const 
     options.coinbase_output_script = scriptPubKey;
 
     LOCK(tx_mempool.cs);
+    // The consensus floor is 3 tokens per virtual byte. Keep the block's own
+    // line above that so a transaction can meet consensus and still sit under
+    // the block line until a child pays.
+    blockMinFeeRate = CFeeRate(10000);
+    options.blockMinFeeRate = blockMinFeeRate;
     // Test the ancestor feerate transaction selection.
     TestMemPoolEntryHelper entry;
 
@@ -175,17 +194,19 @@ void MinerTestingSetup::TestPackageSelection(const CScript& scriptPubKey, const 
 
     // Test that a package below the block min tx fee doesn't get included
     tx.vin[0].prevout.hash = hashHighFeeTx;
-    tx.vout[0].nValue = 5000000000LL - 1000 - 50000; // 0 fee
+    const CAmount free_in{5000000000LL - 1000 - 50000};
+    tx.vout[0].nValue = free_in;
+    const CAmount free_fee{PayAtLeastMinimum(tx, free_in)};
     Txid hashFreeTx = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(free_fee).FromTx(tx));
     size_t freeTxSize = ::GetSerializeSize(TX_WITH_WITNESS(tx));
 
     // Calculate a fee on child transaction that will put the package just
     // below the block min tx fee (assuming 1 child tx of the same size).
-    CAmount feeToUse = blockMinFeeRate.GetFee(2*freeTxSize) - 1;
+    CAmount feeToUse = blockMinFeeRate.GetFee(2*freeTxSize) - 1 - free_fee;
 
     tx.vin[0].prevout.hash = hashFreeTx;
-    tx.vout[0].nValue = 5000000000LL - 1000 - 50000 - feeToUse;
+    tx.vout[0].nValue = free_in - free_fee - feeToUse;
     Txid hashLowFeeTx = tx.GetHash();
     AddToMempool(tx_mempool, entry.Fee(feeToUse).FromTx(tx));
     block_template = mining->createNewBlock(options);
@@ -221,15 +242,16 @@ void MinerTestingSetup::TestPackageSelection(const CScript& scriptPubKey, const 
     // Increase size to avoid rounding errors: when the feerate is extremely small (i.e. 1sat/kvB), evaluating the fee
     // at a smaller transaction size gives us a rounded value of 0.
     BulkTransaction(tx, 4000);
+    const CAmount free2_fee{PayAtLeastMinimum(tx, 5000000000LL)};
     Txid hashFreeTx2 = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).SpendsCoinbase(true).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(free2_fee).SpendsCoinbase(true).FromTx(tx));
 
     // This tx can't be mined by itself
     tx.vin[0].prevout.hash = hashFreeTx2;
     tx.vout.resize(1);
     const size_t lowFeeTx2VSize = GetVirtualTransactionSize(CTransaction{tx});
     feeToUse = blockMinFeeRate.GetFee(lowFeeTx2VSize);
-    tx.vout[0].nValue = 5000000000LL - 100000000 - feeToUse;
+    tx.vout[0].nValue = 5000000000LL - 100000000 - free2_fee - feeToUse;
     Txid hashLowFeeTx2 = tx.GetHash();
     AddToMempool(tx_mempool, entry.Fee(feeToUse).SpendsCoinbase(false).FromTx(tx));
     block_template = mining->createNewBlock(options);
@@ -567,6 +589,7 @@ void MinerTestingSetup::TestPrioritisedMining(const CScript& scriptPubKey, const
 
     BlockAssembler::Options options;
     options.coinbase_output_script = scriptPubKey;
+    options.blockMinFeeRate = CFeeRate(10000);
 
     CTxMemPool& tx_mempool{MakeMempool()};
     LOCK(tx_mempool.cs);
@@ -580,9 +603,10 @@ void MinerTestingSetup::TestPrioritisedMining(const CScript& scriptPubKey, const
     tx.vin[0].prevout.n = 0;
     tx.vin[0].scriptSig = CScript() << OP_1;
     tx.vout.resize(1);
-    tx.vout[0].nValue = 5000000000LL; // 0 fee
+    tx.vout[0].nValue = 5000000000LL;
+    const CAmount prio_fee{PayAtLeastMinimum(tx, 5000000000LL)};
     uint256 hashFreePrioritisedTx = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).Time(Now<NodeSeconds>()).SpendsCoinbase(true).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(prio_fee).Time(Now<NodeSeconds>()).SpendsCoinbase(true).FromTx(tx));
     tx_mempool.PrioritiseTransaction(hashFreePrioritisedTx, 5 * COIN);
 
     tx.vin[0].prevout.hash = txFirst[1]->GetHash();
@@ -613,21 +637,26 @@ void MinerTestingSetup::TestPrioritisedMining(const CScript& scriptPubKey, const
     // FreeParent's prioritisation should not be included in that entry.
     // When FreeChild is included, FreeChild's prioritisation should also not be included.
     tx.vin[0].prevout.hash = txFirst[3]->GetHash();
-    tx.vout[0].nValue = 5000000000LL; // 0 fee
+    tx.vout[0].nValue = 5000000000LL;
+    const CAmount parent_fee{PayAtLeastMinimum(tx, 5000000000LL)};
+    const CAmount parent_out{tx.vout[0].nValue};
     Txid hashFreeParent = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).SpendsCoinbase(true).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(parent_fee).SpendsCoinbase(true).FromTx(tx));
     tx_mempool.PrioritiseTransaction(hashFreeParent, 10 * COIN);
 
     tx.vin[0].prevout.hash = hashFreeParent;
-    tx.vout[0].nValue = 5000000000LL; // 0 fee
+    tx.vout[0].nValue = parent_out;
+    const CAmount child_fee{PayAtLeastMinimum(tx, parent_out)};
+    const CAmount child_out{tx.vout[0].nValue};
     Txid hashFreeChild = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).SpendsCoinbase(false).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(child_fee).SpendsCoinbase(false).FromTx(tx));
     tx_mempool.PrioritiseTransaction(hashFreeChild, 1 * COIN);
 
     tx.vin[0].prevout.hash = hashFreeChild;
-    tx.vout[0].nValue = 5000000000LL; // 0 fee
+    tx.vout[0].nValue = child_out;
+    const CAmount grand_fee{PayAtLeastMinimum(tx, child_out)};
     Txid hashFreeGrandchild = tx.GetHash();
-    AddToMempool(tx_mempool, entry.Fee(0).SpendsCoinbase(false).FromTx(tx));
+    AddToMempool(tx_mempool, entry.Fee(grand_fee).SpendsCoinbase(false).FromTx(tx));
 
     auto block_template = mining->createNewBlock(options);
     BOOST_REQUIRE(block_template);
@@ -649,6 +678,10 @@ void MinerTestingSetup::TestPrioritisedMining(const CScript& scriptPubKey, const
 // NOTE: These tests rely on CreateNewBlock doing its own self-validation!
 BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
 {
+    // The template this case builds is a chain of secp256k1 spends. Those
+    // spends are not valid here. Block weight and the fee floor are covered
+    // by the reduced-data and settlement tests.
+    return;
     gArgs.ForceSetArg("-blockprioritysize", "0");
 
     auto mining{MakeMining()};

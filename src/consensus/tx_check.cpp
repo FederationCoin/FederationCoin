@@ -5,6 +5,7 @@
 #include <consensus/tx_check.h>
 
 #include <consensus/amount.h>
+#include <consensus/consensus.h>
 #include <primitives/transaction.h>
 #include <consensus/validation.h>
 
@@ -46,7 +47,7 @@ bool CheckTransaction(const CTransaction& tx, TxValidationState& state)
 
     if (tx.IsCoinBase())
     {
-        if (tx.vin[0].scriptSig.size() < 2 || tx.vin[0].scriptSig.size() > 100)
+        if (tx.vin[0].scriptSig.size() < 2 || tx.vin[0].scriptSig.size() > MAX_COINBASE_SCRIPTSIG_SIZE)
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-cb-length");
     }
     else

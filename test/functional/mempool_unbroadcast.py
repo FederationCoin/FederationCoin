@@ -35,31 +35,21 @@ class MempoolUnbroadcastTest(BitcoinTestFramework):
 
         self.log.info("Generate transactions that only node 0 knows about")
 
-        if self.is_wallet_compiled():
-            self.import_deterministic_coinbase_privkeys()
-            # generate a wallet txn
-            addr = node.getnewaddress()
-            wallet_tx_hsh = node.sendtoaddress(addr, 0.0001)
-
-        # generate a txn using sendrawtransaction
+        # Heritage Core wallet sendtoaddress is not a spend on this chain.
         txFS = self.wallet.create_self_transfer()
         rpc_tx_hsh = node.sendrawtransaction(txFS["hex"])
+        txFS2 = self.wallet.create_self_transfer()
+        rpc_tx_hsh2 = node.sendrawtransaction(txFS2["hex"])
 
-        # check transactions are in unbroadcast using rpc
         mempoolinfo = self.nodes[0].getmempoolinfo()
-        unbroadcast_count = 1
-        if self.is_wallet_compiled():
-            unbroadcast_count += 1
-        assert_equal(mempoolinfo['unbroadcastcount'], unbroadcast_count)
+        assert_equal(mempoolinfo['unbroadcastcount'], 2)
         mempool = self.nodes[0].getrawmempool(True)
         for tx in mempool:
             assert_equal(mempool[tx]['unbroadcast'], True)
 
-        # check that second node doesn't have these two txns
         mempool = self.nodes[1].getrawmempool()
         assert rpc_tx_hsh not in mempool
-        if self.is_wallet_compiled():
-            assert wallet_tx_hsh not in mempool
+        assert rpc_tx_hsh2 not in mempool
 
         # ensure that unbroadcast txs are persisted to mempool.dat
         self.restart_node(0)
@@ -72,8 +62,7 @@ class MempoolUnbroadcastTest(BitcoinTestFramework):
         self.sync_mempools(timeout=30)
         mempool = self.nodes[1].getrawmempool()
         assert rpc_tx_hsh in mempool
-        if self.is_wallet_compiled():
-            assert wallet_tx_hsh in mempool
+        assert rpc_tx_hsh2 in mempool
 
         # check that transactions are no longer in first node's unbroadcast set
         mempool = self.nodes[0].getrawmempool(True)

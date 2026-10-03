@@ -46,9 +46,6 @@ std::vector<std::shared_ptr<CBlock>> CreateBlockChain(size_t total_height, const
         const auto& consensus{params.GetConsensus()};
         coinbase_tx.vout[0].nValue = GetBlockSubsidy(nHeight, consensus);
         coinbase_tx.vin[0].scriptSig = CScript() << nHeight << OP_0;
-        if (nHeight == consensus.Blake2bHeight) {
-            coinbase_tx.vin[0].scriptSig << consensus.Blake2bHeadline;
-        }
         block.vtx = {MakeTransactionRef(std::move(coinbase_tx))};
 
         block.nVersion = VERSIONBITS_LAST_OLD_BLOCK_VERSION;

@@ -6,10 +6,12 @@
 
 #include <chainparams.h>
 #include <consensus/merkle.h>
+#include <consensus/mldsa_spend.h>
 #include <consensus/validation.h>
 #include <node/miner.h>
 #include <pow.h>
 #include <random.h>
+#include <script/interpreter.h>
 #include <test/util/random.h>
 #include <test/util/script.h>
 #include <test/util/setup_common.h>
@@ -18,12 +20,39 @@
 #include <validationinterface.h>
 
 #include <cassert>
+#include <span>
 #include <thread>
 
 using node::BlockAssembler;
 
 namespace validation_block_tests {
 struct MinerTestingSetup : public RegTestingSetup {
+    MinerTestingSetup()
+    {
+        std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> seed{};
+        seed[31] = 2;
+        BOOST_REQUIRE(Consensus::MlDsa44Keygen(seed, spend_mldsa));
+    }
+    Consensus::MlDsa44Keypair spend_mldsa;
+    CScript SpendScriptPubKey() const
+    {
+        return CScript() << OP_0 << ToByteVector(Consensus::MlDsa44SingleKeyProgram(spend_mldsa.pubkey));
+    }
+    void SignMldsaSpend(CMutableTransaction& tx, const CTxOut& spent) const
+    {
+        PrecomputedTransactionData txdata;
+        std::vector<CTxOut> spent_outs{spent};
+        txdata.Init(tx, std::move(spent_outs), /*force=*/true);
+        tx.vin[0].scriptSig = CScript();
+        uint256 sighash;
+        BOOST_REQUIRE(SignatureHashUnified(sighash, CScript{}, tx, 0, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata));
+        std::array<unsigned char, Consensus::MLDSA44_SIGNATURE_SIZE> signature{};
+        const std::span<const unsigned char> message{sighash.begin(), 32};
+        BOOST_REQUIRE(Consensus::MlDsa44Sign(spend_mldsa, message, signature));
+        tx.vin[0].scriptWitness.stack.clear();
+        tx.vin[0].scriptWitness.stack.emplace_back(spend_mldsa.pubkey.begin(), spend_mldsa.pubkey.end());
+        tx.vin[0].scriptWitness.stack.emplace_back(signature.begin(), signature.end());
+    }
     std::shared_ptr<CBlock> Block(const uint256& prev_hash);
     std::shared_ptr<const CBlock> GoodBlock(const uint256& prev_hash);
     std::shared_ptr<const CBlock> BadBlock(const uint256& prev_hash);
@@ -82,18 +111,15 @@ std::shared_ptr<CBlock> MinerTestingSetup::Block(const uint256& prev_hash)
 
     // Make the coinbase transaction with two outputs:
     // One zero-value one that has a unique pubkey to make sure that blocks at the same height can have a different hash
-    // Another one that has the coinbase reward in a P2WSH with OP_TRUE as witness program to make it easy to spend
+    // Another one that has the coinbase reward in witness v0/32 ML-DSA
     CMutableTransaction txCoinbase(*pblock->vtx[0]);
     txCoinbase.vout.resize(2);
-    txCoinbase.vout[1].scriptPubKey = P2WSH_OP_TRUE;
+    txCoinbase.vout[1].scriptPubKey = SpendScriptPubKey();
     txCoinbase.vout[1].nValue = txCoinbase.vout[0].nValue;
     txCoinbase.vout[0].nValue = 0;
     txCoinbase.vin[0].scriptWitness.SetNull();
     const int height{WITH_LOCK(::cs_main, return m_node.chainman->m_blockman.LookupBlockIndex(prev_hash)->nHeight + 1)};
     txCoinbase.vin[0].scriptSig = CScript{} << height << OP_0;
-    if (height == Params().GetConsensus().Blake2bHeight) {
-        txCoinbase.vin[0].scriptSig << Params().GetConsensus().Blake2bHeadline;
-    }
     pblock->vtx[0] = MakeTransactionRef(std::move(txCoinbase));
     if (pblock->m_header_v2) {
         pblock->m_txcount = pblock->vtx.size();
@@ -263,9 +289,9 @@ BOOST_AUTO_TEST_CASE(mempool_locks_reorg)
         for (int num_txs = 22; num_txs > 0; --num_txs) {
             CMutableTransaction mtx;
             mtx.vin.emplace_back(COutPoint{last_mined->vtx[0]->GetHash(), 1}, CScript{});
-            mtx.vin[0].scriptWitness.stack.push_back(WITNESS_STACK_ELEM_OP_TRUE);
             mtx.vout.push_back(last_mined->vtx[0]->vout[1]);
-            mtx.vout[0].nValue -= 1000;
+            mtx.vout[0].nValue -= 20'000;
+            SignMldsaSpend(mtx, last_mined->vtx[0]->vout[1]);
             txs.push_back(MakeTransactionRef(mtx));
 
             last_mined = GoodBlock(last_mined->GetHash());

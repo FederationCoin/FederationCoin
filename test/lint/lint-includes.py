@@ -18,6 +18,7 @@ from lint_ignore_dirs import SHARED_EXCLUDED_SUBTREES
 
 
 EXCLUDED_DIRS = ["contrib/devtools/bitcoin-tidy/",
+                 "src/crypto/mldsa44/",
                 ] + SHARED_EXCLUDED_SUBTREES
 
 EXPECTED_BOOST_INCLUDES = [

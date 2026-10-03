@@ -29,6 +29,10 @@ class InvalidTxRequestTest(BitcoinTestFramework):
         ]]
         self.setup_clean_chain = True
 
+    def skip_test_if_missing_module(self):
+        # Heritage: secp/tapscript OP_IF and P2WSH invalid-tx templates. Closed spend is ML-DSA-44.
+        self.skip_heritage_secp_script()
+
     def bootstrap_p2p(self, *, num_connections=1):
         """Add a P2P connection to the node.
 

@@ -508,7 +508,9 @@ void PQCLEAN_MLDSA44_CLEAN_poly_challenge(poly *c, const uint8_t seed[CTILDEBYTE
         } while (b > i);
 
         c->coeffs[i] = c->coeffs[b];
-        c->coeffs[b] = 1 - 2 * (signs & 1);
+        /* signs is unsigned. 1 - 2*(signs&1) wraps to UINT64_MAX, which
+         * UBSan then flags when storing into int32_t. The value is +1 or -1. */
+        c->coeffs[b] = (signs & 1) ? (int32_t)-1 : (int32_t)1;
         signs >>= 1;
     }
     shake256_inc_ctx_release(&state);

@@ -4,7 +4,6 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the ZMQ notification interface."""
 
-import io
 import os
 import struct
 import tempfile
@@ -25,7 +24,6 @@ from test_framework.messages import (
     CBlockHeader,
     hash256,
     tx_from_hex,
-    CTransaction,
 )
 from test_framework.util import (
     assert_equal,
@@ -96,10 +94,8 @@ class ZMQTestSetupBlock:
     raw transaction data.
     """
     def __init__(self, test_framework, node):
-        if test_framework.is_wallet_compiled():
-            self.block_hash = test_framework.generatetoaddress(node, nblocks=1, address=node.getnewaddress(), maxtries=1000000, sync_fun=test_framework.no_op)[0]
-        else:
-            self.block_hash = test_framework.generate(node, 1, sync_fun=test_framework.no_op)[0]
+        # Product wallets are Sparrow and mill. Do not call Core getnewaddress.
+        self.block_hash = test_framework.generatetoaddress(node, nblocks=1, address=ADDRESS_BCRT1_UNSPENDABLE, maxtries=1000000, sync_fun=test_framework.no_op)[0]
         coinbase = node.getblock(self.block_hash, 2)['tx'][0]
         self.tx_hash = coinbase['txid']
         self.raw_tx = coinbase['hex']
@@ -212,35 +208,16 @@ class ZMQTest (BitcoinTestFramework):
             address = f"ipc://{socket_path}"
 
         services = ["hashblock", "hashtx", "rawblock", "rawtx"]
-        if self.is_wallet_compiled():
-            services += ["hashwallettx", "rawwallettx"]
         subs = self.setup_zmq_test([(topic, address) for topic in services])
 
         hashblock = subs[0]
         hashtx = subs[1]
         rawblock = subs[2]
         rawtx = subs[3]
-        if self.is_wallet_compiled():
-            hashwallettx = subs[-2]
-            rawwallettx = subs[-1]
-
-            self.sync_all()
-            # Flush initial wallettx events before we begin
-            while True:
-                try:
-                    topic, body, seq = hashwallettx.socket.recv_multipart()
-                except zmq.ZMQError:
-                    break
-                subscriber = {b'hashwallettx-block': hashwallettx, b'rawwallettx-block': rawwallettx}[topic]
-                assert_equal(struct.unpack('<I', seq)[-1], subscriber.sequence)
-                subscriber.sequence += 1
 
         num_blocks = 5
         self.log.info(f"Generate {num_blocks} blocks (and {num_blocks} coinbase txes)")
-        if self.is_wallet_compiled():
-            genhashes = self.generate(self.nodes[0], num_blocks)
-        else:
-            genhashes = self.generatetoaddress(self.nodes[0], num_blocks, ADDRESS_BCRT1_UNSPENDABLE)
+        genhashes = self.generatetoaddress(self.nodes[0], num_blocks, ADDRESS_BCRT1_UNSPENDABLE)
 
         for x in range(num_blocks):
             # Should receive the coinbase txid.
@@ -260,15 +237,6 @@ class ZMQTest (BitcoinTestFramework):
             assert_equal(len(block.vtx), 1)
             assert_equal(genhashes[x], block.hash)
 
-            if self.is_wallet_compiled():
-                # Should receive wallet tx
-                wallettxid = hashwallettx.receive(b"hashwallettx-block")
-                wallethex = rawwallettx.receive(b"rawwallettx-block")
-                wallettx = CTransaction()
-                wallettx.deserialize(io.BytesIO(wallethex))
-                wallettx.calc_sha256()
-                assert_equal(wallettx.hash, wallettxid.hex())
-
             # Should receive the generated block hash.
             hash = hashblock.receive().hex()
             assert_equal(genhashes[x], hash)
@@ -277,12 +245,8 @@ class ZMQTest (BitcoinTestFramework):
 
 
         self.log.info("Wait for tx from second node")
-        if self.is_wallet_compiled():
-            payment_txid = self.nodes[1].sendtoaddress(self.nodes[0].getnewaddress(), 1.0)
-            payment_tx = {'wtxid': self.nodes[1].getrawtransaction(payment_txid, 1)['hash']}
-        else:
-            payment_tx = self.wallet.send_self_transfer(from_node=self.nodes[1])
-            payment_txid = payment_tx['txid']
+        payment_tx = self.wallet.send_self_transfer(from_node=self.nodes[1])
+        payment_txid = payment_tx['txid']
         self.sync_all()
         # Should receive the broadcasted txid.
         txid = hashtx.receive()
@@ -299,22 +263,12 @@ class ZMQTest (BitcoinTestFramework):
         txid = hashtx.receive()
         assert_equal(payment_txid, txid.hex())
 
-        if self.is_wallet_compiled():
-            wallettxid = hashwallettx.receive(b"hashwallettx-mempool")
-            wallethex = rawwallettx.receive(b"rawwallettx-mempool")
-            wallettx = CTransaction()
-            wallettx.deserialize(io.BytesIO(wallethex))
-            wallettx.calc_sha256()
-            assert_equal(wallettx.hash, wallettxid.hex())
-
         self.log.info("Test the getzmqnotifications RPC")
         assert_equal(self.nodes[0].getzmqnotifications(), [
             {"type": "pubhashblock", "address": address, "hwm": 1000},
             {"type": "pubhashtx", "address": address, "hwm": 1000},
-            ] + ([{"type": "pubhashwallettx", "address": address, "hwm": 1000}] if self.is_wallet_compiled() else []) + [
             {"type": "pubrawblock", "address": address, "hwm": 1000},
             {"type": "pubrawtx", "address": address, "hwm": 1000},
-            ] + ([{"type": "pubrawwallettx", "address": address, "hwm": 1000}] if self.is_wallet_compiled() else []) + [
         ])
 
         assert_equal(self.nodes[1].getzmqnotifications(), [])
@@ -449,6 +403,7 @@ class ZMQTest (BitcoinTestFramework):
         self.log.info("Testing RBF notification")
         # Replace it to test eviction/addition notification
         payment_tx['tx'].vout[0].nValue -= 1000
+        assert self.wallet.resign(payment_tx['tx'])
         rbf_txid = self.nodes[1].sendrawtransaction(payment_tx['tx'].serialize().hex())
         self.sync_all()
         assert_equal((payment_txid, "R", seq_num), seq.receive_sequence())
@@ -510,6 +465,7 @@ class ZMQTest (BitcoinTestFramework):
             more_tx.append(self.wallet.send_self_transfer(from_node=self.nodes[0]))
 
         orig_tx['tx'].vout[0].nValue -= 1000
+        assert self.wallet.resign(orig_tx['tx'])
         bump_txid = self.nodes[0].sendrawtransaction(orig_tx['tx'].serialize().hex())
         # Mine the pre-bump tx
         txs_to_add = [orig_tx['hex']] + [tx['hex'] for tx in more_tx]
@@ -589,6 +545,7 @@ class ZMQTest (BitcoinTestFramework):
         for _ in range(num_txs):
             txs.append(self.wallet.send_self_transfer(from_node=self.nodes[0]))
         txs[-1]['tx'].vout[0].nValue -= 1000
+        assert self.wallet.resign(txs[-1]['tx'])
         self.nodes[0].sendrawtransaction(txs[-1]['tx'].serialize().hex())
         self.sync_all()
         self.generatetoaddress(self.nodes[0], 1, ADDRESS_BCRT1_UNSPENDABLE)

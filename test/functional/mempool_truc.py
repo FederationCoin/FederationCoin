@@ -461,6 +461,7 @@ class MempoolTRUC(BitcoinTestFramework):
             if tx.vout[i].nValue == 0:
                 tx.vout[0].nValue -= 1000
                 tx.vout[i].nValue = 1000
+        self.wallet.resign(tx)
         tx_v3_parent["txid"] = tx.rehash()
         tx_v3_parent["wtxid"] = tx.getwtxid()
         tx_v3_parent["hex"] = tx.serialize().hex()

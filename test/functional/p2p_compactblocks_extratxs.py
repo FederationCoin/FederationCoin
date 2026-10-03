@@ -179,6 +179,7 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
                     tx_info['tx'].vout.append(CTxOut(100, script))
                     tx_info['tx'].vout[0].nValue -= 100
 
+        self.wallet.resign(tx_info['tx'])
         tx_info['tx'].rehash()
         tx_info['hex'] = tx_info['tx'].serialize().hex()
         return tx_info

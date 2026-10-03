@@ -19,7 +19,7 @@ def tool_path(node_binary):
 
 
 def keygen(node_binary, seed_hex=MINIWALLET_SEED):
-    out = subprocess.check_output([tool_path(node_binary), "keygen", seed_hex], text=True).split()
+    out = subprocess.check_output([tool_path(node_binary), "keygen", seed_hex], text=True, encoding="utf8").split()
     return {"pubkey": out[0], "secret": out[1], "program": out[2]}
 
 
@@ -27,5 +27,6 @@ def sign(node_binary, secret_hex, message):
     out = subprocess.check_output(
         [tool_path(node_binary), "sign", secret_hex, message.hex()],
         text=True,
+        encoding="utf8",
     ).strip()
     return bytes.fromhex(out)

@@ -21,8 +21,6 @@ from test_framework.blocktools import (
 
 from test_framework.util import assert_equal
 
-import time
-
 NODE1_BLOCKS_REQUIRED = 15
 NODE2_BLOCKS_REQUIRED = 2047
 

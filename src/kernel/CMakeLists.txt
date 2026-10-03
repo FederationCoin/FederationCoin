@@ -24,8 +24,19 @@ add_library(bitcoinkernel
   ../common/system_ram.cpp
   ../compressor.cpp
   ../consensus/merkle.cpp
+  ../consensus/mldsa_spend.cpp
   ../consensus/tx_check.cpp
   ../consensus/tx_verify.cpp
+  ../crypto/mldsa44/fips202.c
+  ../crypto/mldsa44/ntt.c
+  ../crypto/mldsa44/packing.c
+  ../crypto/mldsa44/poly.c
+  ../crypto/mldsa44/polyvec.c
+  ../crypto/mldsa44/randombytes.c
+  ../crypto/mldsa44/reduce.c
+  ../crypto/mldsa44/rounding.c
+  ../crypto/mldsa44/sign.c
+  ../crypto/mldsa44/symmetric-shake.c
   ../core_read.cpp
   ../dbwrapper.cpp
   ../deploymentinfo.cpp

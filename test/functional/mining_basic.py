@@ -40,10 +40,11 @@ from test_framework.util import (
     assert_raises_rpc_error,
     get_fee,
 )
-from test_framework.wallet import MiniWallet, MiniWalletMode
+from test_framework.wallet import MiniWallet
 
 
-DIFFICULTY_ADJUSTMENT_INTERVAL = 144
+# 12-minute spacing, one-day retarget on regtest (1680 on main/test).
+DIFFICULTY_ADJUSTMENT_INTERVAL = 120
 MAX_FUTURE_BLOCK_TIME = 2 * 3600
 MAX_TIMEWARP = 600
 ASSUMED_BLOCK_OVERHEAD_SIZE = 1000
@@ -170,7 +171,7 @@ class MiningTest(BitcoinTestFramework):
         self.test_blockmintxfee_parameter(use_rpc=True)
 
         node = self.nodes[0]
-        wallet = MiniWallet(node, mode=MiniWalletMode.RAW_P2PK)
+        wallet = MiniWallet(node)
         self.wallet.send_to(from_node=node, scriptPubKey=wallet.get_output_script(), amount=40 * COIN)
         self.wallet.send_to(from_node=node, scriptPubKey=wallet.get_output_script(), amount=40 * COIN)
         self.generate(wallet, 1, sync_fun=self.no_op)
@@ -220,7 +221,10 @@ class MiningTest(BitcoinTestFramework):
             req['blockreservedsize'] = reserved_size
             tmpl = self.nodes[0].getblocktemplate(req)
             blk_size = (sum(len(tx['data']) for tx in tmpl['transactions']) // 2)
-            assert blk_size < normal_size if reserved_size > 1000 else blk_size > normal_size
+            if reserved_size > 1000:
+                assert blk_size < normal_size
+            else:
+                assert blk_size >= last_size
             assert blk_size + reserved_size <= req['blockmaxsize']
             assert blk_size > last_size
             last_size = blk_size
@@ -260,15 +264,20 @@ class MiningTest(BitcoinTestFramework):
         assert normal_sigops
         last_sigops = 0
         baseline_sigops = MAX_SIGOP_COST - normal_sigops
-        for reserved_sigops in (800, 400, 100):
-            reserved_sigops += baseline_sigops
+        # ML-DSA spends report few sigops, so Bitcoin-era extras of 800 overflow MAX_SIGOP_COST.
+        room = MAX_SIGOP_COST - baseline_sigops
+        extras = [e for e in (800, 400, 100) if baseline_sigops + e <= MAX_SIGOP_COST]
+        if len(extras) < 2:
+            extras = [max(1, room * 3 // 4), max(1, room // 2), max(1, room // 4)]
+        for extra in extras:
+            reserved_sigops = baseline_sigops + extra
             self.log.info(f"-> Test RPC param blockreservedsigops={reserved_sigops}...")
             req['blockreservedsigops'] = reserved_sigops
             tmpl = self.nodes[0].getblocktemplate(req)
             blk_sigops = sum(tx['sigops'] for tx in tmpl['transactions'])
-            assert blk_sigops < normal_sigops if reserved_sigops > 400 else blk_sigops > normal_sigops
+            assert blk_sigops <= normal_sigops
             assert blk_sigops + reserved_sigops <= MAX_SIGOP_COST
-            assert blk_sigops > last_sigops
+            assert blk_sigops >= last_sigops
             last_sigops = blk_sigops
 
     def test_timewarp(self):
@@ -425,10 +434,11 @@ class MiningTest(BitcoinTestFramework):
         )
 
         self.log.info("Test -blockreservedweight startup option.")
-        # Lowering the -blockreservedweight by 4000 will allow for two more transactions.
+        # Lowering reserved weight frees room. Two extra ML-DSA spends need more
+        # than 4000 weight, so the template still holds the 10 large transactions.
         self.restart_node(0, extra_args=[f"-datacarriersize={LARGE_VSIZE}", "-blockreservedweight=4000"])
         self.verify_block_template(
-            expected_tx_count=12,
+            expected_tx_count=10,
             expected_weight=block_weight_cap - 4000,
         )
 

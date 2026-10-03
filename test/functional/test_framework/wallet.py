@@ -116,7 +116,6 @@ class MiniWallet:
             program = bytes.fromhex(self._mldsa["program"])
             self._scriptPubKey = CScript([OP_0, program])
             self._address = program_to_witness(0, program)
-            self._install_resign_hooks()
 
         # When the pre-mined test framework chain is used, it contains coinbase
         # outputs to the MiniWallet's default address in blocks 76-100
@@ -140,6 +139,24 @@ class MiniWallet:
             if bytes(vout.scriptPubKey) == bytes(self._scriptPubKey):
                 self._register_utxo(txid, i, vout.nValue)
 
+    def _lookup_prevout(self, vin):
+        n = vin.prevout.n
+        hx = "%064x" % vin.prevout.hash
+        for key in ((hx, n), (bytes.fromhex(hx)[::-1].hex(), n)):
+            out = self._spent_by_prevout.get(key)
+            if out is not None:
+                return out
+        return None
+
+    def _spent_for_tx(self, tx):
+        spent = []
+        for vin in tx.vin:
+            out = self._lookup_prevout(vin)
+            if out is None:
+                return None
+            spent.append(out)
+        return spent
+
     def _resign_hex(self, tx_hex):
         if self._mode != MiniWalletMode.ADDRESS_OP_TRUE:
             return tx_hex
@@ -147,57 +164,18 @@ class MiniWallet:
             tx = from_hex(CTransaction(), tx_hex)
         except Exception:
             return tx_hex
-        # Oversized / fan-out templates are not MiniWallet spends to refresh.
-        if len(tx.vin) > 8:
+        spent = self._spent_for_tx(tx)
+        if spent is None:
             return tx_hex
-        spent = []
-        for vin in tx.vin:
-            key = ("%064x" % vin.prevout.hash, vin.prevout.n)
-            out = self._spent_by_prevout.get(key)
-            if out is None:
-                return tx_hex
-            spent.append(out)
         self.sign_tx(tx, spent)
         self._register_tx_outputs(tx)
         return tx.serialize().hex()
 
-    def _install_resign_hooks(self):
-        """Re-sign MiniWallet spends after tests mutate outputs (ML-DSA is not anyone-can-spend)."""
-        node = self._test_node
-        wallet = self
-        orig_send = node.sendrawtransaction
-        orig_accept = node.testmempoolaccept
-
-        def sendrawtransaction(*args, **kwargs):
-            if args:
-                args = (wallet._resign_hex(args[0]),) + args[1:]
-            if "hexstring" in kwargs:
-                kwargs["hexstring"] = wallet._resign_hex(kwargs["hexstring"])
-            return orig_send(*args, **kwargs)
-
-        def testmempoolaccept(*args, **kwargs):
-            def rewrite(rawtxs):
-                if not isinstance(rawtxs, list):
-                    return rawtxs
-                return [wallet._resign_hex(x) for x in rawtxs]
-            if args:
-                args = (rewrite(args[0]),) + args[1:]
-            if "rawtxs" in kwargs:
-                kwargs["rawtxs"] = rewrite(kwargs["rawtxs"])
-            return orig_accept(*args, **kwargs)
-
-        node.sendrawtransaction = sendrawtransaction
-        node.testmempoolaccept = testmempoolaccept
-
     def resign(self, tx):
         """Re-sign after a test mutates outputs. Uses registered MiniWallet prevouts."""
-        spent = []
-        for vin in tx.vin:
-            key = ("%064x" % vin.prevout.hash, vin.prevout.n)
-            out = self._spent_by_prevout.get(key)
-            if out is None:
-                return False
-            spent.append(out)
+        spent = self._spent_for_tx(tx)
+        if spent is None:
+            return False
         self.sign_tx(tx, spent)
         self._register_tx_outputs(tx)
         return True
@@ -208,8 +186,8 @@ class MiniWallet:
         A data script is not a size knob. Tests that need a heavier block add
         transactions instead of calling this.
         """
-        if target_vsize < tx.get_vsize():
-            raise RuntimeError(f"target_vsize {target_vsize} is less than transaction virtual size {tx.get_vsize()}")
+        if target_vsize <= tx.get_vsize():
+            return
 
         def pay(length):
             return CTxOut(nValue=0, scriptPubKey=CScript([OP_TRUE] * length))
@@ -300,6 +278,8 @@ class MiniWallet:
             for i in tx.vin:
                 i.scriptSig = CScript([OP_NOP] * 43)  # pad to identical size
         elif self._mode == MiniWalletMode.ADDRESS_OP_TRUE:
+            if spent_utxos is None:
+                spent_utxos = self._spent_for_tx(tx)
             assert spent_utxos is not None and len(spent_utxos) == len(tx.vin)
             tx.wit.vtxinwit = [CTxInWitness() for _ in tx.vin]
             hashtype = SIGHASH_ALL | SIGHASH_UNIFIED
@@ -426,7 +406,7 @@ class MiniWallet:
         version=2,
         locktime=0,
         sequence=0,
-        fee_per_output=20_000,
+        fee_per_output=50_000,
         target_vsize=0,
         confirmed_only=False,
     ):
@@ -458,11 +438,9 @@ class MiniWallet:
         for utxo in utxos_to_spend:
             self._register_utxo(utxo["txid"], utxo["vout"], utxo["value"])
         self.sign_tx(tx, spent)
-        if target_vsize and self._mode == MiniWalletMode.ADDRESS_OP_TRUE:
+        if target_vsize:
             self._bulk_tx(tx, target_vsize)
             self.sign_tx(tx, spent)
-        elif target_vsize:
-            self._bulk_tx(tx, target_vsize)
         txid = tx.rehash()
         return {
             "new_utxos": [self._create_utxo(

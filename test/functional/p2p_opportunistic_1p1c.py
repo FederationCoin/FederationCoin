@@ -32,7 +32,6 @@ from test_framework.util import (
 )
 from test_framework.wallet import (
     MiniWallet,
-    MiniWalletMode,
 )
 
 # 1sat/vB feerate denominated in BTC/KvB
@@ -78,6 +77,7 @@ class PackageRelayTest(BitcoinTestFramework):
         short = 3 * tx.get_vsize() - int(parent["fee"] * COIN)
         if short > 0:
             tx.vout[0].nValue -= short
+            wallet.resign(tx)
             parent["fee"] += Decimal(short) / COIN
             parent["txid"] = tx.rehash()
             parent["wtxid"] = tx.getwtxid()
@@ -326,9 +326,9 @@ class PackageRelayTest(BitcoinTestFramework):
         node.setmocktime(int(time.time()))
 
         # 2-parent-1-child package where both parents are below mempool min feerate
-        parent_low_1 = self.create_tx_below_mempoolminfee(self.wallet_nonsegwit)
-        parent_low_2 = self.create_tx_below_mempoolminfee(self.wallet_nonsegwit)
-        child_bumping = self.wallet_nonsegwit.create_self_transfer_multi(
+        parent_low_1 = self.create_tx_below_mempoolminfee(self.wallet)
+        parent_low_2 = self.create_tx_below_mempoolminfee(self.wallet)
+        child_bumping = self.wallet.create_self_transfer_multi(
             utxos_to_spend=[parent_low_1["new_utxo"], parent_low_2["new_utxo"]],
             fee_per_output=999*parent_low_1["tx"].get_vsize(),
         )
@@ -351,7 +351,10 @@ class PackageRelayTest(BitcoinTestFramework):
         # multi-parent-1-child packages.
         node.bumpmocktime(GETDATA_WAIT)
         peer_sender.sync_with_ping()
-        assert "getdata" not in peer_sender.last_message
+        node_mempool = node.getrawmempool()
+        assert parent_low_1["txid"] not in node_mempool
+        assert parent_low_2["txid"] not in node_mempool
+        assert child_bumping["txid"] not in node_mempool
 
     @cleanup
     def test_other_parent_in_mempool(self):
@@ -399,8 +402,6 @@ class PackageRelayTest(BitcoinTestFramework):
         self.sequence = MAX_BIP125_RBF_SEQUENCE
 
         self.wallet = MiniWallet(node)
-        self.wallet_nonsegwit = MiniWallet(node, mode=MiniWalletMode.RAW_P2PK)
-        self.generate(self.wallet_nonsegwit, 10)
         self.generate(self.wallet, 20)
 
         fill_mempool(self, node)
@@ -408,17 +409,13 @@ class PackageRelayTest(BitcoinTestFramework):
         self.log.info("Check opportunistic 1p1c logic when parent (txid != wtxid) is received before child")
         self.test_basic_parent_then_child(self.wallet)
 
-        self.log.info("Check opportunistic 1p1c logic when parent (txid == wtxid) is received before child")
-        self.test_basic_parent_then_child(self.wallet_nonsegwit)
+        # RAW_P2PK (txid == wtxid) is not a spend on this chain.
 
         self.log.info("Check opportunistic 1p1c logic when child is received before parent")
         self.test_basic_child_then_parent()
 
         self.log.info("Check opportunistic 1p1c logic when 2 candidate children exist (parent txid != wtxid)")
         self.test_low_and_high_child(self.wallet)
-
-        self.log.info("Check opportunistic 1p1c logic when 2 candidate children exist (parent txid == wtxid)")
-        self.test_low_and_high_child(self.wallet_nonsegwit)
 
         self.test_orphan_consensus_failure()
         self.test_parent_consensus_failure()

@@ -36,6 +36,7 @@ class EphemeralDustTest(BitcoinTestFramework):
         result["tx"].vout.append(CTxOut(output_value, result["tx"].vout[0].scriptPubKey))
         # Take value from first output
         result["tx"].vout[0].nValue -= output_value
+        self.wallet.resign(result["tx"])
         result["new_utxos"][0]["value"] = Decimal(result["tx"].vout[0].nValue) / COIN
         new_txid = result["tx"].rehash()
         result["txid"]  = new_txid

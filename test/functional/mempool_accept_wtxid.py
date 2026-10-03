@@ -35,6 +35,10 @@ from test_framework.util import (
 )
 
 class MempoolWtxidTest(BitcoinTestFramework):
+    def skip_test_if_missing_module(self):
+        # P2WSH IF/ELSE branches are not a spend on this chain.
+        self.skip_heritage_secp_script()
+
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True

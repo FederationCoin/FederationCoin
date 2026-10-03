@@ -20,7 +20,7 @@ class MempoolUpdateFromBlockTest(BitcoinTestFramework):
         self.num_nodes = 1
         self.extra_args = [['-limitdescendantsize=1000', '-limitancestorsize=1000', '-limitancestorcount=100']]
 
-    def transaction_graph_test(self, size, n_tx_to_mine=None, fee=100_000):
+    def transaction_graph_test(self, size, n_tx_to_mine=None, fee=500_000):
         """Create an acyclic tournament (a type of directed graph) of transactions and use it for testing.
 
         Keyword arguments:
@@ -99,7 +99,8 @@ class MempoolUpdateFromBlockTest(BitcoinTestFramework):
 
     def run_test(self):
         # Use batch size limited by DEFAULT_ANCESTOR_LIMIT = 25 to not fire "too many unconfirmed parents" error.
-        self.transaction_graph_test(size=100, n_tx_to_mine=[25, 50, 75])
+        # ML-DSA inputs are large; a 100-tx tournament misses the relay floor.
+        self.transaction_graph_test(size=12, n_tx_to_mine=[4, 8])
 
 
 if __name__ == '__main__':

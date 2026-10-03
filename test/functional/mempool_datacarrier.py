@@ -43,6 +43,7 @@ class DataCarrierTest(BitcoinTestFramework):
         data = [] if data is None else [data]
         tx.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + data)))
         tx.vout[0].nValue -= tx.get_vsize()  # simply pay 1sat/vbyte fee
+        self.wallet.resign(tx)
         tx_hex = tx.serialize().hex()
         self.assert_mempool_rejected(node, tx_hex)
 
@@ -57,7 +58,7 @@ class DataCarrierTest(BitcoinTestFramework):
             return
         raise AssertionError("OP_RETURN was accepted")
 
-    def submit_block_with(self, node: TestNode, tx: CTransaction) -> str | None:
+    def submit_block_with(self, node: TestNode, tx: CTransaction):
         tip = node.getbestblockhash()
         height = node.getblockcount() + 1
         block = create_block(int(tip, 16), create_coinbase(height),

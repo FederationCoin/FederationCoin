@@ -174,9 +174,8 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         self.txouts = gen_return_txouts()
         self.relayfee = self.nodes[0].getnetworkinfo()['relayfee']
 
-        # Four 66KB transactions already exceed a quarter of an RDTS block
-        # (200KB virtual). Ninety was the count for a 4MB block.
-        utxo_count = 12
+        # Twelve ~66KB transactions exceed a quarter of a 2,400,000-weight block.
+        utxo_count = 36
         utxos = self.wallet.send_self_transfer_multi(from_node=self.nodes[0], num_outputs=utxo_count, fee_per_output=30_000)['new_utxos']
         self.generate(self.wallet, 1)
         assert_equal(len(self.nodes[0].getrawmempool()), 0)

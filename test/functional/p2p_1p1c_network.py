@@ -63,6 +63,7 @@ class PackageRelayTest(BitcoinTestFramework):
         short = 3 * tx.get_vsize() - int(low_fee_parent["fee"] * COIN)
         if short > 0:
             tx.vout[0].nValue -= short
+            wallet.resign(tx)
             low_fee_parent["fee"] += Decimal(short) / COIN
             low_fee_parent["txid"] = tx.rehash()
             low_fee_parent["wtxid"] = tx.getwtxid()
@@ -119,8 +120,8 @@ class PackageRelayTest(BitcoinTestFramework):
         # 1: Basic 1-parent-1-child package, parent 1sat/vB, child 999sat/vB
         package_hex_1, parent_1, child_1 = self.create_basic_1p1c(self.wallet)
 
-        # 2: same as 1, parent's txid is the same as its wtxid.
-        package_hex_2, parent_2, child_2 = self.create_basic_1p1c(self.wallet_nonsegwit)
+        # 2: same as 1. A no-witness parent is not a spend on this chain.
+        package_hex_2, parent_2, child_2 = self.create_basic_1p1c(self.wallet)
 
         # 3: 2-parent-1-child package. Both parents are above mempool min feerate. No package submission happens.
         # We require packages to be child-with-unconfirmed-parents and only allow 1-parent-1-child packages.

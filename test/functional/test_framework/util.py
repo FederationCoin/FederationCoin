@@ -614,7 +614,15 @@ def create_lots_of_big_transactions(mini_wallet, node, fee, tx_batch_size, txout
         assert tx.vout[0].nValue > pad_value
         tx.vout[0].nValue -= pad_value
         tx.vout.extend(txouts)
+        need = max(fee, Decimal(3 * tx.get_vsize()) / 100_000_000)
+        extra = int((need - fee) * 100_000_000)
+        if extra > 0:
+            assert tx.vout[0].nValue > extra
+            tx.vout[0].nValue -= extra
+            fee = need
+        mini_wallet.resign(tx)
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
+        assert 'fees' in res, res
         assert_equal(res['fees']['base'], fee)
         txids.append(node.sendrawtransaction(tx.serialize().hex()))
     return txids

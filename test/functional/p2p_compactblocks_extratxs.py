@@ -89,6 +89,10 @@ class TestP2PConn(P2PInterface):
 
 
 class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
+    def skip_test_if_missing_module(self):
+        # Extra-pool reconstruction here is anyone-can-spend / policy-reject padding.
+        self.skip_heritage_secp_script()
+
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1

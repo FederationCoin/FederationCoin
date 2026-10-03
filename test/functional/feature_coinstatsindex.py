@@ -175,8 +175,8 @@ class CoinStatsIndexTest(BitcoinTestFramework):
             assert_equal(res6['block_info'], {
                 'unspendable': Decimal('0'),
                 'prevout_spent': Decimal('50.00000000'),
-                'new_outputs_ex_coinbase': Decimal('49.99999000'),
-                'coinbase': Decimal('50.00001000'),
+                'new_outputs_ex_coinbase': Decimal('49.99996781'),
+                'coinbase': Decimal('50.00003219'),
                 'unspendables': {
                     'genesis_block': Decimal('0'),
                     'bip30': Decimal('0'),

@@ -214,7 +214,7 @@ class BlockchainTest(BitcoinTestFramework):
         assert_equal(res['target'], target_str(REGTEST_TARGET))
 
     def check_signalling_deploymentinfo_result(self, gdi_result, height, blockhash, status_next):
-        assert height >= 144 and height <= 287
+        assert height >= 120 and height <= 239
 
         assert_equal(gdi_result, {
           "hash": blockhash,
@@ -234,16 +234,16 @@ class BlockchainTest(BitcoinTestFramework):
                     'min_activation_height': 0,
                     'status': 'started',
                     'status_next': status_next,
-                    'since': 144,
+                    'since': 120,
                     'statistics': {
-                        'period': 144,
-                        'period_start': 144,
-                        'threshold': 108,
-                        'elapsed': height - 143,
-                        'count': height - 143,
+                        'period': 120,
+                        'period_start': 120,
+                        'threshold': 90,
+                        'elapsed': height - 119,
+                        'count': height - 119,
                         'possible': True,
                     },
-                    'signalling': '#'*(height-143),
+                    'signalling': '#'*(height-119),
                 },
                 'active': False
             },
@@ -274,7 +274,7 @@ class BlockchainTest(BitcoinTestFramework):
         self.check_signalling_deploymentinfo_result(self.nodes[0].getdeploymentinfo(), gbci207["blocks"], gbci207["bestblockhash"], "started")
 
         # block just prior to lock in
-        self.generate(self.wallet, 287 - gbci207["blocks"])
+        self.generate(self.wallet, 239 - gbci207["blocks"])
         gbci287 = self.nodes[0].getblockchaininfo()
         self.check_signalling_deploymentinfo_result(self.nodes[0].getdeploymentinfo(), gbci287["blocks"], gbci287["bestblockhash"], "locked_in")
 

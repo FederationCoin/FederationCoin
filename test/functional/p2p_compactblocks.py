@@ -142,6 +142,10 @@ class TestP2PConn(P2PInterface):
         self.wait_for_disconnect(timeout=timeout)
 
 class CompactBlocksTest(BitcoinTestFramework):
+    def skip_test_if_missing_module(self):
+        # Fan-out UTXOs are OP_TRUE anyone-can-spend, not an ML-DSA-44 spend.
+        self.skip_heritage_secp_script()
+
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1

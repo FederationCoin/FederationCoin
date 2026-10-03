@@ -63,6 +63,7 @@ class DustRelayFeeTest(BitcoinTestFramework):
         tx = self.wallet.create_self_transfer()["tx"]
         tx.vout.append(CTxOut(nValue=dust_threshold, scriptPubKey=output_script))
         tx.vout[0].nValue -= dust_threshold  # keep total output value constant
+        self.wallet.resign(tx)
         tx_good_hex = tx.serialize().hex()
         res = node.testmempoolaccept([tx_good_hex])[0]
         assert_equal(res['allowed'], True)
@@ -70,6 +71,7 @@ class DustRelayFeeTest(BitcoinTestFramework):
         # amount just below the dust threshold should fail
         if dust_threshold > 0:
             tx.vout[1].nValue -= 1
+            self.wallet.resign(tx)
             res = node.testmempoolaccept([tx.serialize().hex()])[0]
             assert_equal(res['allowed'], False)
             assert_equal(res['reject-reason'], 'dust')
@@ -126,6 +128,7 @@ class DustRelayFeeTest(BitcoinTestFramework):
             assert_equal(len(script), expected_size)
             tx = self.wallet.create_self_transfer()["tx"]
             tx.vout.append(CTxOut(nValue=1000, scriptPubKey=script))
+            self.wallet.resign(tx)
             res = node.testmempoolaccept([tx.serialize().hex()])[0]
             assert_equal(res['allowed'], True)
             self.log.info(f"   ✓ {name} ({expected_size} bytes) accepted")
@@ -175,6 +178,7 @@ class DustRelayFeeTest(BitcoinTestFramework):
         assert_equal(len(script_34), 34)
         tx = self.wallet.create_self_transfer()["tx"]
         tx.vout.append(CTxOut(nValue=1000, scriptPubKey=script_34))
+        self.wallet.resign(tx)
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
         assert_equal(res['allowed'], True)
         self.log.info("   ✓ Exactly 34 bytes accepted (boundary)")

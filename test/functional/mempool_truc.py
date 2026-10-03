@@ -23,7 +23,7 @@ from test_framework.wallet import (
 
 MAX_REPLACEMENT_CANDIDATES = 100
 TRUC_MAX_VSIZE = 10000
-TRUC_CHILD_MAX_VSIZE = 1000
+TRUC_CHILD_MAX_VSIZE = 5000
 
 def cleanup(extra_args=None):
     def decorator(func):
@@ -97,7 +97,7 @@ class MempoolTRUC(BitcoinTestFramework):
         assert_equal(node.getmempoolentry(tx_v3_parent_normal["txid"])["descendantcount"], 2)
         tx_v3_child_almost_heavy_rbf = self.wallet.send_self_transfer(
             from_node=node,
-            fee_rate=DEFAULT_FEE * 2,
+            fee_rate=DEFAULT_FEE * 10,
             utxo_to_spend=tx_v3_parent_normal["new_utxo"],
             target_vsize=875,
             version=3
@@ -214,7 +214,7 @@ class MempoolTRUC(BitcoinTestFramework):
         self.check_mempool([])
         tx_v2_from_v3 = self.wallet.send_self_transfer(from_node=node, utxo_to_spend=tx_v3_block["new_utxo"], version=2)
         tx_v3_from_v2 = self.wallet.send_self_transfer(from_node=node, utxo_to_spend=tx_v2_block["new_utxo"], version=3)
-        tx_v3_child_large = self.wallet.send_self_transfer(from_node=node, utxo_to_spend=tx_v3_block2["new_utxo"], target_vsize=1250, version=3)
+        tx_v3_child_large = self.wallet.send_self_transfer(from_node=node, utxo_to_spend=tx_v3_block2["new_utxo"], target_vsize=5100, version=3)
         assert_greater_than(node.getmempoolentry(tx_v3_child_large["txid"])["vsize"], TRUC_CHILD_MAX_VSIZE)
         tx_chain_4 = self.wallet.send_self_transfer(from_node=node, utxo_to_spend=tx_chain_3["new_utxo"], version=2)
         self.check_mempool([tx_v2_from_v3["txid"], tx_v3_from_v2["txid"], tx_v3_child_large["txid"], tx_chain_4["txid"]])
@@ -297,6 +297,7 @@ class MempoolTRUC(BitcoinTestFramework):
                 if tx.vout[i].nValue == 0:
                     tx.vout[0].nValue -= 1000
                     tx.vout[i].nValue = 1000
+            self.wallet.resign(tx)
             result["txid"] = tx.rehash()
             result["wtxid"] = tx.getwtxid()
             result["hex"] = tx.serialize().hex()
@@ -315,8 +316,8 @@ class MempoolTRUC(BitcoinTestFramework):
         tx_v3_parent_for_heavy = self.wallet.create_self_transfer(fee_rate=Decimal("0.00004"), version=3)
         tx_v3_child_heavy = self.wallet.create_self_transfer_multi(
             utxos_to_spend=[tx_v3_parent_for_heavy["new_utxo"]],
-            target_vsize=TRUC_CHILD_MAX_VSIZE + 1,
-            fee_per_output=10000,
+            target_vsize=TRUC_CHILD_MAX_VSIZE + 100,
+            fee_per_output=200_000,
             version=3
         )
         lift_dust(tx_v3_child_heavy)
@@ -601,12 +602,12 @@ class MempoolTRUC(BitcoinTestFramework):
         self.check_mempool(txids_v2_100 + [tx_v3_parent["txid"], tx_v3_child_1["txid"]])
 
         # Replacing 100 transactions is fine
-        tx_v3_replacement_only = self.wallet.create_self_transfer_multi(utxos_to_spend=utxos_for_conflict, fee_per_output=4000000)
+        tx_v3_replacement_only = self.wallet.create_self_transfer_multi(utxos_to_spend=utxos_for_conflict, fee_per_output=50_000_000)
         # Override maxfeerate - it costs a lot to replace these 100 transactions.
         assert node.testmempoolaccept([tx_v3_replacement_only["hex"]], maxfeerate=0)[0]["allowed"]
         # Adding another one exceeds the limit.
         utxos_for_conflict.append(tx_v3_parent["new_utxos"][1])
-        tx_v3_child_2_rule5 = self.wallet.create_self_transfer_multi(utxos_to_spend=utxos_for_conflict, fee_per_output=4000000, version=3)
+        tx_v3_child_2_rule5 = self.wallet.create_self_transfer_multi(utxos_to_spend=utxos_for_conflict, fee_per_output=50_000_000, version=3)
         rule5_str = f"too many potential replacements (including sibling eviction), rejecting replacement {tx_v3_child_2_rule5['txid']}; too many potential replacements (101 > 100)"
         assert_raises_rpc_error(-26, rule5_str, node.sendrawtransaction, tx_v3_child_2_rule5["hex"])
         self.check_mempool(txids_v2_100 + [tx_v3_parent["txid"], tx_v3_child_1["txid"]])

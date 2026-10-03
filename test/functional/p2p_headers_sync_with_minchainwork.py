@@ -154,11 +154,13 @@ class RejectLowDifficultyHeadersTest(BitcoinTestFramework):
         self.generate(self.nodes[0], BLOCKS_TO_MINE, sync_fun=self.no_op)
         self.generate(self.nodes[1], BLOCKS_TO_MINE+2, sync_fun=self.no_op)
 
+        # Align clocks before reconnect. Node 0/1 advanced mocktime by 12-minute
+        # spacing across 4k blocks; node 2/3 did not. A version-time gap drops
+        # the handshake.
+        tip_time = max(n.getblock(n.getbestblockhash())["time"] for n in self.nodes)
+        self.mocktime_all(tip_time + 1)
         self.reconnect_all()
-
-        self.mocktime_all(int(time.time()))  # Temporarily hold time to avoid internal timeouts
-        self.sync_blocks(timeout=300) # Ensure tips eventually agree
-        self.mocktime_all(0)
+        self.sync_blocks(timeout=900)
 
 
     def run_test(self):

@@ -233,6 +233,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
 
         # Accepted with sufficient fee
         dbl_tx.vout[0].nValue = int(0.1 * COIN)
+        self.wallet.resign(dbl_tx)
         dbl_tx_hex = dbl_tx.serialize().hex()
         self.nodes[0].sendrawtransaction(dbl_tx_hex, 0)
 
@@ -468,6 +469,9 @@ class ReplaceByFeeTest(BitcoinTestFramework):
 
         # If we remove an input, it should pass
         double_tx.vin.pop()
+        if double_tx.wit.vtxinwit:
+            double_tx.wit.vtxinwit.pop()
+        self.wallet.resign(double_tx)
         double_tx_hex = double_tx.serialize().hex()
         self.nodes[0].sendrawtransaction(double_tx_hex, 0)
 
@@ -671,7 +675,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
             utxos_to_spend=[tx0_outpoint],
             sequence=0,
             num_outputs=100,
-            amount_per_output=int(0.00001 * COIN),
+            amount_per_output=int(0.0099 * COIN),
         )["hex"]
 
         # Verify tx1b cannot replace tx1a.
@@ -806,6 +810,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         # fee conforming to node's `incrementalrelayfee` policy of 1000 sat per KB.
         assert_equal(self.nodes[0].getmempoolinfo()["incrementalrelayfee"], Decimal("0.000001"))
         tx.vout[0].nValue -= 1
+        self.wallet.resign(tx)
         assert_raises_rpc_error(-26, "insufficient fee", self.nodes[0].sendrawtransaction, tx.serialize().hex())
 
     def test_incremental_relay_feerates(self):

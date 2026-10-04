@@ -7,6 +7,7 @@ The bytes come from the same module the node verifies. The context string
 is FederationCoin.
 """
 
+import hashlib
 import os
 import subprocess
 
@@ -30,3 +31,26 @@ def sign(node_binary, secret_hex, message):
         encoding="utf8",
     ).strip()
     return bytes.fromhex(out)
+
+
+def key_hash(pubkey_hex):
+    pubkey = bytes.fromhex(pubkey_hex)
+    return hashlib.blake2b(bytes([0x0F]) + b"FCN-MLDSA44-KEY" + pubkey, digest_size=32).digest()
+
+
+def policy_program(threshold, hashes):
+    ordered = sorted(hashes)
+    preimage = bytes([0x12]) + b"FCN-MLDSA44-POLICY" + bytes([threshold, len(ordered)]) + b"".join(ordered)
+    return hashlib.blake2b(preimage, digest_size=32).digest()
+
+
+def sign_slots(node_binary, sighash, keys, signed_index):
+    """Witness stack for a slots-only policy. keys must already be hash-ordered."""
+    stack = []
+    for i, key in enumerate(keys):
+        if i == signed_index:
+            stack.append(bytes.fromhex(key["pubkey"]))
+            stack.append(sign(node_binary, key["secret"], sighash))
+        else:
+            stack.append(key_hash(key["pubkey"]))
+    return stack

@@ -11,17 +11,16 @@ from test_framework.blocktools import (
     add_witness_commitment,
     create_block,
 )
+from decimal import Decimal
+
 from test_framework.messages import (
     BlockTransactions,
+    COIN,
     BlockTransactionsRequest,
     CBlock,
     CBlockHeader,
     CInv,
-    COutPoint,
-    CTransaction,
-    CTxIn,
     CTxInWitness,
-    CTxOut,
     from_hex,
     HeaderAndShortIDs,
     MSG_BLOCK,
@@ -49,11 +48,6 @@ from test_framework.messages import (
 from test_framework.p2p import (
     P2PInterface,
     p2p_lock,
-)
-from test_framework.script import (
-    CScript,
-    OP_DROP,
-    OP_TRUE,
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -142,10 +136,6 @@ class TestP2PConn(P2PInterface):
         self.wait_for_disconnect(timeout=timeout)
 
 class CompactBlocksTest(BitcoinTestFramework):
-    def skip_test_if_missing_module(self):
-        # Fan-out UTXOs are OP_TRUE anyone-can-spend, not an ML-DSA-44 spend.
-        self.skip_heritage_secp_script()
-
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
@@ -159,29 +149,15 @@ class CompactBlocksTest(BitcoinTestFramework):
         block.solve()
         return block
 
-    # Create 10 more anyone-can-spend utxo's for testing.
     def make_utxos(self):
-        block = self.build_block_on_tip(self.nodes[0])
-        self.segwit_node.send_and_ping(msg_no_witness_block(block))
-        assert int(self.nodes[0].getbestblockhash(), 16) == block.sha256
-        self.generate(self.wallet, COINBASE_MATURITY)
-
-        total_value = block.vtx[0].vout[0].nValue
-        fee = 20000
-        out_value = (total_value - fee) // 10
-        tx = CTransaction()
-        tx.vin.append(CTxIn(COutPoint(block.vtx[0].sha256, 0), b''))
-        for _ in range(10):
-            tx.vout.append(CTxOut(out_value, CScript([OP_TRUE])))
-        tx.rehash()
-
-        block2 = self.build_block_on_tip(self.nodes[0])
-        block2.vtx.append(tx)
-        block2.hashMerkleRoot = block2.calc_merkle_root()
-        block2.solve()
-        self.segwit_node.send_and_ping(msg_no_witness_block(block2))
-        assert_equal(int(self.nodes[0].getbestblockhash(), 16), block2.sha256)
-        self.utxos.extend([[tx.sha256, i, out_value] for i in range(10)])
+        self.generate(self.wallet, COINBASE_MATURITY + 50)
+        self.wallet.rescan_utxos()
+        mature = self.wallet.get_utxos(mark_as_spent=False, include_immature_coinbase=False)
+        assert len(mature) >= 35
+        self.utxos = []
+        for u in mature[:25]:
+            self.utxos.append([int(u['txid'], 16), u['vout'], int(u['value'] * COIN)])
+            self.wallet.get_utxo(txid=u['txid'], vout=u['vout'])
 
 
     # Test "sendcmpct" (between peers preferring the same version):
@@ -421,19 +397,21 @@ class CompactBlocksTest(BitcoinTestFramework):
             test_node.send_and_ping(msg)
             assert_equal(int(node.getbestblockhash(), 16), block.sha256)
 
-    # Create a chain of transactions from given utxo, and add to a new block.
     def build_block_with_transactions(self, node, utxo, num_transactions):
         block = self.build_block_on_tip(node)
-
-        for _ in range(num_transactions):
-            tx = CTransaction()
-            tx.vin.append(CTxIn(COutPoint(utxo[0], utxo[1]), b''))
-            tx.vout.append(CTxOut(utxo[2] - 1000, CScript([OP_TRUE, OP_DROP] * 15 + [OP_TRUE])))
-            tx.rehash()
-            utxo = [tx.sha256, 0, tx.vout[0].nValue]
-            block.vtx.append(tx)
-
-        block.hashMerkleRoot = block.calc_merkle_root()
+        utxo_dict = {
+            'txid': format(utxo[0], '064x'),
+            'vout': utxo[1],
+            'value': Decimal(utxo[2]) / COIN,
+            'height': 1,
+            'coinbase': False,
+            'confirmations': 1,
+        }
+        for txinfo in self.wallet.create_self_transfer_chain(chain_length=num_transactions, utxo_to_spend=utxo_dict):
+            block.vtx.append(txinfo['tx'])
+        if block.vtx[0].vout and block.vtx[0].vout[-1].nValue == 0:
+            block.vtx[0].vout.pop()
+        add_witness_commitment(block)
         block.solve()
         return block
 
@@ -801,7 +779,7 @@ class CompactBlocksTest(BitcoinTestFramework):
             block = self.build_block_with_transactions(node, utxo, 5)
 
             cmpct_block = HeaderAndShortIDs()
-            cmpct_block.initialize_from_block(block)
+            cmpct_block.initialize_from_block(block, use_witness=True)
             msg = msg_cmpctblock(cmpct_block.to_p2p())
             peer.send_and_ping(msg)
             with p2p_lock:
@@ -830,13 +808,13 @@ class CompactBlocksTest(BitcoinTestFramework):
         delivery_peer.sync_with_ping()
 
         cmpct_block.prefilled_txn[0].tx.wit.vtxinwit = [CTxInWitness()]
-        cmpct_block.prefilled_txn[0].tx.wit.vtxinwit[0].scriptWitness.stack = [ser_uint256(0)]
+        cmpct_block.prefilled_txn[0].tx.wit.vtxinwit[0].scriptWitness.stack = [ser_uint256(1)]
 
         cmpct_block.use_witness = True
         delivery_peer.send_and_ping(msg_cmpctblock(cmpct_block.to_p2p()))
         assert int(node.getbestblockhash(), 16) != block.sha256
 
-        msg = msg_no_witness_blocktxn()
+        msg = msg_blocktxn()
         msg.block_transactions.blockhash = block.sha256
         msg.block_transactions.transactions = block.vtx[1:]
         stalling_peer.send_and_ping(msg)
@@ -882,7 +860,7 @@ class CompactBlocksTest(BitcoinTestFramework):
             block = self.build_block_with_transactions(node, utxo, txn_count)
 
             cmpct_block = HeaderAndShortIDs()
-            cmpct_block.initialize_from_block(block)
+            cmpct_block.initialize_from_block(block, use_witness=True)
             msg = msg_cmpctblock(cmpct_block.to_p2p())
             peer.send_and_ping(msg)
             with p2p_lock:

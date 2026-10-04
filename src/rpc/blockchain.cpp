@@ -75,6 +75,7 @@
 #include <stdint.h>
 
 #include <condition_variable>
+#include <limits>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -1836,6 +1837,7 @@ RPCHelpMan getblockchaininfo()
             {
                 {RPCResult::Type::STR, "chain", "current network name (" LIST_CHAIN_NAMES ")"},
                 {RPCResult::Type::NUM, "blocks", "the height of the most-work fully-validated chain. The genesis block has height 0"},
+                {RPCResult::Type::NUM, "flexcap", "current flex block-weight cap (string when larger than signed 64-bit)"},
                 {RPCResult::Type::NUM, "headers", "the current number of headers we have validated"},
                 {RPCResult::Type::STR, "bestblockhash", "the hash of the currently best block"},
                 {RPCResult::Type::STR_HEX, "bits", "nBits: compact representation of the block difficulty target"},
@@ -1876,6 +1878,11 @@ RPCHelpMan getblockchaininfo()
     UniValue obj(UniValue::VOBJ);
     obj.pushKV("chain", chainman.GetParams().GetChainTypeString());
     obj.pushKV("blocks", height);
+    if (tip.nFlexCap > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+        obj.pushKV("flexcap", strprintf("%llu", static_cast<unsigned long long>(tip.nFlexCap)));
+    } else {
+        obj.pushKV("flexcap", static_cast<int64_t>(tip.nFlexCap));
+    }
     obj.pushKV("headers", chainman.m_best_header ? chainman.m_best_header->nHeight : -1);
     obj.pushKV("bestblockhash", tip.GetBlockHash().GetHex());
     obj.pushKV("bits", strprintf("%08x", tip.nBits));

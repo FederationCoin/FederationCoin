@@ -12,6 +12,8 @@
 #include <common/system.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <consensus/epoch_watermark.h>
+#include <consensus/flex_weight.h>
 #include <consensus/merkle.h>
 #include <consensus/params.h>
 #include <consensus/validation.h>
@@ -45,6 +47,7 @@
 #include <validation.h>
 #include <validationinterface.h>
 
+#include <limits>
 #include <memory>
 #include <stdint.h>
 
@@ -1110,7 +1113,14 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
     if (!fPreSegWit) {
         // While RDTS is active the consensus weight limit is reduced;
         // external miners (e.g. DATUM) must see the real cap.
-        result.pushKV("weightlimit", (int64_t)(rdts_active ? REDUCED_DATA_MAX_BLOCK_WEIGHT : MAX_BLOCK_WEIGHT));
+        const uint64_t flex_cap{pindexPrev == nullptr
+            ? Consensus::MIN_FLEX_BLOCK_WEIGHT
+            : Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, pindexPrev->nHeight + 1, consensusParams.nSubsidyHalvingInterval)};
+        if (flex_cap > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            result.pushKV("weightlimit", strprintf("%llu", static_cast<unsigned long long>(flex_cap)));
+        } else {
+            result.pushKV("weightlimit", static_cast<int64_t>(flex_cap));
+        }
     }
     result.pushKV("curtime", block_header.GetBlockTime());
     result.pushKV("bits", strprintf("%08x", block_header.nBits));

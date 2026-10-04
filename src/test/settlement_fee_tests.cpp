@@ -29,6 +29,12 @@ BOOST_AUTO_TEST_CASE(minimum_fee_rate)
     // A simple ML-DSA payment is about 1,075 virtual bytes: 88 is short, 89 meets the floor.
     BOOST_CHECK(!FeeMeetsMinimumRate(88, 1075));
     BOOST_CHECK(FeeMeetsMinimumRate(89, 1075));
+    BOOST_CHECK_EQUAL(MinimumFee(1945), 162);
+    BOOST_CHECK(!FeeMeetsMinimumRate(161, 1945));
+    BOOST_CHECK(FeeMeetsMinimumRate(162, 1945));
+    BOOST_CHECK_EQUAL(MinimumFee(137), 11);
+    BOOST_CHECK(!FeeMeetsMinimumRate(10, 137));
+    BOOST_CHECK(FeeMeetsMinimumRate(11, 137));
     // Any higher fee is valid, including the old 3-token rate.
     BOOST_CHECK(FeeMeetsMinimumRate(1075 * 3, 1075));
 }

@@ -22,6 +22,7 @@
 #include <common/system.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <consensus/flex_weight.h>
 #include <dbwrapper.h>
 #include <deploymentstatus.h>
 #include <hash.h>
@@ -890,8 +891,8 @@ void InitParameterInteraction(ArgsManager& args)
         args.SoftSetArg("-permitephemeral", "anchor,send,dust");
         args.SoftSetArg("-spkreuse", "allow");
         args.SoftSetArg("-blockprioritysize", "0");
-        args.SoftSetArg("-blockmaxsize", "4000000");
-        args.SoftSetArg("-blockmaxweight", "4000000");
+        args.SoftSetArg("-blockmaxsize", strprintf("%u", MAX_BLOCK_SERIALIZED_SIZE));
+        args.SoftSetArg("-blockmaxweight", strprintf("%u", MAX_BLOCK_SERIALIZED_SIZE));
     }
 
     // when specifying an explicit binding address, you want to listen on it
@@ -1209,20 +1210,20 @@ bool AppInitParameterInteraction(const ArgsManager& args)
 
     if (args.IsArgSet("-blockmaxweight")) {
         const auto max_block_weight = args.GetIntArg("-blockmaxweight", DEFAULT_BLOCK_MAX_WEIGHT);
-        if (max_block_weight > MAX_BLOCK_WEIGHT) {
-            return InitError(strprintf(_("Specified -blockmaxweight (%d) exceeds consensus maximum block weight (%d)"), max_block_weight, MAX_BLOCK_WEIGHT));
+        if (static_cast<uint64_t>(max_block_weight) > Consensus::MAX_FLEX_BLOCK_WEIGHT) {
+            return InitError(strprintf(_("Specified -blockmaxweight (%d) exceeds consensus maximum block weight"), max_block_weight));
         }
     }
 
     if (args.IsArgSet("-blockreservedweight")) {
         const auto block_reserved_weight = args.GetIntArg("-blockreservedweight", DEFAULT_BLOCK_RESERVED_WEIGHT);
-        if (block_reserved_weight > MAX_BLOCK_WEIGHT) {
+        if (static_cast<uint64_t>(block_reserved_weight) > MAX_BLOCK_WEIGHT) {
             return InitError(strprintf(_("Specified -blockreservedweight (%d) exceeds consensus maximum block weight (%d)"), block_reserved_weight, MAX_BLOCK_WEIGHT));
         }
         if (block_reserved_weight < MINIMUM_BLOCK_RESERVED_WEIGHT) {
             return InitError(strprintf(_("Specified -blockreservedweight (%d) is lower than minimum safety value of (%d)"), block_reserved_weight, MINIMUM_BLOCK_RESERVED_WEIGHT));
         }
-        if (block_reserved_weight > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
+        if (static_cast<uint64_t>(block_reserved_weight) > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
             InitWarning(strprintf(_("Specified -blockreservedweight (%d) exceeds the block weight limit that applies while RDTS is active (%d); block templates will contain no transactions while that limit applies"), block_reserved_weight, REDUCED_DATA_MAX_BLOCK_WEIGHT));
         }
     }

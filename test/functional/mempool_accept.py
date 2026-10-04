@@ -248,11 +248,13 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
             rawtxs=[tx.serialize().hex()],
         )
 
-        self.log.info('A really large transaction')
+        self.log.info('A really large transaction of duplicate inputs')
         tx = tx_from_hex(raw_tx_reference)
         tx.vin = [tx.vin[0]] * math.ceil((MAX_BLOCK_WEIGHT // WITNESS_SCALE_FACTOR) / len(tx.vin[0].serialize()))
+        # Under the 32MB P2P buffer this construction is not oversize; the
+        # duplicate prevouts are the consensus reject.
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'bad-txns-oversize'}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'bad-txns-inputs-duplicate'}],
             rawtxs=[tx.serialize().hex()],
         )
 

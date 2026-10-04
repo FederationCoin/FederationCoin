@@ -2,7 +2,7 @@
 # Copyright (c) 2026 The Bitcoin Knots developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""ML-DSA-44 is the only spend. Closed witness, 2-of-3, burns, and rejects.
+"""Three spend kinds: ML-DSA-44, ML-DSA-87, and secp cheap-out. Closed witness.
 """
 
 from test_framework.blocktools import add_witness_commitment, create_block, create_coinbase
@@ -15,7 +15,8 @@ from test_framework.messages import (
     CTxOut,
     blake2b,
 )
-from test_framework.mldsa import keygen, sign
+from test_framework.key import ECKey
+from test_framework.mldsa import key_hash87, keygen, keygen87, policy_program87, sign, sign87
 from test_framework.script import (
     CScript,
     OP_0,
@@ -33,7 +34,7 @@ from test_framework.script import (
 )
 from test_framework.authproxy import JSONRPCException
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.wallet import MiniWallet
+from test_framework.wallet import MiniWallet, MiniWalletMode
 
 
 def key_hash(pubkey):
@@ -86,13 +87,17 @@ class MldsaSpendTest(BitcoinTestFramework):
         dest = wallet.get_output_script()
 
         self.reject_p2wsh(node, wallet, dest)
-        self.reject_ecdsa(node, wallet, dest)
+        self.reject_scriptsig_and_legacy(node, wallet, dest)
+        self.accept_secp(node, wallet, dest)
         self.reject_schnorr(node, wallet, dest)
         self.single_key_spend(node, wallet)
+        self.single_key_87(node, wallet, dest)
+        self.miniwallet_87_and_secp(node, wallet)
         self.extra_item_is_a_data_path_close(node, wallet)
         self.wrong_length_rejected(node, wallet)
         self.scriptsig_malleation(node, wallet)
         self.two_of_three(node, wallet, dest)
+        self.two_of_three_87(node, wallet, dest)
         self.burn(node, wallet, dest)
 
     def reject_p2wsh(self, node, wallet, dest):
@@ -104,8 +109,8 @@ class MldsaSpendTest(BitcoinTestFramework):
         spend.rehash()
         self.assert_script_reject(node, spend)
 
-    def reject_ecdsa(self, node, wallet, dest):
-        # A 20-byte witness v0 program is the old P2WPKH ECDSA spend. Rejected.
+    def reject_scriptsig_and_legacy(self, node, wallet, dest):
+        # scriptSig is still empty. A P2PKH script is not a spend here.
         script_pubkey = CScript([OP_0, hash160(b"\x02" * 33)])
         txid, vout, value = self.fund(node, wallet, script_pubkey)
         spend = self.spend(txid, vout, value, dest)
@@ -119,6 +124,57 @@ class MldsaSpendTest(BitcoinTestFramework):
         spend.vin[0].scriptSig = CScript([b"\x30" * 70, b"\x02" * 33])
         spend.rehash()
         self.assert_script_reject(node, spend)
+
+    def accept_secp(self, node, wallet, dest):
+        key = ECKey()
+        key.set(bytes.fromhex("02" * 32), compressed=True)
+        pub = key.get_pubkey().get_bytes()
+        script_pubkey = CScript([OP_0, hash160(pub)])
+        txid, vout, value = self.fund(node, wallet, script_pubkey)
+        spend = self.spend(txid, vout, value, dest, fee=2000)
+        spent = [CTxOut(value, script_pubkey)]
+        hashtype = SIGHASH_ALL | SIGHASH_UNIFIED
+        sighash = UnifiedSignatureHash(b"", spend, 0, hashtype, spent, True)
+        spend.wit.vtxinwit[0].scriptWitness.stack = [
+            key.sign_ecdsa(sighash) + bytes([hashtype]),
+            pub,
+        ]
+        spend.rehash()
+        result = node.submitblock(self.block_with(node, spend).serialize().hex())
+        assert result is None, result
+
+    def single_key_87(self, node, wallet, dest):
+        key = keygen87(node.binary, "33" * 32)
+        script_pubkey = CScript([OP_0, bytes.fromhex(key["program"])])
+        txid, vout, value = self.fund(node, wallet, script_pubkey)
+        spend = self.spend(txid, vout, value, dest, fee=4000)
+        spent = [CTxOut(value, script_pubkey)]
+        hashtype = SIGHASH_ALL | SIGHASH_UNIFIED
+        sighash = UnifiedSignatureHash(b"", spend, 0, hashtype, spent, True)
+        spend.wit.vtxinwit[0].scriptWitness.stack = [
+            bytes.fromhex(key["pubkey"]),
+            sign87(node.binary, key["secret"], sighash),
+        ]
+        spend.rehash()
+        result = node.submitblock(self.block_with(node, spend).serialize().hex())
+        assert result is None, result
+
+    def miniwallet_87_and_secp(self, node, wallet):
+        w87 = MiniWallet(node, mode=MiniWalletMode.ADDRESS_MLDSA87)
+        wallet.send_to(from_node=node, scriptPubKey=w87.get_output_script(), amount=10 * COIN)
+        self.generate(node, 1)
+        w87.rescan_utxos()
+        paid87 = w87.send_self_transfer(from_node=node)
+        self.generate(node, 1)
+        assert paid87["txid"] not in node.getrawmempool()
+
+        wsecp = MiniWallet(node, mode=MiniWalletMode.ADDRESS_SECP)
+        wallet.send_to(from_node=node, scriptPubKey=wsecp.get_output_script(), amount=10 * COIN)
+        self.generate(node, 1)
+        wsecp.rescan_utxos()
+        paid_secp = wsecp.send_self_transfer(from_node=node)
+        self.generate(node, 1)
+        assert paid_secp["txid"] not in node.getrawmempool()
 
     def reject_schnorr(self, node, wallet, dest):
         # Taproot outputs are consensus-disabled. The reject is the vout, not a spend.
@@ -210,6 +266,44 @@ class MldsaSpendTest(BitcoinTestFramework):
             if i in signers:
                 stack.append(holder["pubkey"])
                 stack.append(sign(node.binary, holder["secret"], sighash))
+            else:
+                stack.append(holder["hash"])
+        tx.wit.vtxinwit[0].scriptWitness.stack = stack
+        tx.rehash()
+
+    def two_of_three_87(self, node, wallet, dest):
+        holders = []
+        for mark in (4, 5, 6):
+            key = keygen87(node.binary, f"{mark:02x}" * 32)
+            pubkey = bytes.fromhex(key["pubkey"])
+            holders.append({"pubkey": pubkey, "secret": key["secret"], "hash": key_hash87(key["pubkey"])})
+        holders.sort(key=lambda h: h["hash"])
+        program = policy_program87(2, [h["hash"] for h in holders])
+        script_pubkey = CScript([OP_0, program])
+        txid, vout, value = self.fund(node, wallet, script_pubkey, amount=20 * COIN)
+        spent = [CTxOut(value, script_pubkey)]
+        fee = 8000
+
+        one = self.spend(txid, vout, value, dest, fee=fee)
+        self.fill_slots87(node, one, spent, holders, signers={0})
+        self.assert_script_reject(node, one)
+
+        two = self.spend(txid, vout, value, dest, fee=fee)
+        self.fill_slots87(node, two, spent, holders, signers={0, 1})
+        skip = two.wit.vtxinwit[0].scriptWitness.stack[-1]
+        assert skip == holders[2]["hash"]
+        assert len(skip) == 32
+        result = node.submitblock(self.block_with(node, two).serialize().hex())
+        assert result is None, result
+
+    def fill_slots87(self, node, tx, spent, holders, signers):
+        hashtype = SIGHASH_ALL | SIGHASH_UNIFIED
+        sighash = UnifiedSignatureHash(b"", tx, 0, hashtype, spent, True)
+        stack = []
+        for i, holder in enumerate(holders):
+            if i in signers:
+                stack.append(holder["pubkey"])
+                stack.append(sign87(node.binary, holder["secret"], sighash))
             else:
                 stack.append(holder["hash"])
         tx.wit.vtxinwit[0].scriptWitness.stack = stack

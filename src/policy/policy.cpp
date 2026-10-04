@@ -10,7 +10,9 @@
 #include <coins.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <consensus/mldsa87_spend.h>
 #include <consensus/mldsa_spend.h>
+#include <consensus/secp_spend.h>
 #include <consensus/validation.h>
 #include <kernel/mempool_options.h>
 #include <policy/feerate.h>
@@ -477,8 +479,12 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
         // Closed ML-DSA-44 spends use this same v0/32 output. They are not
         // P2WSH scripts; do not apply the 80-byte P2WSH item cap or the 1650
         // witness-size cap to them. Extra items stay nonstandard via Absent.
+        if (witnessversion == 0 && witnessprogram.size() == 20 && Consensus::IsSecpSingleWitness(tx.vin[i].scriptWitness.stack)) {
+            continue;
+        }
         if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE &&
-            Consensus::MlDsaSpendKindOf(tx.vin[i].scriptWitness.stack) != Consensus::MlDsaSpendKind::Absent) {
+            (Consensus::MlDsaSpendKindOf(tx.vin[i].scriptWitness.stack) != Consensus::MlDsaSpendKind::Absent ||
+             Consensus::MlDsa87SpendKindOf(tx.vin[i].scriptWitness.stack) != Consensus::MlDsa87SpendKind::Absent)) {
             continue;
         }
 
@@ -622,8 +628,8 @@ std::pair<CScript, unsigned int> GetScriptForTransactionInput(CScript prevScript
     Span stack{txin.scriptWitness.stack};
 
     if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
-        if (Consensus::MlDsaSpendKindOf(txin.scriptWitness.stack) != Consensus::MlDsaSpendKind::Absent) {
-            // Closed ML-DSA-44 witness is the spend, not a redeem script or data.
+        if (Consensus::MlDsaSpendKindOf(txin.scriptWitness.stack) != Consensus::MlDsaSpendKind::Absent ||
+            Consensus::MlDsa87SpendKindOf(txin.scriptWitness.stack) != Consensus::MlDsa87SpendKind::Absent) {
             return std::make_pair(CScript(), 0);
         }
         if (stack.empty()) return std::make_pair(CScript(), 0);  // invalid

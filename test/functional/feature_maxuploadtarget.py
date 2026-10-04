@@ -29,15 +29,15 @@ from test_framework.util import (
 from test_framework.wallet import MiniWallet
 
 
-# Mining phase uses the upstream 800 MiB cap so a full day of reserve (576 MiB)
-# still leaves historical serving on. The download phase restarts with a cap
+# Mining phase uses a cap above a full day of 32MB reserve (144 * 32 MiB)
+# so historical serving stays on. The download phase restarts with a cap
 # scaled to this chain's block, so the same ~235 + 800 round trips cross it.
-UPLOAD_TARGET_MB = 800
+UPLOAD_TARGET_MB = 6400
 # Knots counted on a ~1MB block. These are those iteration counts.
 HISTORICAL_DOWNLOADS = 235
 NEW_BLOCK_DOWNLOADS = 800
 # OutboundTargetReached reserves (time left / 10 minutes) * this.
-MAX_BLOCK_SERIALIZED_SIZE = 4_000_000
+MAX_BLOCK_SERIALIZED_SIZE = 32_000_000
 
 
 class TestP2PConn(P2PInterface):
@@ -129,7 +129,7 @@ class MaxUploadTest(BitcoinTestFramework):
             "-datacarriersize=100000",
         ])
         # Start the 24h cycle, then move forward inside it so the reserve
-        # shrinks to `periods` of the 4MB block the node still budgets for.
+        # shrinks to `periods` of MAX_BLOCK_SERIALIZED_SIZE.
         self.nodes[0].setmocktime(cycle_start)
         probe = self.nodes[0].add_p2p_connection(TestP2PConn(), supports_v2_p2p=False)
         probe.sync_with_ping()
@@ -147,8 +147,8 @@ class MaxUploadTest(BitcoinTestFramework):
         getdata_request = msg_getdata()
         getdata_request.inv.append(CInv(MSG_BLOCK, big_old_block))
 
-        # The reserve is a few hours of the 4MB budget, not a full day, so this
-        # is about 235 transfers of the reduced-data block.
+        # The reserve is a few hours of the serialized-size budget, not a full
+        # day, so this is about 235 transfers of the reduced-data block.
         for i in range(success_count):
             p2p_conns[0].send_and_ping(getdata_request)
             assert_equal(p2p_conns[0].block_receive_map[big_old_block], i+1)
@@ -193,8 +193,9 @@ class MaxUploadTest(BitcoinTestFramework):
         self.log.info("Advancing system time on node to clear counters...")
 
         # Advancing a full day clears the byte counter. A full day also
-        # reserves 576MB, which is more than this block-sized cap, so
-        # historical serving stays off until the window shrinks again.
+        # reserves 144 * MAX_BLOCK_SERIALIZED_SIZE, which is more than this
+        # block-sized cap, so historical serving stays off until the window
+        # shrinks again.
         # Land on the same reserve the download phase used.
         reset_start = cycle_start + 24 * 60 * 60 + 1
         self.nodes[0].setmocktime(reset_start)

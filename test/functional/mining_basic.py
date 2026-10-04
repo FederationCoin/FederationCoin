@@ -27,6 +27,7 @@ from test_framework.messages import (
     COIN,
     DEFAULT_BLOCK_RESERVED_WEIGHT,
     MAX_BLOCK_WEIGHT,
+    MAX_FLEX_BLOCK_WEIGHT,
     MINIMUM_BLOCK_RESERVED_WEIGHT,
     ser_uint256,
     WITNESS_SCALE_FACTOR
@@ -459,8 +460,8 @@ class MiningTest(BitcoinTestFramework):
         self.log.info("Test that node will fail to start when user provide invalid -blockmaxweight")
         self.stop_node(0)
         self.nodes[0].assert_start_raises_init_error(
-            extra_args=[f"-blockmaxweight={MAX_BLOCK_WEIGHT + 1}"],
-            expected_msg=f"Error: Specified -blockmaxweight ({MAX_BLOCK_WEIGHT + 1}) exceeds consensus maximum block weight ({MAX_BLOCK_WEIGHT})",
+            extra_args=[f"-blockmaxweight={MAX_FLEX_BLOCK_WEIGHT + 1}"],
+            expected_msg=f"Error: Specified -blockmaxweight ({MAX_FLEX_BLOCK_WEIGHT + 1}) exceeds consensus maximum block weight",
         )
 
 

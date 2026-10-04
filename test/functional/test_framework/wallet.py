@@ -37,7 +37,7 @@ from test_framework.messages import (
     from_hex,
     hash256,
 )
-from test_framework.mldsa import MINIWALLET_SEED, keygen, sign
+from test_framework.mldsa import MINIWALLET_SEED, keygen, keygen87, sign, sign87
 from test_framework.script import (
     CScript,
     OP_0,
@@ -47,6 +47,7 @@ from test_framework.script import (
     SIGHASH_ALL,
     SIGHASH_UNIFIED,
     UnifiedSignatureHash,
+    hash160,
     sign_input_legacy,
     taproot_construct,
 )
@@ -82,13 +83,17 @@ class MiniWalletMode(Enum):
                     |      output       |           |  tx is   | can modify |  needs
          mode       |    description    |  address  | standard | scriptSig  | signing
     ----------------+-------------------+-----------+----------+------------+----------
-    ADDRESS_OP_TRUE | anyone-can-spend  |  bech32   |   yes    |    no      |   no
+    ADDRESS_OP_TRUE | ML-DSA-44 default |  bech32   |   yes    |    no      |   yes
     RAW_OP_TRUE     | anyone-can-spend  |  - (raw)  |   no     |    yes     |   no
     RAW_P2PK        | p2pkh             |  base58   |   yes    |    yes     |   yes
+    ADDRESS_MLDSA87 | ML-DSA-87         |  bech32   |   yes    |    no      |   yes
+    ADDRESS_SECP    | secp P2WPKH       |  bech32   |   yes    |    no      |   yes
     """
     ADDRESS_OP_TRUE = 1
     RAW_OP_TRUE = 2
     RAW_P2PK = 3
+    ADDRESS_MLDSA87 = 4
+    ADDRESS_SECP = 5
 
 
 class MiniWallet:
@@ -116,6 +121,19 @@ class MiniWallet:
             program = bytes.fromhex(self._mldsa["program"])
             self._scriptPubKey = CScript([OP_0, program])
             self._address = program_to_witness(0, program)
+        elif mode == MiniWalletMode.ADDRESS_MLDSA87:
+            seed = MINIWALLET_SEED if tag_name is None else hashlib.sha256(tag_name.encode()).hexdigest()
+            self._mldsa87 = keygen87(self._test_node.binary, seed)
+            program = bytes.fromhex(self._mldsa87["program"])
+            self._scriptPubKey = CScript([OP_0, program])
+            self._address = program_to_witness(0, program)
+        elif mode == MiniWalletMode.ADDRESS_SECP:
+            assert tag_name is None
+            self._priv_key = ECKey()
+            self._priv_key.set((1).to_bytes(32, 'big'), True)
+            pub = self._priv_key.get_pubkey().get_bytes()
+            self._scriptPubKey = CScript([OP_0, hash160(pub)])
+            self._address = program_to_witness(0, hash160(pub))
 
         # When the pre-mined test framework chain is used, it contains coinbase
         # outputs to the MiniWallet's default address in blocks 76-100
@@ -158,7 +176,11 @@ class MiniWallet:
         return spent
 
     def _resign_hex(self, tx_hex):
-        if self._mode != MiniWalletMode.ADDRESS_OP_TRUE:
+        if self._mode not in (
+            MiniWalletMode.ADDRESS_OP_TRUE,
+            MiniWalletMode.ADDRESS_MLDSA87,
+            MiniWalletMode.ADDRESS_SECP,
+        ):
             return tx_hex
         try:
             tx = from_hex(CTransaction(), tx_hex)
@@ -289,6 +311,31 @@ class MiniWallet:
                 signature = sign(self._test_node.binary, self._mldsa["secret"], sighash)
                 tx.wit.vtxinwit[i].scriptWitness.stack = [bytes.fromhex(self._mldsa["pubkey"]), signature]
             tx.rehash()
+        elif self._mode == MiniWalletMode.ADDRESS_MLDSA87:
+            if spent_utxos is None:
+                spent_utxos = self._spent_for_tx(tx)
+            assert spent_utxos is not None and len(spent_utxos) == len(tx.vin)
+            tx.wit.vtxinwit = [CTxInWitness() for _ in tx.vin]
+            hashtype = SIGHASH_ALL | SIGHASH_UNIFIED
+            for i in range(len(tx.vin)):
+                sighash = UnifiedSignatureHash(b"", tx, i, hashtype, spent_utxos, True)
+                assert sighash is not None
+                signature = sign87(self._test_node.binary, self._mldsa87["secret"], sighash)
+                tx.wit.vtxinwit[i].scriptWitness.stack = [bytes.fromhex(self._mldsa87["pubkey"]), signature]
+            tx.rehash()
+        elif self._mode == MiniWalletMode.ADDRESS_SECP:
+            if spent_utxos is None:
+                spent_utxos = self._spent_for_tx(tx)
+            assert spent_utxos is not None and len(spent_utxos) == len(tx.vin)
+            tx.wit.vtxinwit = [CTxInWitness() for _ in tx.vin]
+            hashtype = SIGHASH_ALL | SIGHASH_UNIFIED
+            pub = self._priv_key.get_pubkey().get_bytes()
+            for i in range(len(tx.vin)):
+                sighash = UnifiedSignatureHash(b"", tx, i, hashtype, spent_utxos, True)
+                assert sighash is not None
+                signature = self._priv_key.sign_ecdsa(sighash) + bytes([hashtype])
+                tx.wit.vtxinwit[i].scriptWitness.stack = [signature, pub]
+            tx.rehash()
         else:
             assert False
 
@@ -312,7 +359,11 @@ class MiniWallet:
         return descsum_create(f'raw({self._scriptPubKey.hex()})')
 
     def get_address(self):
-        assert_equal(self._mode, MiniWalletMode.ADDRESS_OP_TRUE)
+        assert self._mode in (
+            MiniWalletMode.ADDRESS_OP_TRUE,
+            MiniWalletMode.ADDRESS_MLDSA87,
+            MiniWalletMode.ADDRESS_SECP,
+        )
         return self._address
 
     def get_utxo(self, *, txid: str = '', vout: Optional[int] = None, mark_as_spent=True, confirmed_only=False) -> dict:
@@ -477,6 +528,10 @@ class MiniWallet:
             vsize = Decimal(96)
         elif self._mode == MiniWalletMode.ADDRESS_OP_TRUE:
             vsize = Decimal(1100)  # one ML-DSA-44 key and signature, witness-discounted
+        elif self._mode == MiniWalletMode.ADDRESS_MLDSA87:
+            vsize = Decimal(2000)  # one ML-DSA-87 key and signature, witness-discounted
+        elif self._mode == MiniWalletMode.ADDRESS_SECP:
+            vsize = Decimal(140)
         elif self._mode == MiniWalletMode.RAW_P2PK:
             vsize = Decimal(192)  # P2PK (73+34 bytes scriptSig + 25 bytes scriptPubKey + 60 bytes other)
         else:

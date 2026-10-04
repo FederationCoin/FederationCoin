@@ -61,9 +61,14 @@ add_executable(test_bitcoin
   merkle_tests.cpp
   merkleblock_tests.cpp
   miner_tests.cpp
+  flex_weight_tests.cpp
   mldsa_multisig_tests.cpp
   mldsa_verify_tests.cpp
   mldsa_witness_tests.cpp
+  mldsa87_multisig_tests.cpp
+  mldsa87_verify_tests.cpp
+  mldsa87_witness_tests.cpp
+  secp_single_spend_tests.cpp
   miniminer_tests.cpp
   miniscript_tests.cpp
   multisig_tests.cpp

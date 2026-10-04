@@ -148,6 +148,7 @@ class BlockchainTest(BitcoinTestFramework):
             'chain',
             'chainwork',
             'difficulty',
+            'flexcap',
             'headers',
             'initialblockdownload',
             'mediantime',
@@ -159,6 +160,7 @@ class BlockchainTest(BitcoinTestFramework):
             'warnings',
         ]
         res = self.nodes[0].getblockchaininfo()
+        assert_equal(res['flexcap'], 2400000)
 
         assert_equal(res['time'], TIME_RANGE_END - TIME_RANGE_STEP)
         assert_equal(res['mediantime'], TIME_RANGE_MTP)
@@ -347,7 +349,8 @@ class BlockchainTest(BitcoinTestFramework):
         node = self.nodes[0]
         res = node.gettxoutsetinfo()
 
-        assert_equal(res['total_amount'], Decimal('8725.00000000'))
+        # Heights 1-159 at 50, 160-200 at 25. Genesis is not in the UTXO set.
+        assert_equal(res['total_amount'], Decimal('8975.00000000'))
         assert_equal(res['transactions'], HEIGHT)
         assert_equal(res['height'], HEIGHT)
         assert_equal(res['txouts'], HEIGHT)

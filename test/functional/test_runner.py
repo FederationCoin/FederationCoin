@@ -101,6 +101,7 @@ BASE_SCRIPTS = [
     'feature_rdts.py',
     'feature_settlement_fee.py',
     'feature_mldsa_spend.py',
+    'feature_flex_weight.py',
     'feature_stall_warning.py',
     # feature_rdts_ignore_rejects needs a SHA256d era before the fork.
     'feature_block.py',

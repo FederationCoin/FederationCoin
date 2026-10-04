@@ -14,6 +14,7 @@ import time
 
 import test_framework.messages
 from test_framework.messages import (
+    MAX_PROTOCOL_MESSAGE_LENGTH,
     NODE_BLAKE2B,
     NODE_NETWORK,
     NODE_REDUCED_DATA,
@@ -442,9 +443,8 @@ class NetTest(BitcoinTestFramework):
         node.sendmsgtopeer(peer_id=0, msg_type="addr", msg="FF")
 
         self.log.debug("Test that oversized messages are allowed, but get us disconnected")
-        zero_byte_string = b'\x00' * 4000001
-        node.sendmsgtopeer(peer_id=0, msg_type="addr", msg=zero_byte_string.hex())
-        self.wait_until(lambda: len(self.nodes[0].getpeerinfo()) == 0, timeout=10)
+        node.sendmsgtopeer(peer_id=0, msg_type="addr", msg="", msg_size=MAX_PROTOCOL_MESSAGE_LENGTH + 1)
+        self.wait_until(lambda: len(self.nodes[0].getpeerinfo()) == 0, timeout=30)
 
     def test_getaddrmaninfo(self):
         self.log.info("Test getaddrmaninfo")

@@ -21,6 +21,11 @@ void mldsa44_use_seed(const uint8_t* seed, size_t len)
     g_left = len;
 }
 
+void mldsa87_use_seed(const uint8_t* seed, size_t len)
+{
+    mldsa44_use_seed(seed, len);
+}
+
 int PQCLEAN_randombytes(uint8_t* output, size_t n)
 {
     if (g_next != NULL && g_left >= n) {

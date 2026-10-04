@@ -332,19 +332,30 @@ class PackageRBFTest(BitcoinTestFramework):
             node.sendrawtransaction(tx.serialize().hex())
         self.assert_mempool_contents(expected=expected_txns)
 
+        # Topology errors walk m_to_remove; set order is not the chain order.
+        cluster_too_big = {
+            f"{parent_result['tx'].rehash()} has 2 descendants, max 1 allowed",
+            f"{child_result['tx'].rehash()} has both ancestor and descendant, exceeding cluster limit of 2",
+            f"{grandchild_result['tx'].rehash()} has 2 ancestors, max 1 allowed",
+        }
+
+        def assert_linear_cluster_reject(package_msg):
+            assert package_msg.startswith("package RBF failed: "), package_msg
+            assert package_msg[len("package RBF failed: "):] in cluster_too_big, package_msg
+
         # Now make conflicting packages for each coin
         package_hex1, _package_txns1 = self.create_simple_package(coin1, DEFAULT_FEE, DEFAULT_CHILD_FEE)
 
         package_result = node.submitpackage(package_hex1)
-        assert package_result["package_msg"] != "success"
+        assert_linear_cluster_reject(package_result["package_msg"])
 
         package_hex2, _package_txns2 = self.create_simple_package(coin2, DEFAULT_FEE, DEFAULT_CHILD_FEE)
         package_result = node.submitpackage(package_hex2)
-        assert_equal(f"package RBF failed: {child_result['tx'].rehash()} has both ancestor and descendant, exceeding cluster limit of 2", package_result["package_msg"])
+        assert_linear_cluster_reject(package_result["package_msg"])
 
         package_hex3, _package_txns3 = self.create_simple_package(coin3, DEFAULT_FEE, DEFAULT_CHILD_FEE)
         package_result = node.submitpackage(package_hex3)
-        assert_equal(f"package RBF failed: {grandchild_result['tx'].rehash()} has 2 ancestors, max 1 allowed", package_result["package_msg"])
+        assert_linear_cluster_reject(package_result["package_msg"])
 
         # Check that replacements were actually rejected
         self.assert_mempool_contents(expected=expected_txns)

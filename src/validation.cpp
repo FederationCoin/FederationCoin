@@ -14,7 +14,11 @@
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
+#include <consensus/epoch_watermark.h>
+#include <consensus/flex_weight.h>
+#include <consensus/mldsa87_spend.h>
 #include <consensus/mldsa_spend.h>
+#include <consensus/secp_spend.h>
 #include <consensus/settlement_fee.h>
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
@@ -2458,18 +2462,27 @@ std::optional<std::pair<ScriptError, std::string>> CScriptCheck::operator()() {
     }
     int witness_version{0};
     std::vector<unsigned char> witness_program;
+    if (m_tx_out.scriptPubKey.IsWitnessProgram(witness_version, witness_program) && witness_version == 0 && witness_program.size() == 20) {
+        uint256 sighash;
+        const bool hashed{txdata != nullptr && SignatureHashUnified(sighash, CScript{}, *ptxTo, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, *txdata)};
+        const uint160 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
+        const std::span<const unsigned char> message{sighash.begin(), 32};
+        if (hashed && Consensus::CheckSecpSingleKeySpend(program, witness->stack, message)) return std::nullopt;
+        return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
+    }
     if (m_tx_out.scriptPubKey.IsWitnessProgram(witness_version, witness_program) && witness_version == 0 && witness_program.size() == 32) {
         uint256 sighash;
         const bool hashed{txdata != nullptr && SignatureHashUnified(sighash, CScript{}, *ptxTo, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, *txdata)};
         const uint256 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
         const std::span<const unsigned char> message{sighash.begin(), 32};
-        // A 1-of-1 policy witness is the same shape as a single-key spend. Try
-        // both; the output program selects which hash tag applies.
-        const bool ok{hashed && (Consensus::CheckSingleKeySpend(program, witness->stack, message) || Consensus::CheckMultisigSpend(program, witness->stack, message))};
+        const bool ok{hashed && (
+            Consensus::CheckSingleKeySpend(program, witness->stack, message) ||
+            Consensus::CheckMultisigSpend(program, witness->stack, message) ||
+            Consensus::CheckSingleKey87Spend(program, witness->stack, message) ||
+            Consensus::CheckMultisig87Spend(program, witness->stack, message))};
         if (ok) return std::nullopt;
         return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
     }
-    // secp256k1, P2SH, P2WSH, and Taproot are not spends on this chain.
     return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
 }
 
@@ -2795,6 +2808,24 @@ static bool ContextualCheckBlockHeaderVolatile(const CBlockHeader& block, BlockV
 /** Apply the effects of this block (with given index) on the UTXO set represented by coins.
  *  Validity checks that depend on the UTXO set are also done; ConnectBlock()
  *  can fail if those validity checks fail (among other reasons). */
+static void ApplyFlexWatermark(CBlockIndex& index, uint64_t block_weight, const Consensus::Params& params)
+{
+    const int interval{params.nSubsidyHalvingInterval};
+    if (index.pprev == nullptr || index.nHeight <= 0) {
+        index.nFlexCap = Consensus::MIN_FLEX_BLOCK_WEIGHT;
+        index.nEpochWatermark.Clear();
+        index.nEpochWatermark.AddBlock(block_weight, index.nHeight, interval);
+        return;
+    }
+    index.nFlexCap = Consensus::CapForBlock(index.pprev->nFlexCap, index.pprev->nEpochWatermark, index.nHeight, interval);
+    if (index.nHeight % interval == 0) {
+        index.nEpochWatermark.Clear();
+    } else {
+        index.nEpochWatermark = index.pprev->nEpochWatermark;
+    }
+    index.nEpochWatermark.AddBlock(block_weight, index.nHeight, interval);
+}
+
 bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, CBlockIndex* pindex,
                                CCoinsViewCache& view, bool fJustCheck)
 {
@@ -2846,8 +2877,14 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     // Special case for the genesis block, skipping connection of its transactions
     // (its coinbase is unspendable)
     if (block_hash == params.GetConsensus().hashGenesisBlock) {
-        if (!fJustCheck)
+        const int64_t genesis_weight{GetBlockWeight(block)};
+        if (genesis_weight < 0 || static_cast<uint64_t>(genesis_weight) > Consensus::MIN_FLEX_BLOCK_WEIGHT) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", "flex weight limit failed");
+        }
+        if (!fJustCheck) {
+            ApplyFlexWatermark(*pindex, static_cast<uint64_t>(genesis_weight), params.GetConsensus());
             view.SetBestBlock(pindex->GetBlockHash());
+        }
         return true;
     }
 
@@ -3018,8 +3055,10 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     // reject an inherited over-cap block, as they do for the other RDTS rules.
     // Malleation is not a concern at this point: the witness commitment was
     // verified before the block was stored.
-    if (reduced_data_active && GetBlockWeight(block) > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight-reduced_data", strprintf("%s : RDTS weight limit failed", __func__));
+    const int64_t connect_weight{GetBlockWeight(block)};
+    ApplyFlexWatermark(*pindex, connect_weight < 0 ? 0 : static_cast<uint64_t>(connect_weight), params.GetConsensus());
+    if (connect_weight < 0 || static_cast<uint64_t>(connect_weight) > pindex->nFlexCap) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : flex weight limit failed", __func__));
     }
 
     const CheckTxInputsRules chk_input_rules{reduced_data_active ? CheckTxInputsRules::OutputSizeLimit : CheckTxInputsRules::None};
@@ -4599,7 +4638,7 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     // checks that use witness data may be performed here.
 
     // Size limits
-    if (block.vtx.empty() || block.vtx.size() * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT || ::GetSerializeSize(TX_NO_WITNESS(block)) * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT)
+    if (block.vtx.empty() || static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > MAX_BLOCK_SERIALIZED_SIZE)
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
 
     // First transaction must be coinbase, the rest must not be
@@ -4916,17 +4955,13 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
     // the block hash, so we couldn't mark the block as permanently
     // failed).
     const int64_t block_weight{GetBlockWeight(block)};
-    if (block_weight > MAX_BLOCK_WEIGHT) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : weight limit failed", __func__));
+    const int interval{chainman.GetConsensus().nSubsidyHalvingInterval};
+    uint64_t flex_cap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
+    if (pindexPrev != nullptr) {
+        flex_cap = Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, nHeight, interval);
     }
-
-    // RDTS: a reduced block-weight limit applies to exactly the blocks with
-    // RDTS active (see RdtsActiveAt). Checked here, after the coinbase
-    // witness, for the same malleability reason as the limit above.
-    if (pindexPrev != nullptr &&
-        chainman.GetConsensus().RdtsActiveAt(nHeight) &&
-        block_weight > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight-reduced_data", strprintf("%s : RDTS weight limit failed", __func__));
+    if (block_weight < 0 || static_cast<uint64_t>(block_weight) > flex_cap) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : flex weight limit failed", __func__));
     }
 
     return true;

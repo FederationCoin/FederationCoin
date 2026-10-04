@@ -7,6 +7,7 @@
 
 #include <chainparamsseeds.h>
 #include <consensus/amount.h>
+#include <consensus/flex_weight.h>
 #include <consensus/merkle.h>
 #include <consensus/params.h>
 #include <hash.h>
@@ -106,6 +107,7 @@ static void SetFederationBlake2bAndRdts(Consensus::Params& consensus)
 {
     consensus.Blake2bHeight = 0;
     consensus.Blake2bTargetShift = 0;
+    assert(consensus.nSubsidyHalvingInterval % Consensus::FLEX_WINDOW_COUNT == 0);
 }
 
 static void SetFederationTaprootDeployment(Consensus::Params& consensus)
@@ -456,7 +458,7 @@ public:
         m_chain_type = ChainType::REGTEST;
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
-        consensus.nSubsidyHalvingInterval = 150;
+        consensus.nSubsidyHalvingInterval = 160;
         SetFederationBuriedBips(consensus);
         SetFederationBlake2bAndRdts(consensus);
         SetFederationTaprootDeployment(consensus);

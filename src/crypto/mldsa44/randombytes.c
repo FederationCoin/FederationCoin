@@ -6,8 +6,14 @@
 
 #include <string.h>
 
-static _Thread_local const uint8_t* g_next;
-static _Thread_local size_t g_left;
+#if defined(_MSC_VER)
+#define MLDSA44_THREAD_LOCAL __declspec(thread)
+#else
+#define MLDSA44_THREAD_LOCAL _Thread_local
+#endif
+
+static MLDSA44_THREAD_LOCAL const uint8_t* g_next;
+static MLDSA44_THREAD_LOCAL size_t g_left;
 
 void mldsa44_use_seed(const uint8_t* seed, size_t len)
 {

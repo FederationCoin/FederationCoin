@@ -157,7 +157,13 @@ class RejectLowDifficultyHeadersTest(BitcoinTestFramework):
         # the handshake.
         tip_time = max(n.getblock(n.getbestblockhash())["time"] for n in self.nodes)
         self.mocktime_all(tip_time + 1)
-        self.reconnect_all()
+        # Resolve the 0/1 fork first. If node2 starts downloading node0's
+        # shorter fork and then sees node1's headers, it stops requesting
+        # blocks after "Large reorg, won't direct fetch" and sync hangs.
+        self.connect_nodes(0, 1)
+        self.sync_blocks(self.nodes[0:2], timeout=900)
+        self.connect_nodes(0, 2)
+        self.connect_nodes(0, 3)
         self.sync_blocks(timeout=900)
 
 

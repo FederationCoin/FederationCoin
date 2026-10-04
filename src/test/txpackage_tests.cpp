@@ -2,8 +2,11 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <consensus/mldsa_spend.h>
 #include <consensus/settlement_fee.h>
 #include <consensus/validation.h>
+#include <hash.h>
+#include <script/interpreter.h>
 #include <key_io.h>
 #include <policy/packages.h>
 #include <policy/policy.h>
@@ -19,6 +22,8 @@
 #include <test/util/txmempool.h>
 #include <validation.h>
 
+#include <array>
+
 #include <boost/test/unit_test.hpp>
 
 using namespace util::hex_literals;
@@ -33,6 +38,58 @@ static CAmount MinimumPackageFee(const CTransaction& tx, CAmount offered)
     const int64_t vsize{static_cast<int64_t>(GetVirtualTransactionSize(tx))};
     const CAmount floor{std::max(MinimumFee(vsize), PACKAGE_TEST_FEE_RATE * vsize)};
     return std::max(offered, floor);
+}
+
+static Consensus::MlDsa44Keypair KeyFromMark(unsigned char mark)
+{
+    Consensus::MlDsa44Keypair key;
+    std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> seed{};
+    seed.fill(mark);
+    BOOST_REQUIRE(Consensus::MlDsa44Keygen(seed, key));
+    return key;
+}
+
+static CScript Policy1of2Script(const Consensus::MlDsa44Keypair& first, const Consensus::MlDsa44Keypair& second)
+{
+    const uint256 ha{Consensus::MlDsa44KeyHash(first.pubkey)};
+    const uint256 hb{Consensus::MlDsa44KeyHash(second.pubkey)};
+    const std::array<uint256, 2> hashes{ha < hb ? ha : hb, ha < hb ? hb : ha};
+    const auto program{Consensus::MlDsa44PolicyProgram(1, hashes)};
+    BOOST_REQUIRE(program);
+    return CScript() << OP_0 << ToByteVector(*program);
+}
+
+static void Sign1of2(CMutableTransaction& tx, const std::vector<CTxOut>& spent, unsigned int nIn,
+                     const Consensus::MlDsa44Keypair& first, const Consensus::MlDsa44Keypair& second, bool sign_first)
+{
+    const Consensus::MlDsa44Keypair* a{&first};
+    const Consensus::MlDsa44Keypair* b{&second};
+    if (Consensus::MlDsa44KeyHash(b->pubkey) < Consensus::MlDsa44KeyHash(a->pubkey)) std::swap(a, b);
+    PrecomputedTransactionData txdata;
+    std::vector<CTxOut> spent_copy{spent};
+    txdata.Init(tx, std::move(spent_copy), /*force=*/true);
+    uint256 sighash;
+    BOOST_REQUIRE(SignatureHashUnified(sighash, CScript{}, tx, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata));
+    const std::span<const unsigned char> message{sighash.begin(), 32};
+    tx.vin[nIn].scriptSig = CScript();
+    tx.vin[nIn].scriptWitness.stack.clear();
+    const auto append_signed = [&](const Consensus::MlDsa44Keypair& key) {
+        std::array<unsigned char, Consensus::MLDSA44_SIGNATURE_SIZE> signature{};
+        BOOST_REQUIRE(Consensus::MlDsa44Sign(key, message, signature));
+        tx.vin[nIn].scriptWitness.stack.emplace_back(key.pubkey.begin(), key.pubkey.end());
+        tx.vin[nIn].scriptWitness.stack.emplace_back(signature.begin(), signature.end());
+    };
+    const auto append_skip = [&](const Consensus::MlDsa44Keypair& key) {
+        const uint256 hash{Consensus::MlDsa44KeyHash(key.pubkey)};
+        tx.vin[nIn].scriptWitness.stack.emplace_back(hash.begin(), hash.end());
+    };
+    if (sign_first) {
+        append_signed(*a);
+        append_skip(*b);
+    } else {
+        append_skip(*a);
+        append_signed(*b);
+    }
 }
 
 struct TxPackageTest : TestChain100Setup {
@@ -669,11 +726,6 @@ BOOST_AUTO_TEST_CASE(package_witness_swap_tests)
         }
     }
 
-    // Heritage: the rest of this case built P2WSH anyone-can-spend trees
-    // (OP_TRUE / OP_DROP witness paths). Those are not spends on this chain.
-    CKey child_key;
-    return;
-
     // Try submitting Package1{child2, grandchild} where child2 is same-txid-different-witness as
     // the in-mempool transaction, child1. Since child1 exists in the mempool and its outputs are
     // available, child2 should be ignored and grandchild should be accepted.
@@ -681,11 +733,9 @@ BOOST_AUTO_TEST_CASE(package_witness_swap_tests)
     // This tests a potential censorship vector in which an attacker broadcasts a competing package
     // where a parent's witness is mutated. The honest package should be accepted despite the fact
     // that we don't allow witness replacement.
-    CKey grandchild_key = GenerateRandomKey();
-    CScript grandchild_locking_script = GetScriptForDestination(WitnessV0KeyHash(grandchild_key.GetPubKey()));
     auto mtx_grandchild = CreateValidMempoolTransaction(/*input_transaction=*/ptx_child2, /*input_vout=*/0,
-                                                        /*input_height=*/0, /*input_signing_key=*/child_key,
-                                                        /*output_destination=*/grandchild_locking_script,
+                                                        /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
+                                                        /*output_destination=*/MldsaScriptPubKey(),
                                                         /*output_amount=*/CAmount(47 * COIN), /*submit=*/false);
     CTransactionRef ptx_grandchild = MakeTransactionRef(mtx_grandchild);
     // Check that they have different package hashes
@@ -709,34 +759,23 @@ BOOST_AUTO_TEST_CASE(package_witness_swap_tests)
     // identical-tx-in-mempool, same-txid-different-witness-in-mempool, and new transactions.
     Package package_mixed;
 
-    // Give all the parents anyone-can-spend scripts so we don't have to deal with signing the child.
-    CScript acs_script = CScript() << OP_TRUE;
-    CScript acs_spk = GetScriptForDestination(WitnessV0ScriptHash(acs_script));
-    CScriptWitness acs_witness;
-    acs_witness.stack.emplace_back(acs_script.begin(), acs_script.end());
+    const CScript mldsa_spk{MldsaScriptPubKey()};
+    const auto key_a{KeyFromMark(10)};
+    const auto key_b{KeyFromMark(11)};
+    const CScript policy_spk{Policy1of2Script(key_a, key_b)};
 
     // parent1 will already be in the mempool
     auto mtx_parent1 = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[1], /*input_vout=*/0,
                                                      /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
-                                                     /*output_destination=*/acs_spk,
+                                                     /*output_destination=*/mldsa_spk,
                                                      /*output_amount=*/CAmount(49 * COIN), /*submit=*/true);
     CTransactionRef ptx_parent1 = MakeTransactionRef(mtx_parent1);
     package_mixed.push_back(ptx_parent1);
 
     // parent2 will have a same-txid-different-witness tx already in the mempool
-    CScript grandparent2_script = CScript() << OP_DROP << OP_TRUE;
-    CScript grandparent2_spk = GetScriptForDestination(WitnessV0ScriptHash(grandparent2_script));
-    CScriptWitness parent2_witness1;
-    parent2_witness1.stack.emplace_back(1);
-    parent2_witness1.stack.emplace_back(grandparent2_script.begin(), grandparent2_script.end());
-    CScriptWitness parent2_witness2;
-    parent2_witness2.stack.emplace_back(2);
-    parent2_witness2.stack.emplace_back(grandparent2_script.begin(), grandparent2_script.end());
-
-    // Create grandparent2 creating an output with multiple spending paths. Submit to mempool.
     auto mtx_grandparent2 = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[2], /*input_vout=*/0,
                                                           /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
-                                                          /*output_destination=*/grandparent2_spk,
+                                                          /*output_destination=*/policy_spk,
                                                           /*output_amount=*/CAmount(49 * COIN), /*submit=*/true);
     CTransactionRef ptx_grandparent2 = MakeTransactionRef(mtx_grandparent2);
 
@@ -745,18 +784,18 @@ BOOST_AUTO_TEST_CASE(package_witness_swap_tests)
     mtx_parent2_v1.vin.resize(1);
     mtx_parent2_v1.vin[0].prevout.hash = ptx_grandparent2->GetHash();
     mtx_parent2_v1.vin[0].prevout.n = 0;
-    mtx_parent2_v1.vin[0].scriptSig = CScript();
-    mtx_parent2_v1.vin[0].scriptWitness = parent2_witness1;
     mtx_parent2_v1.vout.resize(1);
     mtx_parent2_v1.vout[0].nValue = CAmount(48 * COIN);
-    mtx_parent2_v1.vout[0].scriptPubKey = acs_spk;
+    mtx_parent2_v1.vout[0].scriptPubKey = mldsa_spk;
+    Sign1of2(mtx_parent2_v1, {ptx_grandparent2->vout[0]}, 0, key_a, key_b, /*sign_first=*/true);
 
     CMutableTransaction mtx_parent2_v2{mtx_parent2_v1};
-    mtx_parent2_v2.vin[0].scriptWitness = parent2_witness2;
+    Sign1of2(mtx_parent2_v2, {ptx_grandparent2->vout[0]}, 0, key_a, key_b, /*sign_first=*/false);
 
     CTransactionRef ptx_parent2_v1 = MakeTransactionRef(mtx_parent2_v1);
     CTransactionRef ptx_parent2_v2 = MakeTransactionRef(mtx_parent2_v2);
-    // Put parent2_v1 in the package, submit parent2_v2 to the mempool.
+    BOOST_CHECK_EQUAL(ptx_parent2_v1->GetHash(), ptx_parent2_v2->GetHash());
+    BOOST_CHECK(ptx_parent2_v1->GetWitnessHash() != ptx_parent2_v2->GetWitnessHash());
     const MempoolAcceptResult parent2_v2_result = m_node.chainman->ProcessTransaction(ptx_parent2_v2);
     BOOST_CHECK(parent2_v2_result.m_result_type == MempoolAcceptResult::ResultType::VALID);
     package_mixed.push_back(ptx_parent2_v1);
@@ -764,30 +803,26 @@ BOOST_AUTO_TEST_CASE(package_witness_swap_tests)
     // parent3 will be a new transaction. Put a low feerate to make it invalid on its own.
     auto mtx_parent3_probe = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[3], /*input_vout=*/0,
                                                      /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
-                                                     /*output_destination=*/acs_spk,
+                                                     /*output_destination=*/mldsa_spk,
                                                      /*output_amount=*/CAmount(50 * COIN - low_fee_amt), /*submit=*/false);
     const CAmount parent3_fee{MinimumPackageFee(CTransaction(mtx_parent3_probe), low_fee_amt)};
     auto mtx_parent3 = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[3], /*input_vout=*/0,
                                                      /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
-                                                     /*output_destination=*/acs_spk,
+                                                     /*output_destination=*/mldsa_spk,
                                                      /*output_amount=*/CAmount(50 * COIN - parent3_fee), /*submit=*/false);
     CTransactionRef ptx_parent3 = MakeTransactionRef(mtx_parent3);
     package_mixed.push_back(ptx_parent3);
     BOOST_CHECK(m_node.mempool->GetMinFee().GetFee(GetVirtualTransactionSize(*ptx_parent3)) > parent3_fee);
     BOOST_CHECK(m_node.mempool->m_opts.min_relay_feerate.GetFee(GetVirtualTransactionSize(*ptx_parent3)) <= parent3_fee);
 
-    // child spends parent1, parent2, and parent3
-    CKey mixed_grandchild_key = GenerateRandomKey();
-    CScript mixed_child_spk = GetScriptForDestination(WitnessV0KeyHash(mixed_grandchild_key.GetPubKey()));
-
-    CMutableTransaction mtx_mixed_child;
-    mtx_mixed_child.vin.emplace_back(COutPoint(ptx_parent1->GetHash(), 0));
-    mtx_mixed_child.vin.emplace_back(COutPoint(ptx_parent2_v1->GetHash(), 0));
-    mtx_mixed_child.vin.emplace_back(COutPoint(ptx_parent3->GetHash(), 0));
-    mtx_mixed_child.vin[0].scriptWitness = acs_witness;
-    mtx_mixed_child.vin[1].scriptWitness = acs_witness;
-    mtx_mixed_child.vin[2].scriptWitness = acs_witness;
-    mtx_mixed_child.vout.emplace_back((48 + 49) * COIN + mtx_parent3.vout[0].nValue - COIN, mixed_child_spk);
+    auto mtx_mixed_child = CreateValidTransaction(
+        /*input_transactions=*/{ptx_parent1, ptx_parent2_v1, ptx_parent3},
+        /*inputs=*/{COutPoint(ptx_parent1->GetHash(), 0), COutPoint(ptx_parent2_v1->GetHash(), 0), COutPoint(ptx_parent3->GetHash(), 0)},
+        /*input_height=*/101,
+        /*input_signing_keys=*/{coinbaseKey, coinbaseKey, coinbaseKey},
+        /*outputs=*/{CTxOut{(48 + 49) * COIN + mtx_parent3.vout[0].nValue - COIN, mldsa_spk}},
+        /*feerate=*/std::nullopt,
+        /*fee_output=*/std::nullopt).first;
     CTransactionRef ptx_mixed_child = MakeTransactionRef(mtx_mixed_child);
     package_mixed.push_back(ptx_mixed_child);
 

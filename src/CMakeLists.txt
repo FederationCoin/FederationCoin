@@ -143,24 +143,6 @@ target_link_libraries(bitcoin_consensus
     bitcoin_crypto
     secp256k1
 )
-# PQClean ML-DSA-44 is vendor C. Clang -fsanitize=integer flags its
-# unsigned challenge bits. The algorithm is unchanged; keep the files
-# on the consensus library and out of the integer sanitizer.
-if(CMAKE_C_COMPILER_ID MATCHES "Clang")
-  set_source_files_properties(
-    crypto/mldsa44/fips202.c
-    crypto/mldsa44/ntt.c
-    crypto/mldsa44/packing.c
-    crypto/mldsa44/poly.c
-    crypto/mldsa44/polyvec.c
-    crypto/mldsa44/randombytes.c
-    crypto/mldsa44/reduce.c
-    crypto/mldsa44/rounding.c
-    crypto/mldsa44/sign.c
-    crypto/mldsa44/symmetric-shake.c
-    PROPERTIES COMPILE_OPTIONS "-fno-sanitize=integer"
-  )
-endif()
 
 if(WITH_ZMQ)
   add_subdirectory(zmq)

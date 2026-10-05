@@ -1236,9 +1236,13 @@ bool V2Transport::ProcessReceivedPacketBytes() noexcept
     // - 0x00 byte: indicating long message type encoding
     // - 12 bytes of message type
     // - payload
-    static constexpr size_t MAX_CONTENTS_LEN =
+    // BIP324's length field is 3 bytes, so a well-formed packet cannot exceed
+    // MAX_CONTENTS_LEN. The 32MB v1 header cap is above that, which means the
+    // "packet too large" branch is only live if the v1 cap is later lowered.
+    static constexpr size_t MAX_CONTENTS_LEN = std::min<size_t>(
+        BIP324Cipher::MAX_CONTENTS_LEN,
         1 + CMessageHeader::MESSAGE_TYPE_SIZE +
-        std::min<size_t>(MAX_SIZE, MAX_PROTOCOL_MESSAGE_LENGTH);
+            std::min<size_t>(MAX_SIZE, MAX_PROTOCOL_MESSAGE_LENGTH));
 
     if (m_recv_buffer.size() == BIP324Cipher::LENGTH_LEN) {
         // Length descriptor received.
@@ -1527,6 +1531,7 @@ bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
         std::copy(msg.m_type.begin(), msg.m_type.end(), contents.data() + 1);
         std::copy(msg.data.begin(), msg.data.end(), contents.begin() + 1 + CMessageHeader::MESSAGE_TYPE_SIZE);
     }
+    if (contents.size() > BIP324Cipher::MAX_CONTENTS_LEN) return false;
     // Construct ciphertext in send buffer.
     m_send_buffer.resize(contents.size() + BIP324Cipher::EXPANSION);
     m_cipher.Encrypt(MakeByteSpan(contents), {}, false, MakeWritableByteSpan(m_send_buffer));

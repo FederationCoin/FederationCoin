@@ -961,8 +961,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             raise SkipTest("bitcoind has not been built with zmq enabled.")
 
     def skip_heritage_secp_script(self):
-        """Heritage secp/P2WSH/DER/Taproot script paths. Closed spend is ML-DSA-44."""
-        raise SkipTest("Heritage secp/P2WSH/DER script; closed spend is ML-DSA-44.")
+        """Heritage P2SH/P2WSH/CHECKSIG/Taproot script success. Live spends are
+        Dilithium 87, Dilithium 44, and warned secp P2WPKH."""
+        raise SkipTest("Heritage P2SH/P2WSH/CHECKSIG script success; live spends are Dilithium 87, Dilithium 44, and warned secp P2WPKH.")
 
     def skip_if_no_wallet(self):
         """Heritage: Knots descriptor/secp wallet. Product wallets are Sparrow and mill."""

@@ -7,8 +7,10 @@
 #include <common/args.h>
 #include <compat/compat.h>
 #include <cstdint>
+#include <bip324.h>
 #include <net.h>
 #include <net_processing.h>
+#include <protocol.h>
 #include <netaddress.h>
 #include <netbase.h>
 #include <netmessagemaker.h>
@@ -1438,11 +1440,18 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         BOOST_CHECK((*ret)[0] && (*ret)[0]->m_type == "inv" && std::ranges::equal((*ret)[0]->m_recv, MakeByteSpan(msg_data_1)));
         BOOST_CHECK((*ret)[1] && (*ret)[1]->m_type == "pong" && std::ranges::equal((*ret)[1]->m_recv, MakeByteSpan(msg_data_2)));
 
-        // Then send a too-large message.
-        auto msg_data_3 = m_rng.randbytes<uint8_t>(MAX_PROTOCOL_MESSAGE_LENGTH + 5000);
+        // A 32MB v1 payload cannot be named in BIP324's 3-byte length field.
+        // Encrypting one would truncate the length (and now asserts). The v2
+        // too-large check is therefore not reachable with the current cap.
+        BOOST_CHECK(1 + CMessageHeader::MESSAGE_TYPE_SIZE +
+                    std::min<size_t>(MAX_SIZE, MAX_PROTOCOL_MESSAGE_LENGTH) >
+                    BIP324Cipher::MAX_CONTENTS_LEN);
+        auto msg_data_3 = m_rng.randbytes<uint8_t>(m_rng.randrange(10000));
         tester.SendMessage(uint8_t(11), msg_data_3); // getdata short id
         ret = tester.Interact();
-        BOOST_CHECK(!ret);
+        BOOST_REQUIRE(ret && ret->size() == 1);
+        BOOST_CHECK((*ret)[0] && (*ret)[0]->m_type == "getdata" &&
+                    std::ranges::equal((*ret)[0]->m_recv, MakeByteSpan(msg_data_3)));
     }
 
     // Various valid but unusual scenarios.

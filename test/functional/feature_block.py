@@ -93,7 +93,8 @@ class FullBlockTest(BitcoinTestFramework):
         ]]
 
     def skip_test_if_missing_module(self):
-        # Heritage: secp P2PKH coinbase, P2SH, CHECKSIG sigops. Closed coinbase is ML-DSA-44.
+        # Heritage: P2PKH coinbase plus P2SH/CHECKSIG success. Coinbase and
+        # spends here are Dilithium 87, Dilithium 44, or warned secp P2WPKH.
         self.skip_heritage_secp_script()
 
     def run_test(self):

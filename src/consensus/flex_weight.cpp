@@ -18,7 +18,9 @@ void Mul128(uint64_t a, uint64_t b, uint64_t& hi, uint64_t& lo)
     const uint64_t hh{(a >> 32) * (b >> 32)};
     const uint64_t mid34{(ll >> 32) + uint32_t(lh) + uint32_t(hl)};
     hi = hh + (lh >> 32) + (hl >> 32) + (mid34 >> 32);
-    lo = (mid34 << 32) + uint32_t(ll);
+    // Mask before the shift. mid34 can be up to ~3*2^32; a bare mid34<<32 is
+    // not a representable uint64_t and Clang -fsanitize=integer rejects it.
+    lo = (uint64_t{uint32_t(mid34)} << 32) | uint32_t(ll);
 }
 
 } // namespace

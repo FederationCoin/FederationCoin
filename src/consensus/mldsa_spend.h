@@ -39,6 +39,10 @@ std::optional<uint256> MlDsa44PolicyProgram(uint8_t threshold, std::span<const u
 
 bool CheckSingleKeySpend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
 bool CheckMultisigSpend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
+/** Merge slot witnesses. A signed slot wins over a skip hash. Hash lists must match. */
+std::optional<std::vector<std::vector<unsigned char>>> MergeMlDsa44Witnesses(
+    const std::vector<std::vector<std::vector<unsigned char>>>& stacks,
+    std::span<const unsigned char> sighash);
 
 enum class MlDsaSpendKind { Absent, Single, Multi };
 MlDsaSpendKind MlDsaSpendKindOf(const std::vector<std::vector<unsigned char>>& witness);

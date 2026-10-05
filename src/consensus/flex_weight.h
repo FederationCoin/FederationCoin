@@ -17,6 +17,8 @@ static constexpr int FLEX_WINDOW_COUNT{16};
 static constexpr uint64_t MAX_FLEX_BLOCK_WEIGHT{87841638446235ULL};
 static constexpr uint64_t MIN_FLEX_BLOCK_WEIGHT{2400000};
 
+/** True if a * b >= c * d, without wrapping the products. */
+bool MulGe(uint64_t a, uint64_t b, uint64_t c, uint64_t d);
 uint64_t GrowCap(uint64_t cap);
 uint64_t ShrinkCap(uint64_t cap);
 bool ShouldGrow(int hot_windows);

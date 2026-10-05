@@ -95,7 +95,7 @@ BASE_SCRIPTS = [
     # vv Tests less than 5m vv
     'feature_fee_estimation.py',
     # feature_unified_sighash and the temporary-deployment test need a SHA256d era.
-    'rpc_combinerawtransaction_unified.py --descriptors',
+    'rpc_combinerawtransaction_unified.py',
     # Taproot is parked (NEVER_ACTIVE); feature_taproot mines a pre-fork block.
     'feature_bip9_max_activation_height.py',
     'feature_rdts.py',

@@ -28,6 +28,7 @@ bool CheckSecpSingleKeySpend(const uint160& program, const std::vector<std::vect
     const CPubKey pubkey{Span<const unsigned char>{witness[1]}};
     if (!pubkey.IsFullyValid() || !pubkey.IsCompressed()) return false;
     if (Hash160(pubkey) != program) return false;
+    if (!CheckSignatureEncoding(witness[0], SCRIPT_VERIFY_DERSIG, nullptr)) return false;
 
     std::vector<unsigned char> signature{witness[0].begin(), witness[0].end() - 1};
     uint256 message;

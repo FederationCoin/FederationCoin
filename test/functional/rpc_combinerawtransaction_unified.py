@@ -2,71 +2,67 @@
 # Copyright (c) 2026-present The Bitcoin Knots developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""combinerawtransaction must merge legacy multisig variants under unified rules."""
-from test_framework.test_framework import BitcoinTestFramework
-from test_framework.key import ECKey
-from test_framework.wallet_util import bytes_to_wif
-from decimal import Decimal
+"""combinerawtransaction merges two Dilithium 44 slot partials."""
 
-class T(BitcoinTestFramework):
+from test_framework.messages import COIN, COutPoint, CTransaction, CTxIn, CTxInWitness, CTxOut
+from test_framework.mldsa import key_hash, keygen, policy_program, sign_slots
+from test_framework.script import (
+    CScript,
+    OP_0,
+    SIGHASH_ALL,
+    SIGHASH_UNIFIED,
+    UnifiedSignatureHash,
+)
+from test_framework.test_framework import BitcoinTestFramework
+from test_framework.util import assert_raises_rpc_error
+from test_framework.wallet import MiniWallet
+
+
+class CombineRawTransactionUnifiedTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
 
-    def add_options(self, parser):
-        self.add_wallet_options(parser, descriptors=True, legacy=False)
-
-    def skip_test_if_missing_module(self):
-        self.skip_if_no_wallet()
-
     def run_test(self):
-        # Heritage: Core descriptor wallet secp legacy P2SH multisig. Product wallets are Sparrow and mill.
-        return
         node = self.nodes[0]
-        node.createwallet("w")
-        w = node.get_wallet_rpc("w")
-        self.generatetoaddress(node, 101, w.getnewaddress())
+        wallet = MiniWallet(node)
+        self.generate(wallet, 110)
 
-        keys, wifs, pubs = [], [], []
-        for _ in range(2):
-            k = ECKey()
-            k.generate()
-            keys.append(k)
-            wifs.append(bytes_to_wif(k.get_bytes()))
-            pubs.append(k.get_pubkey().get_bytes().hex())
-
-        # "legacy" so the whole thing lives in the scriptSig, which is what
-        # makes each co-signer's variant a different transaction by txid.
-        ms = node.createmultisig(2, pubs, "legacy")
-        txid = w.sendtoaddress(ms["address"], 2)
-        raw = node.getrawtransaction(txid, True)
-        vout = next(o["n"] for o in raw["vout"]
-                    if o["scriptPubKey"].get("address") == ms["address"])
-        spk = next(o["scriptPubKey"]["hex"] for o in raw["vout"] if o["n"] == vout)
+        keys = [keygen(node.binary, f"{mark:02x}" * 32) for mark in (1, 2)]
+        keys.sort(key=lambda key: key_hash(key["pubkey"]))
+        program = policy_program(2, [key_hash(key["pubkey"]) for key in keys])
+        script_pubkey = CScript([OP_0, program])
+        funded = wallet.send_to(from_node=node, scriptPubKey=script_pubkey, amount=20 * COIN)
         self.generate(node, 1)
 
-        unsigned = node.createrawtransaction(
-            [{"txid": txid, "vout": vout}], [{w.getnewaddress(): Decimal("1.999")}])
-        prevtx = {"txid": txid, "vout": vout, "scriptPubKey": spk,
-                  "redeemScript": ms["redeemScript"], "amount": 2}
+        value = 20 * COIN
+        fee = 100_000
+        unsigned = CTransaction()
+        unsigned.vin = [CTxIn(COutPoint(int(funded["txid"], 16), funded["sent_vout"]))]
+        unsigned.vout = [CTxOut(value - fee, wallet.get_output_script())]
+        unsigned.wit.vtxinwit = [CTxInWitness()]
+        spent = [CTxOut(value, script_pubkey)]
+        sighash = UnifiedSignatureHash(b"", unsigned, 0, SIGHASH_ALL | SIGHASH_UNIFIED, spent, True)
+        assert sighash is not None
 
         partials = []
-        for wif in wifs:
-            r = node.signrawtransactionwithkey(unsigned, [wif], [prevtx])
-            assert not r["complete"], "one of two keys must not complete it"
-            partials.append(r["hex"])
+        for index in (0, 1):
+            tx = CTransaction(unsigned)
+            tx.wit.vtxinwit[0].scriptWitness.stack = sign_slots(node.binary, sighash, keys, index)
+            tx.rehash()
+            partials.append(tx.serialize().hex())
 
-        a, b = partials
-        assert a != b, "the two partials must differ"
-        ta = node.decoderawtransaction(a)["txid"]
-        tb = node.decoderawtransaction(b)["txid"]
-        self.log.info(f"variant txids differ: {ta[:12]} vs {tb[:12]} -> {ta != tb}")
+        assert partials[0] != partials[1]
+        assert_raises_rpc_error(-22, "TX decode failed", node.combinerawtransaction, [partials[0], partials[1] + "00"])
+        assert_raises_rpc_error(-22, "Missing transactions", node.combinerawtransaction, [])
 
         combined = node.combinerawtransaction(partials)
-        res = node.testmempoolaccept([combined])[0]
-        self.log.info(f"combined accepted: {res['allowed']}  reason={res.get('reject-reason')}")
-        assert res["allowed"], f"combining dropped signatures: {res}"
-        self.log.info("legacy multisig variants combined into a valid transaction")
+        result = node.testmempoolaccept([combined])[0]
+        assert result["allowed"], result
+        node.sendrawtransaction(combined)
+        self.generate(node, 1)
+        assert_raises_rpc_error(-25, "Input not found or already spent", node.combinerawtransaction, partials)
 
-if __name__ == '__main__':
-    T(__file__).main()
+
+if __name__ == "__main__":
+    CombineRawTransactionUnifiedTest(__file__).main()

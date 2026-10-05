@@ -4,32 +4,35 @@
 
 #include <consensus/flex_weight.h>
 
-#if defined(_MSC_VER)
-#include <intrin.h>
-#endif
-
 #include <limits>
 
 namespace Consensus {
 namespace {
 
-#if defined(_MSC_VER)
+/** 64x64 -> 128 using four 32x32 multiplies. Same on every target. */
+void Mul128(uint64_t a, uint64_t b, uint64_t& hi, uint64_t& lo)
+{
+    const uint64_t ll{uint64_t{uint32_t(a)} * uint32_t(b)};
+    const uint64_t lh{uint64_t{uint32_t(a)} * (b >> 32)};
+    const uint64_t hl{(a >> 32) * uint32_t(b)};
+    const uint64_t hh{(a >> 32) * (b >> 32)};
+    const uint64_t mid34{(ll >> 32) + uint32_t(lh) + uint32_t(hl)};
+    hi = hh + (lh >> 32) + (hl >> 32) + (mid34 >> 32);
+    lo = (mid34 << 32) + uint32_t(ll);
+}
+
+} // namespace
+
 bool MulGe(uint64_t a, uint64_t b, uint64_t c, uint64_t d)
 {
     uint64_t ab_hi{0};
+    uint64_t ab_lo{0};
     uint64_t cd_hi{0};
-    const uint64_t ab_lo{_umul128(a, b, &ab_hi)};
-    const uint64_t cd_lo{_umul128(c, d, &cd_hi)};
+    uint64_t cd_lo{0};
+    Mul128(a, b, ab_hi, ab_lo);
+    Mul128(c, d, cd_hi, cd_lo);
     return ab_hi > cd_hi || (ab_hi == cd_hi && ab_lo >= cd_lo);
 }
-#else
-bool MulGe(uint64_t a, uint64_t b, uint64_t c, uint64_t d)
-{
-    return static_cast<unsigned __int128>(a) * b >= static_cast<unsigned __int128>(c) * d;
-}
-#endif
-
-} // namespace
 
 uint64_t GrowCap(uint64_t cap)
 {

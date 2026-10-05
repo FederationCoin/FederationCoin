@@ -109,8 +109,15 @@ bool CheckSingleKeySpend(const uint256& program, const std::vector<std::vector<u
 
 namespace {
 
+struct ParsedSlot {
+    uint256 hash;
+    bool signed_slot{false};
+    std::vector<unsigned char> pubkey;
+    std::vector<unsigned char> signature;
+};
+
 struct ParsedSlots {
-    std::vector<uint256> hashes;
+    std::vector<ParsedSlot> slots;
     int signed_ok{0};
     bool ok{false};
 };
@@ -122,7 +129,9 @@ ParsedSlots ParseSlots(const std::vector<std::vector<unsigned char>>& witness, s
     while (i < witness.size()) {
         const std::vector<unsigned char>& item{witness[i]};
         if (item.size() == 32) {
-            parsed.hashes.emplace_back(Span<const unsigned char>{item.data(), item.size()});
+            ParsedSlot slot;
+            slot.hash = uint256{Span<const unsigned char>{item.data(), item.size()}};
+            parsed.slots.push_back(std::move(slot));
             ++i;
             continue;
         }
@@ -130,14 +139,19 @@ ParsedSlots ParseSlots(const std::vector<std::vector<unsigned char>>& witness, s
         if (i + 1 >= witness.size()) return parsed;
         const std::vector<unsigned char>& signature{witness[i + 1]};
         if (signature.size() != MLDSA44_SIGNATURE_SIZE) return parsed;
-        parsed.hashes.push_back(MlDsa44KeyHash(item));
         if (verify_signatures) {
             if (!MlDsa44Verify(item, signature, sighash)) return parsed;
         }
+        ParsedSlot slot;
+        slot.hash = MlDsa44KeyHash(item);
+        slot.signed_slot = true;
+        slot.pubkey = item;
+        slot.signature = signature;
+        parsed.slots.push_back(std::move(slot));
         ++parsed.signed_ok;
         i += 2;
     }
-    parsed.ok = i == witness.size() && parsed.hashes.size() >= 1 && parsed.hashes.size() <= MLDSA44_MAX_KEYS;
+    parsed.ok = i == witness.size() && parsed.slots.size() >= 1 && parsed.slots.size() <= MLDSA44_MAX_KEYS;
     return parsed;
 }
 
@@ -147,17 +161,56 @@ bool CheckMultisigSpend(const uint256& program, const std::vector<std::vector<un
 {
     const ParsedSlots parsed{ParseSlots(witness, sighash, /*verify_signatures=*/true)};
     if (!parsed.ok) return false;
-    for (std::size_t h{1}; h < parsed.hashes.size(); ++h) {
-        if (!(parsed.hashes[h - 1] < parsed.hashes[h])) return false;
+    for (std::size_t h{1}; h < parsed.slots.size(); ++h) {
+        if (!(parsed.slots[h - 1].hash < parsed.slots[h].hash)) return false;
     }
-    const uint8_t count{static_cast<uint8_t>(parsed.hashes.size())};
+    std::vector<uint256> hashes;
+    hashes.reserve(parsed.slots.size());
+    for (const ParsedSlot& slot : parsed.slots) hashes.push_back(slot.hash);
+    const uint8_t count{static_cast<uint8_t>(hashes.size())};
     for (uint8_t threshold{1}; threshold <= count; ++threshold) {
-        const std::optional<uint256> expected{MlDsa44PolicyProgram(threshold, parsed.hashes)};
+        const std::optional<uint256> expected{MlDsa44PolicyProgram(threshold, hashes)};
         if (expected && *expected == program) {
             return parsed.signed_ok >= threshold;
         }
     }
     return false;
+}
+
+std::optional<std::vector<std::vector<unsigned char>>> MergeMlDsa44Witnesses(
+    const std::vector<std::vector<std::vector<unsigned char>>>& stacks,
+    std::span<const unsigned char> sighash)
+{
+    const bool verify{sighash.size() == 32};
+    std::vector<ParsedSlot> merged;
+    bool have{false};
+    for (const auto& stack : stacks) {
+        const ParsedSlots parsed{ParseSlots(stack, sighash, verify)};
+        if (!parsed.ok) continue;
+        if (!have) {
+            merged = parsed.slots;
+            have = true;
+            continue;
+        }
+        if (merged.size() != parsed.slots.size()) return std::nullopt;
+        for (std::size_t i{0}; i < merged.size(); ++i) {
+            if (merged[i].hash != parsed.slots[i].hash) return std::nullopt;
+            if (!merged[i].signed_slot && parsed.slots[i].signed_slot) {
+                merged[i] = parsed.slots[i];
+            }
+        }
+    }
+    if (!have) return std::nullopt;
+    std::vector<std::vector<unsigned char>> out;
+    for (const ParsedSlot& slot : merged) {
+        if (slot.signed_slot) {
+            out.push_back(slot.pubkey);
+            out.push_back(slot.signature);
+        } else {
+            out.emplace_back(slot.hash.begin(), slot.hash.end());
+        }
+    }
+    return out;
 }
 
 MlDsaSpendKind MlDsaSpendKindOf(const std::vector<std::vector<unsigned char>>& witness)

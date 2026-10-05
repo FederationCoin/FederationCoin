@@ -67,6 +67,40 @@ BOOST_AUTO_TEST_CASE(unchanged_load_does_not_cycle)
     BOOST_CHECK(!Consensus::ShouldShrink(hot * interval, after_grow, static_cast<int>(interval)));
 }
 
+BOOST_AUTO_TEST_CASE(wide_multiply_compare)
+{
+    const uint64_t max64{std::numeric_limits<uint64_t>::max()};
+    BOOST_CHECK(Consensus::MulGe(0, max64, 0, 1));
+    BOOST_CHECK(Consensus::MulGe(0, max64, 0, max64));
+    BOOST_CHECK(!Consensus::MulGe(0, max64, 1, 1));
+    BOOST_CHECK(Consensus::MulGe(2, 3, 3, 2));
+    BOOST_CHECK(Consensus::MulGe(3, 3, 2, 4));
+    BOOST_CHECK(!Consensus::MulGe(2, 4, 3, 3));
+    BOOST_CHECK(Consensus::MulGe(max64, max64, max64, max64));
+    BOOST_CHECK(Consensus::MulGe(max64, max64, max64, max64 - 1));
+    BOOST_CHECK(!Consensus::MulGe(max64, max64 - 1, max64, max64));
+    BOOST_CHECK(Consensus::MulGe(max64, 2, max64, 1));
+    BOOST_CHECK(!Consensus::MulGe(1, 1, max64, max64));
+}
+
+BOOST_AUTO_TEST_CASE(hot_and_shrink_use_wide_products)
+{
+    const uint64_t max64{std::numeric_limits<uint64_t>::max()};
+    const uint64_t k{(max64 / 20) + 1};
+    const uint64_t huge_cap{k * 5};
+    BOOST_CHECK(huge_cap > max64 / 4);
+    const uint64_t exact{k * 4};
+    BOOST_CHECK(Consensus::MulGe(exact, 5, huge_cap, 4));
+    BOOST_CHECK(Consensus::WindowIsHot(exact, huge_cap, 1));
+    BOOST_CHECK(!Consensus::WindowIsHot(exact - 1, huge_cap, 1));
+    BOOST_CHECK(!Consensus::WindowIsHot(/*window_weight=*/0, huge_cap, /*window_blocks=*/1));
+
+    const uint64_t overflow_cap{max64 / 2};
+    BOOST_CHECK(overflow_cap > max64 / 3);
+    BOOST_CHECK(Consensus::ShouldShrink(/*epoch_weight=*/0, overflow_cap, /*interval=*/3));
+    BOOST_CHECK(!Consensus::ShouldShrink(overflow_cap, overflow_cap, 3));
+}
+
 BOOST_AUTO_TEST_CASE(watermark_epoch_boundary)
 {
     Consensus::EpochWatermark mark;

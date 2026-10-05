@@ -21,6 +21,7 @@ HEADER_ID_SUFFIX = '_H'
 EXCLUDE_FILES_WITH_PREFIX = ['contrib/devtools/bitcoin-tidy',
                              'src/crypto/ctaes',
                              'src/crypto/mldsa44',
+                             'src/crypto/mldsa87',
                              'src/tinyformat.h',
                              'src/bench/nanobench.h',
                              'src/test/fuzz/FuzzedDataProvider.h'] + SHARED_EXCLUDED_SUBTREES

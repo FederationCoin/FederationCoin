@@ -8,6 +8,8 @@ with identical non-witness data but different witness.
 """
 
 from copy import deepcopy
+from decimal import Decimal
+
 from test_framework.messages import (
     COIN,
     COutPoint,
@@ -15,24 +17,22 @@ from test_framework.messages import (
     CTxIn,
     CTxInWitness,
     CTxOut,
-    sha256,
 )
+from test_framework.mldsa import key_hash, keygen, policy_program, sign_slots
 from test_framework.p2p import P2PTxInvStore
 from test_framework.script import (
     CScript,
     OP_0,
-    OP_ELSE,
-    OP_ENDIF,
-    OP_EQUAL,
-    OP_HASH160,
-    OP_IF,
-    OP_TRUE,
-    hash160,
+    SIGHASH_ALL,
+    SIGHASH_UNIFIED,
+    UnifiedSignatureHash,
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
 )
+from test_framework.wallet import MiniWallet
+
 
 class MempoolWtxidTest(BitcoinTestFramework):
     def set_test_params(self):
@@ -41,47 +41,40 @@ class MempoolWtxidTest(BitcoinTestFramework):
 
     def run_test(self):
         node = self.nodes[0]
+        wallet = MiniWallet(node)
 
-        self.log.info('Start with empty mempool and 101 blocks')
-        # The last 100 coinbase transactions are premature
-        blockhash = self.generate(node, 101)[0]
-        txid = node.getblock(blockhash=blockhash, verbosity=2)["tx"][0]["txid"]
+        self.log.info('Start with empty mempool and mature MiniWallet coinbases')
+        self.generate(wallet, 101)
         assert_equal(node.getmempoolinfo()['size'], 0)
 
-        self.log.info("Submit parent with multiple script branches to mempool")
-        hashlock = hash160(b'Preimage')
-        witness_script = CScript([OP_IF, OP_HASH160, hashlock, OP_EQUAL, OP_ELSE, OP_TRUE, OP_ENDIF])
-        witness_program = sha256(witness_script)
-        script_pubkey = CScript([OP_0, witness_program])
+        keys = [keygen(node.binary, "22" * 32), keygen(node.binary, "33" * 32)]
+        keys.sort(key=lambda k: key_hash(k["pubkey"]))
+        program = policy_program(1, [key_hash(k["pubkey"]) for k in keys])
+        script_pubkey = CScript([OP_0, program])
 
+        self.log.info("Submit parent paying a 1-of-2 policy")
+        utxo = wallet.get_utxo()
         parent = CTransaction()
-        parent.vin.append(CTxIn(COutPoint(int(txid, 16), 0), b""))
-        parent.vout.append(CTxOut(int(9.99998 * COIN), script_pubkey))
-        parent.rehash()
-
-        privkeys = [node.get_deterministic_priv_key().key]
-        raw_parent = node.signrawtransactionwithkey(hexstring=parent.serialize().hex(), privkeys=privkeys)['hex']
-        parent_txid = node.sendrawtransaction(hexstring=raw_parent, maxfeerate=0)
+        parent.vin.append(CTxIn(COutPoint(int(utxo['txid'], 16), utxo['vout']), b""))
+        parent.vout.append(CTxOut(int((utxo['value'] - Decimal("0.0001")) * COIN), script_pubkey))
+        wallet.sign_tx(parent, [CTxOut(int(utxo['value'] * COIN), wallet._scriptPubKey)])
+        parent_txid = node.sendrawtransaction(hexstring=parent.serialize().hex(), maxfeerate=0)
         self.generate(node, 1)
 
         peer_wtxid_relay = node.add_p2p_connection(P2PTxInvStore())
 
-        # Create a new transaction with witness solving first branch
-        child_witness_script = CScript([OP_TRUE])
-        child_witness_program = sha256(child_witness_script)
-        child_script_pubkey = CScript([OP_0, child_witness_program])
-
+        spent = [parent.vout[0]]
         child_one = CTransaction()
         child_one.vin.append(CTxIn(COutPoint(int(parent_txid, 16), 0), b""))
-        child_one.vout.append(CTxOut(int(9.99996 * COIN), child_script_pubkey))
+        child_one.vout.append(CTxOut(parent.vout[0].nValue - 20_000, wallet._scriptPubKey))
         child_one.wit.vtxinwit.append(CTxInWitness())
-        child_one.wit.vtxinwit[0].scriptWitness.stack = [b'Preimage', b'\x01', witness_script]
+        sighash = UnifiedSignatureHash(b"", child_one, 0, SIGHASH_ALL | SIGHASH_UNIFIED, spent, True)
+        child_one.wit.vtxinwit[0].scriptWitness.stack = sign_slots(node.binary, sighash, keys, 0)
         child_one_wtxid = child_one.getwtxid()
         child_one_txid = child_one.rehash()
 
-        # Create another identical transaction with witness solving second branch
         child_two = deepcopy(child_one)
-        child_two.wit.vtxinwit[0].scriptWitness.stack = [b'', witness_script]
+        child_two.wit.vtxinwit[0].scriptWitness.stack = sign_slots(node.binary, sighash, keys, 1)
         child_two_wtxid = child_two.getwtxid()
         child_two_txid = child_two.rehash()
 
@@ -95,7 +88,6 @@ class MempoolWtxidTest(BitcoinTestFramework):
         peer_wtxid_relay.wait_for_broadcast([child_one_wtxid])
         assert_equal(node.getmempoolinfo()["unbroadcastcount"], 0)
 
-        # testmempoolaccept reports the "already in mempool" error
         expected = {
             "txid": child_one_txid,
             "wtxid": child_one_wtxid,
@@ -104,7 +96,6 @@ class MempoolWtxidTest(BitcoinTestFramework):
             "reject-details": "txn-already-in-mempool",
         }
         result = node.testmempoolaccept([child_one.serialize().hex()])[0]
-        # skip for now
         result.pop('usage')
         assert_equal(result, expected)
 
@@ -116,24 +107,20 @@ class MempoolWtxidTest(BitcoinTestFramework):
             "reject-details": "txn-same-nonwitness-data-in-mempool",
         }
         result = node.testmempoolaccept([child_two.serialize().hex()])[0]
-        # skip for now
         result.pop('usage')
         assert_equal(result, expected)
 
-        # sendrawtransaction will not throw but quits early when the exact same transaction is already in mempool
         node.sendrawtransaction(child_one.serialize().hex())
 
         self.log.info("Connect another peer that hasn't seen child_one before")
         peer_wtxid_relay_2 = node.add_p2p_connection(P2PTxInvStore())
 
         self.log.info("Submit child_two to the mempool")
-        # sendrawtransaction will not throw but quits early when a transaction with the same non-witness data is already in mempool
         node.sendrawtransaction(child_two.serialize().hex())
 
-        # The node should rebroadcast the transaction using the wtxid of the correct transaction
-        # (child_one, which is in its mempool).
         peer_wtxid_relay_2.wait_for_broadcast([child_one_wtxid])
         assert_equal(node.getmempoolinfo()["unbroadcastcount"], 0)
+
 
 if __name__ == '__main__':
     MempoolWtxidTest(__file__).main()

@@ -7,6 +7,7 @@
 #include <script/sign.h>
 
 #include <consensus/amount.h>
+#include <consensus/secp_spend.h>
 #include <key.h>
 #include <policy/policy.h>
 #include <primitives/transaction.h>
@@ -557,13 +558,26 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
 
     if (solved && whichType == TxoutType::WITNESS_V0_KEYHASH)
     {
-        CScript witnessscript;
-        witnessscript << OP_DUP << OP_HASH160 << ToByteVector(result[0]) << OP_EQUALVERIFY << OP_CHECKSIG;
-        TxoutType subType;
-        solved = solved && SignStep(provider, creator, witnessscript, result, subType, SigVersion::WITNESS_V0, sigdata);
-        sigdata.scriptWitness.stack = result;
-        sigdata.witness = true;
-        result.clear();
+        if (creator.GetSighashRules() == SighashRules::UNIFIED) {
+            CKeyID keyid{uint160{result[0]}};
+            CPubKey pubkey;
+            std::vector<unsigned char> sig;
+            solved = GetPubKey(provider, sigdata, keyid, pubkey) &&
+                     CreateSig(creator, sigdata, provider, sig, pubkey, CScript{}, SigVersion::WITNESS_V0);
+            if (solved) {
+                sigdata.scriptWitness.stack = {std::move(sig), ToByteVector(pubkey)};
+                sigdata.witness = true;
+                result.clear();
+            }
+        } else {
+            CScript witnessscript;
+            witnessscript << OP_DUP << OP_HASH160 << ToByteVector(result[0]) << OP_EQUALVERIFY << OP_CHECKSIG;
+            TxoutType subType;
+            solved = solved && SignStep(provider, creator, witnessscript, result, subType, SigVersion::WITNESS_V0, sigdata);
+            sigdata.scriptWitness.stack = result;
+            sigdata.witness = true;
+            result.clear();
+        }
     }
     else if (solved && whichType == TxoutType::WITNESS_V0_SCRIPTHASH)
     {
@@ -920,6 +934,17 @@ bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, 
 
         ScriptError serror = SCRIPT_ERR_OK;
         const unsigned int check_flags{STANDARD_SCRIPT_VERIFY_FLAGS | (SighashRulesForVerifying() == SighashRules::UNIFIED ? uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH} : uint32_t{0})};
+        int witness_version{0};
+        std::vector<unsigned char> witness_program;
+        if (prevPubKey.IsWitnessProgram(witness_version, witness_program) &&
+            witness_version == 0 && witness_program.size() == 20 && txdata.m_spent_outputs_ready) {
+            uint256 sighash;
+            if (SignatureHashUnified(sighash, CScript{}, txConst, i, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata) &&
+                Consensus::CheckSecpSingleKeySpend(uint160{Span<const unsigned char>{witness_program.data(), witness_program.size()}}, txin.scriptWitness.stack, {sighash.begin(), sighash.size()})) {
+                input_errors.erase(i);
+                continue;
+            }
+        }
         if (!sigdata.complete && !VerifyScript(txin.scriptSig, prevPubKey, &txin.scriptWitness, check_flags, TransactionSignatureChecker(&txConst, i, amount, txdata, MissingDataBehavior::FAIL), &serror)) {
             if (serror == SCRIPT_ERR_INVALID_STACK_OPERATION) {
                 // Unable to sign input and verification failed (possible attempt to partially sign).

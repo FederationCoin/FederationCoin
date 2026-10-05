@@ -151,7 +151,8 @@ class SubDustFeePenaltyTest(BitcoinTestFramework):
         self.wallet.sign_tx(tx)
 
         result = self.nodes[0].testmempoolaccept([tx.serialize().hex()])
-        assert_equal(result[0]["allowed"], True)
+        assert_equal(result[0]["allowed"], False)
+        assert_equal(result[0]["reject-reason"], "bad-txns-datacarrier")
 
     def test_above_dust_not_penalized(self):
         self.log.info("Test: outputs above dust threshold are not penalized")

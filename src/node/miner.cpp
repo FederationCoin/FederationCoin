@@ -11,6 +11,8 @@
 #include <common/args.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <consensus/epoch_watermark.h>
+#include <consensus/flex_weight.h>
 #include <consensus/merkle.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
@@ -27,6 +29,7 @@
 #include <validationinterface.h>
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 namespace node {
@@ -86,7 +89,7 @@ BlockCreateOptions BlockCreateOptions::Clamped() const
     options.nBlockMaxSize = std::clamp<size_t>(options.nBlockMaxSize, options.block_reserved_size, MAX_BLOCK_SERIALIZED_SIZE);
     // Limit weight to between block_reserved_weight and MAX_BLOCK_WEIGHT for sanity:
     // block_reserved_weight can safely exceed -blockmaxweight, but the rest of the block template will be empty.
-    options.nBlockMaxWeight = std::clamp<size_t>(options.nBlockMaxWeight, options.block_reserved_weight, MAX_BLOCK_WEIGHT);
+    options.nBlockMaxWeight = std::clamp<size_t>(options.nBlockMaxWeight, options.block_reserved_weight, static_cast<size_t>(MAX_BLOCK_SERIALIZED_SIZE));
     return options;
 }
 
@@ -166,13 +169,8 @@ std::shared_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     assert(pindexPrev != nullptr);
     nHeight = pindexPrev->nHeight + 1;
 
-    // While RDTS is active the consensus block-weight limit drops to
-    // REDUCED_DATA_MAX_BLOCK_WEIGHT (see RdtsActiveAt, the same predicate the
-    // validation rules key off); never assemble past it.
-    m_effective_max_weight = m_options.nBlockMaxWeight;
-    if (chainparams.GetConsensus().RdtsActiveAt(nHeight, pindexPrev->GetMedianTimePast())) {
-        m_effective_max_weight = std::min<size_t>(m_effective_max_weight, REDUCED_DATA_MAX_BLOCK_WEIGHT);
-    }
+    const uint64_t flex_cap{Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, nHeight, chainparams.GetConsensus().nSubsidyHalvingInterval)};
+    m_effective_max_weight = std::min<size_t>(m_options.nBlockMaxWeight, static_cast<size_t>(std::min<uint64_t>(flex_cap, std::numeric_limits<size_t>::max())));
 
     pblock->m_header_v2 = chainparams.GetConsensus().IsBlake2bHeight(nHeight);
     pblock->nVersion = m_chainstate.m_chainman.m_versionbitscache.ComputeBlockVersion(pindexPrev, chainparams.GetConsensus());
@@ -211,9 +209,6 @@ std::shared_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     coinbaseTx.vout[0].scriptPubKey = m_options.coinbase_output_script;
     coinbaseTx.vout[0].nValue = nFees + GetBlockSubsidy(nHeight, chainparams.GetConsensus());
     coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
-    if (nHeight == chainparams.GetConsensus().DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)) {
-        coinbaseTx.vin[0].scriptSig << chainparams.GetConsensus().Blake2bHeadline;
-    }
     pblock->vtx[0] = MakeTransactionRef(std::move(coinbaseTx));
     pblocktemplate->vchCoinbaseCommitment = m_chainstate.m_chainman.GenerateCoinbaseCommitment(*pblock, pindexPrev);
     pblocktemplate->vTxFees[0] = -nFees;

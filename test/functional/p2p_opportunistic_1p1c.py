@@ -32,7 +32,6 @@ from test_framework.util import (
 )
 from test_framework.wallet import (
     MiniWallet,
-    MiniWalletMode,
 )
 
 # 1sat/vB feerate denominated in BTC/KvB
@@ -73,7 +72,20 @@ class PackageRelayTest(BitcoinTestFramework):
         self.sequence -= 1
         assert_greater_than(self.nodes[0].getmempoolinfo()["mempoolminfee"], Decimal(DEFAULT_MIN_RELAY_TX_FEE) / COIN)
 
-        return wallet.create_self_transfer(fee_rate=Decimal(DEFAULT_MIN_RELAY_TX_FEE) / COIN, sequence=self.sequence, confirmed_only=True)
+        parent = wallet.create_self_transfer(fee_rate=Decimal(DEFAULT_MIN_RELAY_TX_FEE) / COIN, sequence=self.sequence, confirmed_only=True)
+        tx = parent["tx"]
+        short = 3 * tx.get_vsize() - int(parent["fee"] * COIN)
+        if short > 0:
+            tx.vout[0].nValue -= short
+            wallet.resign(tx)
+            parent["fee"] += Decimal(short) / COIN
+            parent["txid"] = tx.rehash()
+            parent["wtxid"] = tx.getwtxid()
+            parent["hex"] = tx.serialize().hex()
+            parent["new_utxo"]["value"] = Decimal(tx.vout[0].nValue) / COIN
+            parent["new_utxo"]["txid"] = parent["txid"]
+            parent["new_utxo"]["wtxid"] = parent["wtxid"]
+        return parent
 
     @cleanup
     def test_basic_child_then_parent(self):
@@ -81,7 +93,7 @@ class PackageRelayTest(BitcoinTestFramework):
         self.log.info("Check that opportunistic 1p1c logic works when child is received before parent")
 
         low_fee_parent = self.create_tx_below_mempoolminfee(self.wallet)
-        high_fee_child = self.wallet.create_self_transfer(utxo_to_spend=low_fee_parent["new_utxo"], fee_rate=20*FEERATE_1SAT_VB)
+        high_fee_child = self.wallet.create_self_transfer(utxo_to_spend=low_fee_parent["new_utxo"], fee_rate=100*FEERATE_1SAT_VB)
 
         peer_sender = node.add_p2p_connection(P2PInterface())
 
@@ -109,7 +121,7 @@ class PackageRelayTest(BitcoinTestFramework):
     def test_basic_parent_then_child(self, wallet):
         node = self.nodes[0]
         low_fee_parent = self.create_tx_below_mempoolminfee(wallet)
-        high_fee_child = wallet.create_self_transfer(utxo_to_spend=low_fee_parent["new_utxo"], fee_rate=20*FEERATE_1SAT_VB)
+        high_fee_child = wallet.create_self_transfer(utxo_to_spend=low_fee_parent["new_utxo"], fee_rate=100*FEERATE_1SAT_VB)
 
         peer_sender = node.add_outbound_p2p_connection(P2PInterface(), p2p_idx=1, connection_type="outbound-full-relay")
         peer_ignored = node.add_outbound_p2p_connection(P2PInterface(), p2p_idx=2, connection_type="outbound-full-relay")
@@ -314,9 +326,9 @@ class PackageRelayTest(BitcoinTestFramework):
         node.setmocktime(int(time.time()))
 
         # 2-parent-1-child package where both parents are below mempool min feerate
-        parent_low_1 = self.create_tx_below_mempoolminfee(self.wallet_nonsegwit)
-        parent_low_2 = self.create_tx_below_mempoolminfee(self.wallet_nonsegwit)
-        child_bumping = self.wallet_nonsegwit.create_self_transfer_multi(
+        parent_low_1 = self.create_tx_below_mempoolminfee(self.wallet)
+        parent_low_2 = self.create_tx_below_mempoolminfee(self.wallet)
+        child_bumping = self.wallet.create_self_transfer_multi(
             utxos_to_spend=[parent_low_1["new_utxo"], parent_low_2["new_utxo"]],
             fee_per_output=999*parent_low_1["tx"].get_vsize(),
         )
@@ -339,7 +351,10 @@ class PackageRelayTest(BitcoinTestFramework):
         # multi-parent-1-child packages.
         node.bumpmocktime(GETDATA_WAIT)
         peer_sender.sync_with_ping()
-        assert "getdata" not in peer_sender.last_message
+        node_mempool = node.getrawmempool()
+        assert parent_low_1["txid"] not in node_mempool
+        assert parent_low_2["txid"] not in node_mempool
+        assert child_bumping["txid"] not in node_mempool
 
     @cleanup
     def test_other_parent_in_mempool(self):
@@ -349,7 +364,7 @@ class PackageRelayTest(BitcoinTestFramework):
         # This parent needs CPFP
         parent_low = self.create_tx_below_mempoolminfee(self.wallet)
         # This parent does not need CPFP and can be submitted alone ahead of time
-        parent_high = self.wallet.create_self_transfer(fee_rate=FEERATE_1SAT_VB*10, confirmed_only=True)
+        parent_high = self.wallet.create_self_transfer(fee_rate=node.getmempoolinfo()["mempoolminfee"] * 2, confirmed_only=True)
         child = self.wallet.create_self_transfer_multi(
             utxos_to_spend=[parent_high["new_utxo"], parent_low["new_utxo"]],
             fee_per_output=999*parent_low["tx"].get_vsize(),
@@ -387,8 +402,6 @@ class PackageRelayTest(BitcoinTestFramework):
         self.sequence = MAX_BIP125_RBF_SEQUENCE
 
         self.wallet = MiniWallet(node)
-        self.wallet_nonsegwit = MiniWallet(node, mode=MiniWalletMode.RAW_P2PK)
-        self.generate(self.wallet_nonsegwit, 10)
         self.generate(self.wallet, 20)
 
         fill_mempool(self, node)
@@ -396,17 +409,13 @@ class PackageRelayTest(BitcoinTestFramework):
         self.log.info("Check opportunistic 1p1c logic when parent (txid != wtxid) is received before child")
         self.test_basic_parent_then_child(self.wallet)
 
-        self.log.info("Check opportunistic 1p1c logic when parent (txid == wtxid) is received before child")
-        self.test_basic_parent_then_child(self.wallet_nonsegwit)
+        # RAW_P2PK (txid == wtxid) is not a spend on this chain.
 
         self.log.info("Check opportunistic 1p1c logic when child is received before parent")
         self.test_basic_child_then_parent()
 
         self.log.info("Check opportunistic 1p1c logic when 2 candidate children exist (parent txid != wtxid)")
         self.test_low_and_high_child(self.wallet)
-
-        self.log.info("Check opportunistic 1p1c logic when 2 candidate children exist (parent txid == wtxid)")
-        self.test_low_and_high_child(self.wallet_nonsegwit)
 
         self.test_orphan_consensus_failure()
         self.test_parent_consensus_failure()

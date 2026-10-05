@@ -137,8 +137,8 @@ class CoinStatsIndexTest(BitcoinTestFramework):
             assert_equal(res5['block_info'], {
                 'unspendable': 0,
                 'prevout_spent': 50,
-                'new_outputs_ex_coinbase': Decimal('49.99971200'),
-                'coinbase': Decimal('50.00028800'),
+                'new_outputs_ex_coinbase': Decimal('49.99691000'),
+                'coinbase': Decimal('50.00309000'),
                 'unspendables': {
                     'genesis_block': 0,
                     'bip30': 0,
@@ -158,12 +158,12 @@ class CoinStatsIndexTest(BitcoinTestFramework):
         # Find the right position of the 21 BTC output
         tx1_out_21 = self.wallet.get_utxo(txid=tx1["txid"], vout=tx1["sent_vout"])
 
-        # Generate and send another tx with an OP_RETURN output (which is unspendable)
+        # A user OP_RETURN is rejected. The block below only has the payment.
         tx2 = self.wallet.create_self_transfer(utxo_to_spend=tx1_out_21)['tx']
         tx2_val = '20.99'
         tx2.vout = [CTxOut(int(Decimal(tx2_val) * COIN), CScript([OP_RETURN] + [OP_FALSE] * 30))]
         tx2_hex = tx2.serialize().hex()
-        self.nodes[0].sendrawtransaction(tx2_hex, 0, tx2_val)
+        assert_raises_rpc_error(-26, "bad-txns-datacarrier", self.nodes[0].sendrawtransaction, tx2_hex, 0, tx2_val)
 
         # Include both txs in a block
         self.generate(self.nodes[0], 1)
@@ -171,17 +171,17 @@ class CoinStatsIndexTest(BitcoinTestFramework):
         for hash_option in index_hash_options:
             # Check all amounts were registered correctly
             res6 = index_node.gettxoutsetinfo(hash_option, 108)
-            assert_equal(res6['total_unspendable_amount'], Decimal('70.99000000'))
+            assert_equal(res6['total_unspendable_amount'], Decimal('50.00000000'))
             assert_equal(res6['block_info'], {
-                'unspendable': Decimal('20.99000000'),
-                'prevout_spent': 71,
-                'new_outputs_ex_coinbase': Decimal('49.99999000'),
-                'coinbase': Decimal('50.01001000'),
+                'unspendable': Decimal('0'),
+                'prevout_spent': Decimal('50.00000000'),
+                'new_outputs_ex_coinbase': Decimal('49.99996781'),
+                'coinbase': Decimal('50.00003219'),
                 'unspendables': {
-                    'genesis_block': 0,
-                    'bip30': 0,
-                    'scripts': Decimal('20.99000000'),
-                    'unclaimed_rewards': 0,
+                    'genesis_block': Decimal('0'),
+                    'bip30': Decimal('0'),
+                    'scripts': Decimal('0'),
+                    'unclaimed_rewards': Decimal('0'),
                 }
             })
             self.block_sanity_check(res6['block_info'])
@@ -202,7 +202,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
 
         for hash_option in index_hash_options:
             res7 = index_node.gettxoutsetinfo(hash_option, 109)
-            assert_equal(res7['total_unspendable_amount'], Decimal('80.99000000'))
+            assert_equal(res7['total_unspendable_amount'], Decimal('60.00000000'))
             assert_equal(res7['block_info'], {
                 'unspendable': 10,
                 'prevout_spent': 0,

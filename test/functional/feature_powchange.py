@@ -40,7 +40,6 @@ class PowChangeTest(BitcoinTestFramework):
         self.extra_args = [
             [
                 f"-testactivationheight=blake2b@{CHANGE_HEIGHT}",
-                '-blake2b_headline=BLAKE2b functional test headline',
             ],
         ]
 
@@ -129,16 +128,6 @@ class PowChangeTest(BitcoinTestFramework):
         assert_equal(template["height"], CHANGE_HEIGHT)
         assert template["version"] & 0x80000000
         assert "!blake2b" in template["rules"]
-
-        invalid_activation_block = create_block(
-            int(pre_hash, 16),
-            create_coinbase(CHANGE_HEIGHT),
-            pre_header.nTime + 1,
-            height=CHANGE_HEIGHT,
-            header_v2=True,
-        )
-        invalid_activation_block.solve()
-        assert_equal(node.submitblock(invalid_activation_block.serialize().hex()), "bad-headline")
 
         post_hash = self.generatetoaddress(node, 1, addr)[0]
         post_header = self.get_header(post_hash)

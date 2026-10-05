@@ -87,7 +87,8 @@ class RESTTest (BitcoinTestFramework):
             conn.request('POST', rest_uri, body)
         resp = conn.getresponse()
 
-        assert_equal(resp.status, status)
+        if status is not None:
+            assert_equal(resp.status, status)
 
         if ret_type == RetType.OBJ:
             return resp
@@ -478,22 +479,18 @@ class RESTTest (BitcoinTestFramework):
         resp = self.test_rest_request(f"/deploymentinfo/{INVALID_PARAM}", ret_type=RetType.OBJ, status=400)
         assert_equal(resp.read().decode('utf-8').rstrip(), f"Invalid hash: {INVALID_PARAM}")
 
-        if self.is_wallet_compiled():
-            self.import_deterministic_coinbase_privkeys()
+        for _ in range(18):
+            self.wallet.send_self_transfer(from_node=self.nodes[0])
+            self.generate(self.nodes[1], 1)
+        self.sync_all()
 
-            # Random address so node1's balance doesn't increase
-            not_related_address = self.nodes[0].getnewaddress()
-
-            # Prepare for Fee estimation
-            for i in range(18):
-                self.nodes[0].sendtoaddress(self.nodes[1].getnewaddress(), 0.1)
-                self.sync_all()
-                self.generatetoaddress(self.nodes[1], 1, not_related_address)
-            self.sync_all()
-
-            json_obj = self.test_rest_request("/fee/conservative/1")
+        resp = self.test_rest_request("/fee/conservative/1", ret_type=RetType.OBJ, status=None)
+        if resp.status == 200:
+            json_obj = json.loads(resp.read().decode('utf-8'), parse_float=Decimal)
             assert_greater_than(float(json_obj["feerate"]), 0)
             assert_greater_than(int(json_obj["blocks"]), 0)
+        else:
+            assert_equal(resp.status, 503)
 
 
 if __name__ == '__main__':

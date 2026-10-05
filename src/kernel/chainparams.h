@@ -150,7 +150,7 @@ public:
     struct SigNetOptions {
         std::optional<std::vector<uint8_t>> challenge{};
         std::optional<std::vector<std::string>> seeds{};
-        int64_t pow_target_spacing{10 * 60};
+        int64_t pow_target_spacing{12 * 60};
     };
 
     /**
@@ -173,11 +173,6 @@ public:
         std::unordered_map<Consensus::BuriedDeployment, int> activation_heights{};
         bool fastprune{false};
         bool enforce_bip94{false};
-        //! If set, RDTS rules apply to blocks from the blake2b activation
-        //! height until the parent block's median-time-past reaches this
-        //! value (see -rdtsexpiry). Requires a blake2b activation height.
-        std::optional<int64_t> rdts_expiry_time{};
-        std::optional<std::vector<unsigned char>> blake2b_headline{};
     };
 
     static std::unique_ptr<const CChainParams> RegTest(const RegTestOptions& options);

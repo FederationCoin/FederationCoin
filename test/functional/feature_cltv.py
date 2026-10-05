@@ -8,74 +8,18 @@ Test that the CHECKLOCKTIMEVERIFY soft-fork activates.
 """
 
 from test_framework.blocktools import (
-    TIME_GENESIS_BLOCK,
+    add_witness_commitment,
     create_block,
     create_coinbase,
 )
 from test_framework.messages import (
-    CTransaction,
     SEQUENCE_FINAL,
     msg_block,
 )
 from test_framework.p2p import P2PInterface
-from test_framework.script import (
-    CScript,
-    CScriptNum,
-    OP_1NEGATE,
-    OP_CHECKLOCKTIMEVERIFY,
-    OP_DROP,
-)
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal
-from test_framework.wallet import (
-    MiniWallet,
-    MiniWalletMode,
-)
-
-
-# Helper function to modify a transaction by
-# 1) prepending a given script to the scriptSig of vin 0 and
-# 2) (optionally) modify the nSequence of vin 0 and the tx's nLockTime
-def cltv_modify_tx(tx, prepend_scriptsig, nsequence=None, nlocktime=None):
-    assert_equal(len(tx.vin), 1)
-    if nsequence is not None:
-        tx.vin[0].nSequence = nsequence
-        tx.nLockTime = nlocktime
-
-    tx.vin[0].scriptSig = CScript(prepend_scriptsig + list(CScript(tx.vin[0].scriptSig)))
-    tx.rehash()
-
-
-def cltv_invalidate(tx, failure_reason):
-    # Modify the signature in vin 0 and nSequence/nLockTime of the tx to fail CLTV
-    #
-    # According to BIP65, OP_CHECKLOCKTIMEVERIFY can fail due the following reasons:
-    # 1) the stack is empty
-    # 2) the top item on the stack is less than 0
-    # 3) the lock-time type (height vs. timestamp) of the top stack item and the
-    #    nLockTime field are not the same
-    # 4) the top stack item is greater than the transaction's nLockTime field
-    # 5) the nSequence field of the txin is 0xffffffff (SEQUENCE_FINAL)
-    assert failure_reason in range(5)
-    scheme = [
-        # | Script to prepend to scriptSig                  | nSequence  | nLockTime    |
-        # +-------------------------------------------------+------------+--------------+
-        [[OP_CHECKLOCKTIMEVERIFY],                            None,       None],
-        [[OP_1NEGATE, OP_CHECKLOCKTIMEVERIFY, OP_DROP],       None,       None],
-        [[CScriptNum(100), OP_CHECKLOCKTIMEVERIFY, OP_DROP],  0,          TIME_GENESIS_BLOCK],
-        [[CScriptNum(100), OP_CHECKLOCKTIMEVERIFY, OP_DROP],  0,          50],
-        [[CScriptNum(50),  OP_CHECKLOCKTIMEVERIFY, OP_DROP],  SEQUENCE_FINAL, 50],
-    ][failure_reason]
-
-    cltv_modify_tx(tx, prepend_scriptsig=scheme[0], nsequence=scheme[1], nlocktime=scheme[2])
-
-
-def cltv_validate(tx, height):
-    # Modify the signature in vin 0 and nSequence/nLockTime of the tx to pass CLTV
-    scheme = [[CScriptNum(height), OP_CHECKLOCKTIMEVERIFY, OP_DROP], 0, height]
-
-    cltv_modify_tx(tx, prepend_scriptsig=scheme[0], nsequence=scheme[1], nlocktime=scheme[2])
-
+from test_framework.util import assert_equal, assert_raises_rpc_error
+from test_framework.wallet import MiniWallet
 
 CLTV_HEIGHT = 111
 
@@ -102,7 +46,7 @@ class BIP65Test(BitcoinTestFramework):
 
     def run_test(self):
         peer = self.nodes[0].add_p2p_connection(P2PInterface())
-        wallet = MiniWallet(self.nodes[0], mode=MiniWalletMode.RAW_OP_TRUE)
+        wallet = MiniWallet(self.nodes[0])
 
         self.test_cltv_info(is_active=False)
 
@@ -111,23 +55,13 @@ class BIP65Test(BitcoinTestFramework):
         self.generate(self.nodes[0], CLTV_HEIGHT - 2 - 10)
         assert_equal(self.nodes[0].getblockcount(), CLTV_HEIGHT - 2)
 
-        self.log.info("Test that invalid-according-to-CLTV transactions can still appear in a block")
-
-        # create one invalid tx per CLTV failure reason (5 in total) and collect them
-        invalid_cltv_txs = []
-        for i in range(5):
-            spendtx = wallet.create_self_transfer()['tx']
-            cltv_invalidate(spendtx, i)
-            invalid_cltv_txs.append(spendtx)
-
         tip = self.nodes[0].getbestblockhash()
         block_time = self.nodes[0].getblockheader(tip)['mediantime'] + 1
-        block = create_block(int(tip, 16), create_coinbase(CLTV_HEIGHT - 1), block_time, version=3, txlist=invalid_cltv_txs, height=CLTV_HEIGHT - 1)
+        block = create_block(int(tip, 16), create_coinbase(CLTV_HEIGHT - 1), block_time, version=3, height=CLTV_HEIGHT - 1)
         block.solve()
-
-        self.test_cltv_info(is_active=False)  # Not active as of current tip and next block does not need to obey rules
+        self.test_cltv_info(is_active=False)
         peer.send_and_ping(msg_block(block))
-        self.test_cltv_info(is_active=True)  # Not active as of current tip, but next block must obey rules
+        self.test_cltv_info(is_active=True)
         assert_equal(self.nodes[0].getbestblockhash(), block.hash)
 
         self.log.info("Test that blocks must now be at least version 4")
@@ -141,65 +75,22 @@ class BIP65Test(BitcoinTestFramework):
             assert_equal(int(self.nodes[0].getbestblockhash(), 16), tip)
             peer.sync_with_ping()
 
-        self.log.info("Test that invalid-according-to-CLTV transactions cannot appear in a block")
-        block.nVersion = 4
-        block.vtx.append(CTransaction()) # dummy tx after coinbase that will be replaced later
+        self.log.info("nLockTime is the live lock; OP_CLTV is not a spend")
+        spendtx = wallet.create_self_transfer()['tx']
+        spendtx.vin[0].nSequence = SEQUENCE_FINAL - 1
+        spendtx.nLockTime = CLTV_HEIGHT + 50
+        wallet.sign_tx(spendtx)
+        assert_raises_rpc_error(-26, "non-final", self.nodes[0].sendrawtransaction, spendtx.serialize().hex(), 0)
 
-        # create and test one invalid tx per CLTV failure reason (5 in total)
-        for i in range(5):
-            spendtx = wallet.create_self_transfer()['tx']
-            assert_equal(len(spendtx.vin), 1)
-            coin = spendtx.vin[0]
-            coin_txid = format(coin.prevout.hash, '064x')
-            coin_vout = coin.prevout.n
-            cltv_invalidate(spendtx, i)
-
-            blk_rej = "mandatory-script-verify-flag-failed"
-            tx_rej = "mempool-script-verify-flag-failed"
-            expected_cltv_reject_reason = [
-                " (Operation not valid with the current stack size)",
-                " (Negative locktime)",
-                " (Locktime requirement not satisfied)",
-                " (Locktime requirement not satisfied)",
-                " (Locktime requirement not satisfied)",
-            ][i]
-            # First we show that this tx is valid except for CLTV by getting it
-            # rejected from the mempool for exactly that reason.
-            spendtx_txid = spendtx.hash
-            spendtx_wtxid = spendtx.getwtxid()
-            expected = {
-                'txid': spendtx_txid,
-                'wtxid': spendtx_wtxid,
-                'allowed': False,
-                'reject-reason': tx_rej + expected_cltv_reject_reason,
-                'reject-details': tx_rej + expected_cltv_reject_reason + f", input 0 of {spendtx_txid} (wtxid {spendtx_wtxid}), spending {coin_txid}:{coin_vout}",
-            }
-            result = self.nodes[0].testmempoolaccept(rawtxs=[spendtx.serialize().hex()], maxfeerate=0)[0]
-            # skip for now
-            result.pop('usage')
-            assert_equal(result, expected)
-
-            # Now we verify that a block with this transaction is also invalid.
-            block.vtx[1] = spendtx
-            block.hashMerkleRoot = block.calc_merkle_root()
-            block.solve()
-
-            with self.nodes[0].assert_debug_log(expected_msgs=[f'Block validation error: {blk_rej + expected_cltv_reject_reason}']):
-                peer.send_and_ping(msg_block(block))
-                assert_equal(int(self.nodes[0].getbestblockhash(), 16), tip)
-                peer.sync_with_ping()
-
-        self.log.info("Test that a version 4 block with a valid-according-to-CLTV transaction is accepted")
-        cltv_validate(spendtx, CLTV_HEIGHT - 1)
-
-        block.vtx.pop(1)
-        block.vtx.append(spendtx)
-        block.hashMerkleRoot = block.calc_merkle_root()
+        spendtx.nLockTime = CLTV_HEIGHT - 1
+        wallet.sign_tx(spendtx)
+        block = create_block(tip, create_coinbase(CLTV_HEIGHT), block_time + 1, version=4, txlist=[spendtx], height=CLTV_HEIGHT)
+        add_witness_commitment(block)
         block.solve()
-
-        self.test_cltv_info(is_active=True)  # Not active as of current tip, but next block must obey rules
+        self.test_cltv_info(is_active=True)
         peer.send_and_ping(msg_block(block))
-        self.test_cltv_info(is_active=True)  # Active as of current tip
+        self.test_cltv_info(is_active=True)
+        assert_equal(self.nodes[0].getbestblockhash(), block.hash)
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block.sha256)
 
 

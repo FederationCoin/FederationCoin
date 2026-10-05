@@ -55,6 +55,7 @@
 #include <util/strencodings.h>
 #include <util/string.h>
 #include <util/syserror.h>
+#include <util/time.h>
 #include <validation.h>
 
 #ifdef ENABLE_WALLET
@@ -74,6 +75,7 @@
 #include <stdint.h>
 
 #include <condition_variable>
+#include <limits>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -1835,6 +1837,7 @@ RPCHelpMan getblockchaininfo()
             {
                 {RPCResult::Type::STR, "chain", "current network name (" LIST_CHAIN_NAMES ")"},
                 {RPCResult::Type::NUM, "blocks", "the height of the most-work fully-validated chain. The genesis block has height 0"},
+                {RPCResult::Type::NUM, "flexcap", "current flex block-weight cap (string when larger than signed 64-bit)"},
                 {RPCResult::Type::NUM, "headers", "the current number of headers we have validated"},
                 {RPCResult::Type::STR, "bestblockhash", "the hash of the currently best block"},
                 {RPCResult::Type::STR_HEX, "bits", "nBits: compact representation of the block difficulty target"},
@@ -1875,6 +1878,11 @@ RPCHelpMan getblockchaininfo()
     UniValue obj(UniValue::VOBJ);
     obj.pushKV("chain", chainman.GetParams().GetChainTypeString());
     obj.pushKV("blocks", height);
+    if (tip.nFlexCap > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+        obj.pushKV("flexcap", strprintf("%llu", static_cast<unsigned long long>(tip.nFlexCap)));
+    } else {
+        obj.pushKV("flexcap", static_cast<int64_t>(tip.nFlexCap));
+    }
     obj.pushKV("headers", chainman.m_best_header ? chainman.m_best_header->nHeight : -1);
     obj.pushKV("bestblockhash", tip.GetBlockHash().GetHex());
     obj.pushKV("bits", strprintf("%08x", tip.nBits));
@@ -1904,6 +1912,8 @@ RPCHelpMan getblockchaininfo()
     }
 
     NodeContext& node = EnsureAnyNodeContext(request.context);
+    const int64_t tip_age{TicksSinceEpoch<std::chrono::seconds>(NodeClock::now()) - tip.GetBlockTime()};
+    node::UpdateStallWarning(*CHECK_NONFATAL(node.warnings), tip_age);
     obj.pushKV("warnings", node::GetWarningsForRpc(*CHECK_NONFATAL(node.warnings), IsDeprecatedRPCEnabled("warnings")));
     return obj;
 },
@@ -1916,7 +1926,6 @@ const std::vector<RPCResult> RPCHelpForDeployment{
     {RPCResult::Type::NUM, "height", /*optional=*/true, "height of the first block which enforces the rules (only for \"buried\" and \"flagday\" types, or \"bip9\" type with \"active\" status; for \"flagday\" this is the BLAKE2b hardfork height)"},
     {RPCResult::Type::NUM, "height_end", /*optional=*/true, "height of the last block which enforces the rules (only for \"bip9\" type with \"active\" status and temporary deployments)"},
     {RPCResult::Type::BOOL, "active", "true if the rules are enforced for the mempool and the next block (the mempool applies the RDTS rules regardless of this flag)"},
-    {RPCResult::Type::NUM_TIME, "expiry_time", /*optional=*/true, "median time past at and after which the rules are no longer enforced (only for \"flagday\" type; a block is past expiry when its parent's median time past has reached this value)"},
     {RPCResult::Type::OBJ, "bip9", /*optional=*/true, "status of bip9 softforks (only for \"bip9\" type)",
     {
         {RPCResult::Type::NUM, "bit", /*optional=*/true, "the bit (0-28) in the block version field used to signal this softfork (only for \"started\" and \"locked_in\" status)"},
@@ -1940,25 +1949,19 @@ const std::vector<RPCResult> RPCHelpForDeployment{
     }},
 };
 
-// RDTS (a flag-day deployment, not a versionbits one): rules apply to every
-// block from the BLAKE2b hardfork height until the parent block's
-// median-time-past reaches RdtsExpiryTime. Reported as-of the queried block,
-// with "active" meaning the next block, like the versionbits entries. Omitted
-// entirely when unscheduled (plain regtest), as NEVER_ACTIVE deployments are.
+// RDTS is a flag-day deployment, not a versionbits one. The rules apply to
+// every block from the BLAKE2b hardfork height. There is no expiry. Reported
+// as-of the queried block, with "active" meaning the next block, like the
+// versionbits entries. Omitted when the hardfork height is unscheduled.
 void RdtsFlagDayDescPushBack(const CBlockIndex* blockindex, UniValue& softforks, const ChainstateManager& chainman)
 {
     const Consensus::Params& params{chainman.GetConsensus()};
-    if (params.Blake2bHeight == std::numeric_limits<int>::max() ||
-        params.RdtsExpiryTime == std::numeric_limits<int64_t>::min()) return;
+    if (params.Blake2bHeight == std::numeric_limits<int>::max()) return;
 
     UniValue rv(UniValue::VOBJ);
     rv.pushKV("type", "flagday");
     rv.pushKV("height", params.RdtsActivationHeight());
-    rv.pushKV("expiry_time", params.RdtsExpiryTime);
-    // "active" describes the NEXT block, as the versionbits entries do, so the
-    // queried block is that block's parent and its median-time-past is exactly
-    // the parent median-time-past RdtsActiveAt expects.
-    rv.pushKV("active", params.RdtsActiveAt(blockindex->nHeight + 1, blockindex->GetMedianTimePast()));
+    rv.pushKV("active", params.RdtsActiveAt(blockindex->nHeight + 1));
     softforks.pushKV("reduced_data", std::move(rv));
 }
 

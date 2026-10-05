@@ -5,6 +5,7 @@
 #include <consensus/tx_check.h>
 
 #include <consensus/amount.h>
+#include <consensus/consensus.h>
 #include <primitives/transaction.h>
 #include <consensus/validation.h>
 
@@ -15,8 +16,8 @@ bool CheckTransaction(const CTransaction& tx, TxValidationState& state)
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vin-empty");
     if (tx.vout.empty())
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vout-empty");
-    // Size limits (this doesn't take the witness into account, as that hasn't been checked for malleability)
-    if (::GetSerializeSize(TX_NO_WITNESS(tx)) * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT) {
+    // P2P/disk buffer. Live flex cap is contextual; do not use MAX_FLEX here.
+    if (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(tx))) > MAX_BLOCK_SERIALIZED_SIZE) {
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-oversize");
     }
 
@@ -46,7 +47,7 @@ bool CheckTransaction(const CTransaction& tx, TxValidationState& state)
 
     if (tx.IsCoinBase())
     {
-        if (tx.vin[0].scriptSig.size() < 2 || tx.vin[0].scriptSig.size() > 100)
+        if (tx.vin[0].scriptSig.size() < 2 || tx.vin[0].scriptSig.size() > MAX_COINBASE_SCRIPTSIG_SIZE)
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-cb-length");
     }
     else

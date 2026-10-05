@@ -8,6 +8,7 @@
 #include <node/warnings.h>
 
 #include <common/system.h>
+#include <logging.h>
 #include <node/interface_ui.h>
 #include <sync.h>
 #include <univalue.h>
@@ -75,5 +76,19 @@ UniValue GetWarningsForRpc(const Warnings& warnings, bool use_deprecated)
         messages.push_back(std::move(message.original));
     }
     return messages;
+}
+
+void UpdateStallWarning(Warnings& warnings, int64_t tip_age_seconds)
+{
+    constexpr int64_t stall_seconds{36 * 60};
+    if (tip_age_seconds > stall_seconds) {
+        const int minutes{static_cast<int>(tip_age_seconds / 60)};
+        const bilingual_str message{Untranslated(strprintf("FederationCoin node: tip has stood still for %d minutes", minutes))};
+        if (warnings.Set(Warning::STALL_TIP, message, /*update=*/true)) {
+            LogWarning("%s\n", message.original);
+        }
+    } else {
+        warnings.Unset(Warning::STALL_TIP);
+    }
 }
 } // namespace node

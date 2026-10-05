@@ -175,6 +175,7 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
                     tx_info['tx'].vout.append(CTxOut(100, script))
                     tx_info['tx'].vout[0].nValue -= 100
 
+        self.wallet.resign(tx_info['tx'])
         tx_info['tx'].rehash()
         tx_info['hex'] = tx_info['tx'].serialize().hex()
         return tx_info
@@ -379,16 +380,16 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
         self.log.info(f"✓ 1MB limit caused {evicted_count} evictions (can't fit ~1.2MB of transactions)")
 
         # Now test with larger size limit to show it succeeds
-        self.log.info(f"Step 2: Testing with 0.2MB limit for same {buffersize} transactions")
-        self.restart_node_with_limit(memory_mb=0.2, count=buffersize)
+        self.log.info(f"Step 2: Testing with 1MB limit for same {buffersize} transactions")
+        self.restart_node_with_limit(memory_mb=1, count=buffersize)
 
         rejected_txs = self.populate_extra_pool(buffersize, target_size=2000)
 
         result_large = self.send_compact_block(rejected_txs, indices)
 
         # Should have NO evictions with 2MB limit
-        assert result_large["missing_indices"] == [], "0.2MB limit should store all transactions"
-        self.log.info(f"✓ 2MB limit successfully stores all {buffersize} large transactions (~1.2MB)")
+        assert result_large["missing_indices"] == [], "1MB limit should store all transactions"
+        self.log.info(f"✓ 1MB limit successfully stores all {buffersize} MiniWallet transactions")
 
     def test_extratxnsize_boundary(self):
         """Test extra transaction pool at exact size limit boundary."""

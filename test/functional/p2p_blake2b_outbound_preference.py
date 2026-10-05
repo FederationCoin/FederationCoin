@@ -14,11 +14,11 @@ Case B: only non-HF (251.x)                            -> attempted anyway (fall
 """
 import re
 
-from test_framework.messages import NODE_NETWORK, NODE_WITNESS, NODE_BLAKE2B
+from test_framework.messages import NODE_NETWORK, NODE_WITNESS, NODE_REDUCED_DATA, NODE_BLAKE2B
 from test_framework.netutil import UNREACHABLE_PROXY_ARG
 from test_framework.test_framework import BitcoinTestFramework
 
-HF = NODE_NETWORK | NODE_WITNESS | NODE_BLAKE2B
+HF = NODE_NETWORK | NODE_WITNESS | NODE_REDUCED_DATA | NODE_BLAKE2B
 NON_HF = NODE_NETWORK | NODE_WITNESS
 
 # Enough distinct netgroups that the first several attempts are HF before any of

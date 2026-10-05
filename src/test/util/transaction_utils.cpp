@@ -75,35 +75,52 @@ std::vector<CMutableTransaction> SetupDummyInputs(FillableSigningProvider& keyst
     return dummyTransactions;
 }
 
+static CScript PaymentScript(size_t len)
+{
+    CScript script;
+    script.reserve(len);
+    for (size_t i{0}; i < len; ++i) {
+        script << OP_TRUE;
+    }
+    return script;
+}
+
 void BulkTransaction(CMutableTransaction& tx, int32_t target_weight)
 {
-    // Pad with OP_RETURN outputs (RDTS: 83-byte data cap, 34-byte script cap).
-    const auto unpadded_weight{GetTransactionWeight(CTransaction(tx))};
-    assert(target_weight >= unpadded_weight);
-    while (GetTransactionWeight(CTransaction(tx)) < target_weight) {
-        const auto cur = GetTransactionWeight(CTransaction(tx));
-        auto dummy_vbytes = (target_weight - cur + (WITNESS_SCALE_FACTOR - 1)) / WITNESS_SCALE_FACTOR;
-        dummy_vbytes = std::max<int32_t>(1, std::min<int32_t>(dummy_vbytes, static_cast<int32_t>(MAX_OUTPUT_DATA_SIZE - 1)));
-        CScript opreturn{OP_RETURN};
-        const auto room = MAX_OUTPUT_DATA_SIZE - opreturn.size();
-        const auto n = std::min<size_t>(static_cast<size_t>(dummy_vbytes), room);
-        opreturn.insert(opreturn.end(), n, 0x00);
-        tx.vout.emplace_back(0, opreturn);
-        assert(GetTransactionWeight(CTransaction(tx)) > cur);
+    // Payment outputs, each at most 34 bytes. The transaction is large
+    // because it pays more outputs. A data script is not a size knob.
+    auto weight = [&] { return static_cast<int32_t>(GetTransactionWeight(CTransaction(tx))); };
+    assert(weight() <= target_weight);
+    const size_t original_outputs{tx.vout.size()};
+    const CScript full{PaymentScript(MAX_OUTPUT_SCRIPT_SIZE)};
+    while (true) {
+        tx.vout.emplace_back(0, full);
+        if (weight() > target_weight) {
+            tx.vout.pop_back();
+            break;
+        }
     }
-    // Trim or grow the last OP_RETURN to land in [target, target+3].
-    while (GetTransactionWeight(CTransaction(tx)) > target_weight + 3 &&
-           !tx.vout.empty() && tx.vout.back().scriptPubKey.size() > 1 &&
-           tx.vout.back().scriptPubKey[0] == OP_RETURN) {
-        tx.vout.back().scriptPubKey.pop_back();
+    if (weight() == target_weight) return;
+
+    for (size_t len{1}; len <= MAX_OUTPUT_SCRIPT_SIZE; ++len) {
+        tx.vout.emplace_back(0, PaymentScript(len));
+        if (weight() == target_weight) return;
+        tx.vout.pop_back();
+        if (weight() > target_weight) break;
     }
-    while (GetTransactionWeight(CTransaction(tx)) < target_weight &&
-           !tx.vout.empty() && tx.vout.back().scriptPubKey[0] == OP_RETURN &&
-           tx.vout.back().scriptPubKey.size() < MAX_OUTPUT_DATA_SIZE) {
-        tx.vout.back().scriptPubKey.push_back(0x00);
+
+    assert(tx.vout.size() > original_outputs);
+    CScript& pad{tx.vout.back().scriptPubKey};
+    const CScript saved{pad};
+    for (size_t cut{1}; cut < saved.size(); ++cut) {
+        pad = CScript(saved.begin(), saved.begin() + saved.size() - cut);
+        for (size_t len{1}; len <= MAX_OUTPUT_SCRIPT_SIZE; ++len) {
+            tx.vout.emplace_back(0, PaymentScript(len));
+            if (weight() == target_weight) return;
+            tx.vout.pop_back();
+        }
     }
-    assert(GetTransactionWeight(CTransaction(tx)) >= target_weight);
-    assert(GetTransactionWeight(CTransaction(tx)) <= target_weight + 3);
+    assert(weight() == target_weight);
 }
 
 bool SignSignature(const SigningProvider &provider, const CScript& fromPubKey, CMutableTransaction& txTo, unsigned int nIn, const CAmount& amount, int nHashType, SignatureData& sig_data)

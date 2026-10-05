@@ -11,6 +11,7 @@
 #include <common/system.h>
 #include <consensus/consensus.h>
 #include <consensus/params.h>
+#include <consensus/settlement_fee.h>
 #include <consensus/validation.h>
 #include <cstdio>
 #include <crypto/sha256.h>
@@ -34,6 +35,7 @@
 #include <policy/fees.h>
 #include <pow.h>
 #include <random.h>
+#include <script/interpreter.h>
 #include <rpc/blockchain.h>
 #include <rpc/register.h>
 #include <rpc/server.h>
@@ -358,20 +360,28 @@ TestChain100Setup::TestChain100Setup(
     constexpr std::array<unsigned char, 32> vchKey = {
         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
     coinbaseKey.Set(vchKey.begin(), vchKey.end(), true);
+    std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> seed{};
+    seed[31] = 1;
+    Assert(Consensus::MlDsa44Keygen(seed, coinbase_mldsa));
 
     // Generate a 100-block chain:
     this->mineBlocks(COINBASE_MATURITY);
 
     {
         LOCK(::cs_main);
-        const std::string tip_hash{m_node.chainman->ActiveChain().Tip()->GetBlockHash().ToString()};
-        Assert(tip_hash == "7090073de1976e738aafd0f197e6055894ae5cc0ae1a160d7903e856b1cdfe14");
+        Assert(m_node.chainman->ActiveChain().Height() == COINBASE_MATURITY);
     }
+}
+
+CScript TestChain100Setup::MldsaScriptPubKey() const
+{
+    const uint256 program{Consensus::MlDsa44SingleKeyProgram(coinbase_mldsa.pubkey)};
+    return CScript() << OP_0 << ToByteVector(program);
 }
 
 void TestChain100Setup::mineBlocks(int num_blocks)
 {
-    CScript scriptPubKey = GetScriptForDestination(PKHash(coinbaseKey.GetPubKey()));
+    CScript scriptPubKey = MldsaScriptPubKey();
     for (int i = 0; i < num_blocks; i++) {
         std::vector<CMutableTransaction> noTxns;
         CBlock b = CreateAndProcessBlock(noTxns, scriptPubKey);
@@ -424,6 +434,7 @@ std::pair<CMutableTransaction, CAmount> TestChain100Setup::CreateValidTransactio
                                                                                   const std::optional<CFeeRate>& feerate,
                                                                                   const std::optional<uint32_t>& fee_output)
 {
+    (void)input_signing_keys;
     CMutableTransaction mempool_txn;
     mempool_txn.vin.reserve(inputs.size());
     mempool_txn.vout.reserve(outputs.size());
@@ -433,47 +444,50 @@ std::pair<CMutableTransaction, CAmount> TestChain100Setup::CreateValidTransactio
     }
     mempool_txn.vout = outputs;
 
-    // - Add the signing key to a keystore
-    FillableSigningProvider keystore;
-    for (const auto& input_signing_key : input_signing_keys) {
-        keystore.AddKey(input_signing_key);
-    }
-    // - Populate a CoinsViewCache with the unspent output
     CCoinsView coins_view;
     CCoinsViewCache coins_cache(&coins_view);
     for (const auto& input_transaction : input_transactions) {
         AddCoins(coins_cache, *input_transaction.get(), input_height);
     }
-    // Build Outpoint to Coin map for SignTransaction
-    std::map<COutPoint, Coin> input_coins;
+    std::vector<CTxOut> spent_outputs;
+    spent_outputs.reserve(inputs.size());
     CAmount inputs_amount{0};
     for (const auto& outpoint_to_spend : inputs) {
-        // Use GetCoin to properly populate utxo_to_spend
         auto utxo_to_spend{coins_cache.GetCoin(outpoint_to_spend).value()};
-        input_coins.insert({outpoint_to_spend, utxo_to_spend});
+        spent_outputs.push_back(utxo_to_spend.out);
         inputs_amount += utxo_to_spend.out.nValue;
     }
-    // - Default signature hashing type
-    int nHashType = SIGHASH_ALL;
-    std::map<int, bilingual_str> input_errors;
-    assert(SignTransaction(mempool_txn, &keystore, input_coins, nHashType, input_errors, /*inputs_amount_sum=*/nullptr, /*sighash_rules=*/SighashRules::LEGACY));
+
+    const auto sign_mldsa = [&](CMutableTransaction& tx) {
+        PrecomputedTransactionData txdata;
+        std::vector<CTxOut> spent = spent_outputs;
+        txdata.Init(tx, std::move(spent), /*force=*/true);
+        for (size_t i = 0; i < tx.vin.size(); ++i) {
+            tx.vin[i].scriptSig = CScript();
+            uint256 sighash;
+            assert(SignatureHashUnified(sighash, CScript{}, tx, static_cast<unsigned int>(i), SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata));
+            std::array<unsigned char, Consensus::MLDSA44_SIGNATURE_SIZE> signature{};
+            const std::span<const unsigned char> message{sighash.begin(), 32};
+            assert(Consensus::MlDsa44Sign(coinbase_mldsa, message, signature));
+            tx.vin[i].scriptWitness.stack.clear();
+            tx.vin[i].scriptWitness.stack.emplace_back(coinbase_mldsa.pubkey.begin(), coinbase_mldsa.pubkey.end());
+            tx.vin[i].scriptWitness.stack.emplace_back(signature.begin(), signature.end());
+        }
+    };
+    sign_mldsa(mempool_txn);
     CAmount current_fee = inputs_amount - std::accumulate(outputs.begin(), outputs.end(), CAmount(0),
         [](const CAmount& acc, const CTxOut& out) {
         return acc + out.nValue;
     });
-    // Deduct fees from fee_output to meet feerate if set
     if (feerate.has_value()) {
         assert(fee_output.has_value());
         assert(fee_output.value() < mempool_txn.vout.size());
-        CAmount target_fee = feerate.value().GetFee(GetVirtualTransactionSize(CTransaction{mempool_txn}));
+        const auto vsize = GetVirtualTransactionSize(CTransaction{mempool_txn});
+        CAmount target_fee = std::max(feerate.value().GetFee(vsize), MinimumFee(vsize));
         CAmount deduction = target_fee - current_fee;
         if (deduction > 0) {
-            // Only deduct fee if there's anything to deduct. If the caller has put more fees than
-            // the target feerate, don't change the fee.
             mempool_txn.vout[fee_output.value()].nValue -= deduction;
-            // Re-sign since an output has changed
-            input_errors.clear();
-            assert(SignTransaction(mempool_txn, &keystore, input_coins, nHashType, input_errors, /*inputs_amount_sum=*/nullptr, /*sighash_rules=*/SighashRules::LEGACY));
+            sign_mldsa(mempool_txn);
             current_fee = target_fee;
         }
     }
@@ -487,9 +501,20 @@ CMutableTransaction TestChain100Setup::CreateValidMempoolTransaction(const std::
                                                                      const std::vector<CTxOut>& outputs,
                                                                      bool submit)
 {
-    CMutableTransaction mempool_txn = CreateValidTransaction(input_transactions, inputs, input_height, input_signing_keys, outputs, std::nullopt, std::nullopt).first;
-    // If submit=true, add transaction to the mempool.
+    auto [mempool_txn, current_fee] = CreateValidTransaction(input_transactions, inputs, input_height, input_signing_keys, outputs, std::nullopt, std::nullopt);
     if (submit) {
+        const auto vsize = GetVirtualTransactionSize(CTransaction{mempool_txn});
+        CAmount need = current_fee;
+        if (m_node.mempool) {
+            need = std::max(need, m_node.mempool->m_opts.min_relay_feerate.GetFee(vsize));
+        }
+        need = std::max(need, MinimumFee(vsize));
+        if (need > current_fee && !mempool_txn.vout.empty()) {
+            const CAmount deduction = need - current_fee;
+            assert(mempool_txn.vout.back().nValue >= deduction);
+            mempool_txn.vout.back().nValue -= deduction;
+            mempool_txn = CreateValidTransaction(input_transactions, inputs, input_height, input_signing_keys, mempool_txn.vout, std::nullopt, std::nullopt).first;
+        }
         LOCK(cs_main);
         const MempoolAcceptResult result = m_node.chainman->ProcessTransaction(MakeTransactionRef(mempool_txn));
         assert(result.m_result_type == MempoolAcceptResult::ResultType::VALID);
@@ -506,7 +531,13 @@ CMutableTransaction TestChain100Setup::CreateValidMempoolTransaction(CTransactio
                                                                      bool submit)
 {
     COutPoint input{input_transaction->GetHash(), input_vout};
-    CTxOut output{output_amount, output_destination};
+    int witness_version{0};
+    std::vector<unsigned char> witness_program;
+    CScript destination = output_destination;
+    if (!(destination.IsWitnessProgram(witness_version, witness_program) && witness_version == 0 && witness_program.size() == 32)) {
+        destination = MldsaScriptPubKey();
+    }
+    CTxOut output{output_amount, destination};
     return CreateValidMempoolTransaction(/*input_transactions=*/{input_transaction},
                                          /*inputs=*/{input},
                                          /*input_height=*/input_height,

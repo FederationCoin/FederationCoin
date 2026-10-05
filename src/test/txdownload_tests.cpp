@@ -184,8 +184,8 @@ BOOST_FIXTURE_TEST_CASE(handle_missing_inputs, TestChain100Setup)
     CKey wallet_key = GenerateRandomKey();
     CScript destination = GetScriptForDestination(PKHash(wallet_key.GetPubKey()));
     // Amount for spending coinbase in a 1-in-1-out tx, at depth n, each time deducting 1000 from the amount as fees.
-    CAmount amount_depth_1{50 * COIN - 1000};
-    CAmount amount_depth_2{amount_depth_1 - 1000};
+    CAmount amount_depth_1{50 * COIN - 20'000};
+    CAmount amount_depth_2{amount_depth_1 - 20'000};
     // Amount for spending coinbase in a 1-in-2-out tx, deducting 1000 in fees
     CAmount amount_split_half{25 * COIN - 500};
     int test_chain_height{100};
@@ -222,7 +222,8 @@ BOOST_FIXTURE_TEST_CASE(handle_missing_inputs, TestChain100Setup)
         if (parent_recent_conf) txdownload_impl.RecentConfirmedTransactionsFilter().insert(single_parent->GetHash().ToUint256());
         if (parent_in_mempool) {
             const auto mempool_result = WITH_LOCK(::cs_main, return m_node.chainman->ProcessTransaction(single_parent));
-            BOOST_CHECK(mempool_result.m_result_type == MempoolAcceptResult::ResultType::VALID);
+            BOOST_CHECK_MESSAGE(mempool_result.m_result_type == MempoolAcceptResult::ResultType::VALID,
+                                mempool_result.m_state.ToString());
             coinbase_idx += 1;
             assert(coinbase_idx < m_coinbase_txns.size());
         }

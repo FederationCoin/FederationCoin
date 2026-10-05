@@ -4,6 +4,7 @@
 
 #include <consensus/tx_verify.h>
 
+#include <algorithm>
 #include <chain.h>
 #include <coins.h>
 #include <consensus/amount.h>
@@ -173,6 +174,49 @@ bool Consensus::CheckOutputSizes(const CTransaction& tx, TxValidationState& stat
         }
     }
     return true;
+}
+
+bool Consensus::IsWitnessCommitmentScript(const CScript& script)
+{
+    return script.size() == 38
+        && script[0] == OP_RETURN
+        && script[1] == 0x24
+        && script[2] == 0xaa
+        && script[3] == 0x21
+        && script[4] == 0xa9
+        && script[5] == 0xed;
+}
+
+bool Consensus::RejectUserDataCarrier(const CTransaction& tx, TxValidationState& state)
+{
+    for (const auto& txout : tx.vout) {
+        const CScript& script{txout.scriptPubKey};
+        if (!script.empty() && script[0] == OP_RETURN) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-datacarrier");
+        }
+    }
+    return true;
+}
+
+bool Consensus::RejectCoinbaseDataCarrier(const CTransaction& tx, TxValidationState& state)
+{
+    for (const auto& txout : tx.vout) {
+        const CScript& script{txout.scriptPubKey};
+        if (!script.empty() && script[0] == OP_RETURN && !IsWitnessCommitmentScript(script)) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-datacarrier");
+        }
+    }
+    return true;
+}
+
+bool Consensus::MiningCoinbaseScriptSigFits(size_t script_sig_size)
+{
+    return script_sig_size >= 2 && script_sig_size <= MAX_COINBASE_SCRIPTSIG_SIZE;
+}
+
+bool Consensus::WitnessNonceIsZero(const std::vector<unsigned char>& nonce)
+{
+    return nonce.size() == 32 && std::all_of(nonce.begin(), nonce.end(), [](unsigned char byte) { return byte == 0; });
 }
 
 bool Consensus::CheckTaprootDisabledOutputs(const CTransaction& tx, const Params& params, TxValidationState& state)

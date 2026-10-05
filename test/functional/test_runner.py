@@ -95,10 +95,14 @@ BASE_SCRIPTS = [
     # vv Tests less than 5m vv
     'feature_fee_estimation.py',
     # feature_unified_sighash and the temporary-deployment test need a SHA256d era.
-    'rpc_combinerawtransaction_unified.py --descriptors',
+    'rpc_combinerawtransaction_unified.py',
     # Taproot is parked (NEVER_ACTIVE); feature_taproot mines a pre-fork block.
     'feature_bip9_max_activation_height.py',
     'feature_rdts.py',
+    'feature_settlement_fee.py',
+    'feature_mldsa_spend.py',
+    'feature_flex_weight.py',
+    'feature_stall_warning.py',
     # feature_rdts_ignore_rejects needs a SHA256d era before the fork.
     'feature_block.py',
     'mempool_ephemeral_dust.py',

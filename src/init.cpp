@@ -22,6 +22,7 @@
 #include <common/system.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <consensus/flex_weight.h>
 #include <dbwrapper.h>
 #include <deploymentstatus.h>
 #include <hash.h>
@@ -861,11 +862,17 @@ void InitParameterInteraction(ArgsManager& args)
     g_pcp_warn_for_unauthorized = args.GetBoolArg("-natpmp", false);
 
     if (args.GetBoolArg("-corepolicy", DEFAULT_COREPOLICY)) {
+        CAmount incremental{CORE_INCREMENTAL_RELAY_FEE};
+        if (const auto parsed{ParseMoney(args.GetArg("-incrementalrelayfee", ""))}) {
+            incremental = *parsed;
+        }
         args.SoftSetArg("-incrementalrelayfee", FormatMoney(CORE_INCREMENTAL_RELAY_FEE));
         if (!args.IsArgSet("-minrelaytxfee")) {
-            args.ForceSetArg("-minrelaytxfee", FormatMoney(std::max(ParseMoney(args.GetArg("-incrementalrelayfee", "")).value_or(0), CORE_INCREMENTAL_RELAY_FEE)));
+            // Consensus requires 3 tokens per virtual byte. A higher
+            // incremental relay fee raises the relay floor with it.
+            args.ForceSetArg("-minrelaytxfee", FormatMoney(std::max<CAmount>(DEFAULT_MIN_RELAY_TX_FEE, incremental)));
         }
-        args.SoftSetArg("-blockmintxfee", "0.00000001");
+        args.SoftSetArg("-blockmintxfee", FormatMoney(DEFAULT_BLOCK_MIN_TX_FEE));
         args.SoftSetArg("-acceptnonstddatacarrier", "1");
         args.SoftSetArg("-blockreconstructionextratxn", "100");
         args.SoftSetArg("-blockreconstructionextratxnsize", strprintf("%s", std::numeric_limits<size_t>::max() / 1000000 + 1));
@@ -884,8 +891,8 @@ void InitParameterInteraction(ArgsManager& args)
         args.SoftSetArg("-permitephemeral", "anchor,send,dust");
         args.SoftSetArg("-spkreuse", "allow");
         args.SoftSetArg("-blockprioritysize", "0");
-        args.SoftSetArg("-blockmaxsize", "4000000");
-        args.SoftSetArg("-blockmaxweight", "4000000");
+        args.SoftSetArg("-blockmaxsize", strprintf("%u", MAX_BLOCK_SERIALIZED_SIZE));
+        args.SoftSetArg("-blockmaxweight", strprintf("%u", MAX_BLOCK_SERIALIZED_SIZE));
     }
 
     // when specifying an explicit binding address, you want to listen on it
@@ -992,7 +999,7 @@ namespace { // Variables internal to initialization process only
 
 int nMaxConnections;
 int available_fds;
-ServiceFlags g_local_services = ServiceFlags(NODE_NETWORK_LIMITED | NODE_WITNESS | NODE_BLAKE2B);
+ServiceFlags g_local_services = ServiceFlags(NODE_NETWORK_LIMITED | NODE_WITNESS | NODE_REDUCED_DATA | NODE_BLAKE2B);
 int64_t peer_connect_timeout;
 std::set<BlockFilterType> g_enabled_filter_types;
 
@@ -1203,20 +1210,20 @@ bool AppInitParameterInteraction(const ArgsManager& args)
 
     if (args.IsArgSet("-blockmaxweight")) {
         const auto max_block_weight = args.GetIntArg("-blockmaxweight", DEFAULT_BLOCK_MAX_WEIGHT);
-        if (max_block_weight > MAX_BLOCK_WEIGHT) {
-            return InitError(strprintf(_("Specified -blockmaxweight (%d) exceeds consensus maximum block weight (%d)"), max_block_weight, MAX_BLOCK_WEIGHT));
+        if (static_cast<uint64_t>(max_block_weight) > Consensus::MAX_FLEX_BLOCK_WEIGHT) {
+            return InitError(strprintf(_("Specified -blockmaxweight (%d) exceeds consensus maximum block weight"), max_block_weight));
         }
     }
 
     if (args.IsArgSet("-blockreservedweight")) {
         const auto block_reserved_weight = args.GetIntArg("-blockreservedweight", DEFAULT_BLOCK_RESERVED_WEIGHT);
-        if (block_reserved_weight > MAX_BLOCK_WEIGHT) {
+        if (static_cast<uint64_t>(block_reserved_weight) > MAX_BLOCK_WEIGHT) {
             return InitError(strprintf(_("Specified -blockreservedweight (%d) exceeds consensus maximum block weight (%d)"), block_reserved_weight, MAX_BLOCK_WEIGHT));
         }
         if (block_reserved_weight < MINIMUM_BLOCK_RESERVED_WEIGHT) {
             return InitError(strprintf(_("Specified -blockreservedweight (%d) is lower than minimum safety value of (%d)"), block_reserved_weight, MINIMUM_BLOCK_RESERVED_WEIGHT));
         }
-        if (block_reserved_weight > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
+        if (static_cast<uint64_t>(block_reserved_weight) > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
             InitWarning(strprintf(_("Specified -blockreservedweight (%d) exceeds the block weight limit that applies while RDTS is active (%d); block templates will contain no transactions while that limit applies"), block_reserved_weight, REDUCED_DATA_MAX_BLOCK_WEIGHT));
         }
     }

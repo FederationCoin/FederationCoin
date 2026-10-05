@@ -357,6 +357,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "addpeeraddress", 2, "tried"},
     { "addpeeraddress", 3, "services"},
     { "sendmsgtopeer", 0, "peer_id" },
+    { "sendmsgtopeer", 3, "msg_size" },
     { "stop", 0, "wait" },
     { "addnode", 2, "v2transport" },
     { "addconnection", 2, "v2transport" },

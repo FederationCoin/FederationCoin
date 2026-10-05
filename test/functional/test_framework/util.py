@@ -588,15 +588,15 @@ def check_node_connections(*, node, num_in, num_out):
 #############################
 
 
-# Create large OP_RETURN txouts that can be appended to a transaction
-# to make it large (helper for constructing large transactions). The
-# total serialized size of the txouts is about 66k vbytes.
+# Payment outputs appended to a transaction to make it large. A user
+# OP_RETURN is not valid. Each output is above dust at 3 tokens per virtual byte.
+# The total serialized size of the txouts is about 66k vbytes.
 def gen_return_txouts():
     from .messages import CTxOut
-    from .script import CScript, OP_RETURN
-    txouts = [CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b'\x01'*80]))] * 733
-    txouts.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b'\x01'*9])))
-    assert_equal(sum([len(txout.serialize()) for txout in txouts]), 67456)
+    from .script import CScript, OP_0
+    pay = CScript([OP_0, b'\x11' * 32])
+    txouts = [CTxOut(nValue=1000, scriptPubKey=pay) for _ in range(1568)]
+    assert_equal(sum([len(txout.serialize()) for txout in txouts]), 67424)
     return txouts
 
 
@@ -610,8 +610,19 @@ def create_lots_of_big_transactions(mini_wallet, node, fee, tx_batch_size, txout
             utxo_to_spend=None if use_internal_utxos else utxos.pop(),
             fee=fee,
         )["tx"]
+        pad_value = sum(out.nValue for out in txouts)
+        assert tx.vout[0].nValue > pad_value
+        tx.vout[0].nValue -= pad_value
         tx.vout.extend(txouts)
+        need = max(fee, Decimal(3 * tx.get_vsize()) / 100_000_000)
+        extra = int((need - fee) * 100_000_000)
+        if extra > 0:
+            assert tx.vout[0].nValue > extra
+            tx.vout[0].nValue -= extra
+            fee = need
+        mini_wallet.resign(tx)
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
+        assert 'fees' in res, res
         assert_equal(res['fees']['base'], fee)
         txids.append(node.sendrawtransaction(tx.serialize().hex()))
     return txids

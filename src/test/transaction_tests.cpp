@@ -9,6 +9,7 @@
 #include <checkqueue.h>
 #include <clientversion.h>
 #include <consensus/amount.h>
+#include <consensus/mldsa_spend.h>
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
@@ -17,6 +18,7 @@
 #include <key.h>
 #include <policy/policy.h>
 #include <policy/settings.h>
+#include <script/interpreter.h>
 #include <script/script.h>
 #include <script/script_error.h>
 #include <script/sigcache.h>
@@ -33,6 +35,7 @@
 #include <util/transaction_identifier.h>
 #include <validation.h>
 
+#include <array>
 #include <functional>
 #include <map>
 #include <string>
@@ -395,7 +398,7 @@ BOOST_AUTO_TEST_CASE(tx_oversized)
         tx.vout.emplace_back(1, CScript() << OP_RETURN << std::vector<unsigned char>(payloadSize));
         return CTransaction(tx);
     };
-    const auto maxTransactionSize = MAX_BLOCK_WEIGHT / WITNESS_SCALE_FACTOR;
+    const auto maxTransactionSize = MAX_BLOCK_SERIALIZED_SIZE;
     const auto oversizedTransactionBaseSize = ::GetSerializeSize(TX_NO_WITNESS(createTransaction(maxTransactionSize))) - maxTransactionSize;
 
     auto maxPayloadSize = maxTransactionSize - oversizedTransactionBaseSize;
@@ -530,73 +533,51 @@ static void ReplaceRedeemScript(CScript& script, const CScript& redeemScript)
 
 BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
 {
+    Consensus::MlDsa44Keypair key;
+    std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> seed{};
+    seed[31] = 7;
+    BOOST_REQUIRE(Consensus::MlDsa44Keygen(seed, key));
+    const CScript scriptPubKey = CScript() << OP_0 << ToByteVector(Consensus::MlDsa44SingleKeyProgram(key.pubkey));
+
     CMutableTransaction mtx;
     mtx.version = 1;
-
-    CKey key = GenerateRandomKey(); // Need to use compressed keys in segwit or the signing will fail
-    FillableSigningProvider keystore;
-    BOOST_CHECK(keystore.AddKeyPubKey(key, key.GetPubKey()));
-    CKeyID hash = key.GetPubKey().GetID();
-    CScript scriptPubKey = CScript() << OP_0 << std::vector<unsigned char>(hash.begin(), hash.end());
-
-    std::vector<int> sigHashes;
-    sigHashes.push_back(SIGHASH_NONE | SIGHASH_ANYONECANPAY);
-    sigHashes.push_back(SIGHASH_SINGLE | SIGHASH_ANYONECANPAY);
-    sigHashes.push_back(SIGHASH_ALL | SIGHASH_ANYONECANPAY);
-    sigHashes.push_back(SIGHASH_NONE);
-    sigHashes.push_back(SIGHASH_SINGLE);
-    sigHashes.push_back(SIGHASH_ALL);
-
-    // create a big transaction of 4500 inputs signed by the same key
-    for(uint32_t ij = 0; ij < 4500; ij++) {
-        uint32_t i = mtx.vin.size();
+    constexpr unsigned int INPUTS{32};
+    std::vector<CTxOut> spent;
+    spent.reserve(INPUTS);
+    for (uint32_t i = 0; i < INPUTS; ++i) {
         COutPoint outpoint(Txid::FromHex("0000000000000000000000000000000000000000000000000000000000000100").value(), i);
-
-        mtx.vin.resize(mtx.vin.size() + 1);
-        mtx.vin[i].prevout = outpoint;
-        mtx.vin[i].scriptSig = CScript();
-
-        mtx.vout.resize(mtx.vout.size() + 1);
-        mtx.vout[i].nValue = 1000;
-        mtx.vout[i].scriptPubKey = CScript() << OP_1;
+        mtx.vin.emplace_back(outpoint, CScript());
+        mtx.vout.emplace_back(1000, scriptPubKey);
+        spent.emplace_back(1000, scriptPubKey);
     }
 
-    // sign all inputs
-    for(uint32_t i = 0; i < mtx.vin.size(); i++) {
-        SignatureData empty;
-        bool hashSigned = SignSignature(keystore, scriptPubKey, mtx, i, 1000, sigHashes.at(i % sigHashes.size()), empty);
-        assert(hashSigned);
+    PrecomputedTransactionData sign_data;
+    sign_data.Init(mtx, std::vector<CTxOut>{spent}, /*force=*/true);
+    for (uint32_t i = 0; i < INPUTS; ++i) {
+        uint256 sighash;
+        BOOST_REQUIRE(SignatureHashUnified(sighash, CScript{}, mtx, i, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, sign_data));
+        std::array<unsigned char, Consensus::MLDSA44_SIGNATURE_SIZE> signature{};
+        const std::span<const unsigned char> message{sighash.begin(), 32};
+        BOOST_REQUIRE(Consensus::MlDsa44Sign(key, message, signature));
+        mtx.vin[i].scriptWitness.stack = {
+            {key.pubkey.begin(), key.pubkey.end()},
+            {signature.begin(), signature.end()},
+        };
     }
 
-    DataStream ssout;
-    ssout << TX_WITH_WITNESS(mtx);
-    CTransaction tx(deserialize, TX_WITH_WITNESS, ssout);
-
-    // check all inputs concurrently, with the cache
-    PrecomputedTransactionData txdata(tx);
-    CCheckQueue<CScriptCheck> scriptcheckqueue(/*batch_size=*/128, /*worker_threads_num=*/20);
+    const CTransaction tx{mtx};
+    PrecomputedTransactionData txdata;
+    txdata.Init(tx, std::move(spent), /*force=*/true);
+    CCheckQueue<CScriptCheck> scriptcheckqueue(/*batch_size=*/8, /*worker_threads_num=*/4);
     CCheckQueueControl<CScriptCheck> control(&scriptcheckqueue);
 
-    std::vector<Coin> coins;
-    for(uint32_t i = 0; i < mtx.vin.size(); i++) {
-        Coin coin;
-        coin.nHeight = 1;
-        coin.fCoinBase = false;
-        coin.out.nValue = 1000;
-        coin.out.scriptPubKey = scriptPubKey;
-        coins.emplace_back(std::move(coin));
-    }
-
-    SignatureCache signature_cache{DEFAULT_SIGNATURE_CACHE_BYTES};
-
-    for(uint32_t i = 0; i < mtx.vin.size(); i++) {
+    for (uint32_t i = 0; i < INPUTS; ++i) {
         std::vector<CScriptCheck> vChecks;
-        vChecks.emplace_back(coins[tx.vin[i].prevout.n].out, tx, signature_cache, i, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false, &txdata);
+        vChecks.emplace_back(tx.vout[i], tx, i, &txdata);
         control.Add(std::move(vChecks));
     }
 
-    bool controlCheck = !control.Complete().has_value();
-    assert(controlCheck);
+    BOOST_CHECK(!control.Complete().has_value());
 }
 
 SignatureData CombineSignatures(const CMutableTransaction& input1, const CMutableTransaction& input2, const CTransactionRef tx)

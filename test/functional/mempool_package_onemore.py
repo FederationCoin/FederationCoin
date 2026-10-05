@@ -70,6 +70,7 @@ class MempoolPackagesTest(BitcoinTestFramework):
         # Ensure an individual transaction with single direct conflict can RBF the chain which used our carve-out rule
         replacement_tx = replaceable_tx["tx"]
         replacement_tx.vout[0].nValue -= 10000
+        self.wallet.resign(replacement_tx)
         self.nodes[0].sendrawtransaction(replacement_tx.serialize().hex())
 
         # Finally, check that we added two transactions

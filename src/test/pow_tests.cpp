@@ -20,7 +20,7 @@ BOOST_AUTO_TEST_CASE(get_next_work)
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
     int64_t nLastRetargetTime = 1261130161; // Block #30240
     CBlockIndex pindexLast;
-    pindexLast.nHeight = 32255;
+    pindexLast.nHeight = 31919;
     pindexLast.nTime = 1262152739;  // Block #32255
     pindexLast.nBits = 0x1d00ffff;
 
@@ -53,7 +53,7 @@ BOOST_AUTO_TEST_CASE(get_next_work_lower_limit_actual)
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
     int64_t nLastRetargetTime = 1279008237; // Block #66528
     CBlockIndex pindexLast;
-    pindexLast.nHeight = 68543;
+    pindexLast.nHeight = 68879;
     pindexLast.nTime = 1279297671;  // Block #68543
     pindexLast.nBits = 0x1c05a3f4;
     unsigned int expected_nbits = 0x1c0168fdU;
@@ -70,7 +70,7 @@ BOOST_AUTO_TEST_CASE(get_next_work_upper_limit_actual)
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
     int64_t nLastRetargetTime = 1263163443; // NOTE: Not an actual block time
     CBlockIndex pindexLast;
-    pindexLast.nHeight = 46367;
+    pindexLast.nHeight = 47039;
     pindexLast.nTime = 1269211443;  // Block #46367
     pindexLast.nBits = 0x1c387f6f;
     unsigned int expected_nbits = 0x1d00e1fdU;
@@ -167,6 +167,13 @@ void sanity_check_chainparams(const ArgsManager& args, ChainType chain_type)
 
     // target timespan is an even multiple of spacing
     BOOST_CHECK_EQUAL(consensus.nPowTargetTimespan % consensus.nPowTargetSpacing, 0);
+    // Twelve-minute blocks. 600 was the old ten-minute spacing.
+    BOOST_CHECK_EQUAL(consensus.nPowTargetSpacing, 12 * 60);
+    // Window stays one timespan of wall clock: 1680 on the two-week nets, 120 on regtest.
+    const int64_t expected_window = consensus.nPowTargetTimespan / consensus.nPowTargetSpacing;
+    BOOST_CHECK_EQUAL(consensus.nMinerConfirmationWindow, expected_window);
+    const bool ninety_percent = chain_type == ChainType::MAIN || chain_type == ChainType::SIGNET;
+    BOOST_CHECK_EQUAL(consensus.nRuleChangeActivationThreshold, expected_window * (ninety_percent ? 90 : 75) / 100);
 
     // genesis nBits is positive, doesn't overflow and is lower than powLimit
     arith_uint256 pow_compact;
@@ -262,7 +269,7 @@ BOOST_AUTO_TEST_CASE(powchange_permitted_difficulty_transition)
 
     // At a retarget boundary the shift is permitted on top of the 4x window,
     // and values beyond that window are still rejected.
-    const int64_t boundary_height = 798336;
+    const int64_t boundary_height = 798000;
     BOOST_CHECK_EQUAL(boundary_height % params.DifficultyAdjustmentInterval(), 0);
     params.Blake2bHeight = boundary_height;
     BOOST_CHECK(PermittedDifficultyTransition(params, boundary_height, tip_nbits, fork_nbits));

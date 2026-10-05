@@ -25,6 +25,8 @@ public:
     static constexpr unsigned LENGTH_LEN{3};
     static constexpr unsigned HEADER_LEN{1};
     static constexpr unsigned EXPANSION = LENGTH_LEN + HEADER_LEN + FSChaCha20Poly1305::EXPANSION;
+    /** Largest contents a 3-byte BIP324 length field can name. */
+    static constexpr size_t MAX_CONTENTS_LEN{(size_t{1} << 24) - 1};
     static constexpr std::byte IGNORE_BIT{0x80};
 
 private:

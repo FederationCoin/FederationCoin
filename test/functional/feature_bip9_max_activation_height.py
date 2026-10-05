@@ -42,12 +42,12 @@ class MaxActivationHeightTest(BitcoinTestFramework):
         # INT_MAX = std::numeric_limits<int>::max() = 2147483647
         INT_MAX = '2147483647'
         self.extra_args = [
-            [f'-vbparams=testdummy:0:{NO_TIMEOUT}:0:576'],      # Test 1: max_height=576 (shows full flow)
-            ['-vbparams=testdummy:0:999999999999'],              # Test 2: no max_height (uses timeout)
-            [f'-vbparams=testdummy:0:{NO_TIMEOUT}:0:576'],      # Test 3: max_height=576 (early activation)
-            [f'-vbparams=testdummy:0:{NO_TIMEOUT}:0:432'],      # Test 4: verify permanent ACTIVE
-            [f'-vbparams=testdummy:0:{NO_TIMEOUT}:0:432:144'],  # Test 5: max_height + active_duration
-            [f'-vbparams=testdummy:0:999999999999:0:{INT_MAX}:{INT_MAX}:72'],  # Test 6: custom 50% threshold (72/144)
+            [f'-vbparams=testdummy:0:{NO_TIMEOUT}:0:480:120'],      # Test 1: max_height=480 (4 * 120)
+            ['-vbparams=testdummy:0:999999999999'],                 # Test 2: no max_height (uses timeout)
+            [f'-vbparams=testdummy:0:{NO_TIMEOUT}:0:480:120'],      # Test 3: max_height=480
+            [f'-vbparams=testdummy:0:{NO_TIMEOUT}:0:360:{INT_MAX}'], # Test 4: verify permanent ACTIVE
+            [f'-vbparams=testdummy:0:{NO_TIMEOUT}:0:360:120'],      # Test 5: max_height + active_duration
+            [f'-vbparams=testdummy:0:999999999999:0:{INT_MAX}:{INT_MAX}:60'],  # Test 6: 50% threshold (60/120)
         ]
 
     def setup_network(self):
@@ -72,7 +72,7 @@ class MaxActivationHeightTest(BitcoinTestFramework):
             node.submitblock(block.serialize().hex())
 
             # Log every 20 blocks and at key heights for debugging
-            if height % 20 == 0 or height == 143 or height == 144:
+            if height % 20 == 0 or height == 119 or height == 120:
                 mtp = node.getblockheader(node.getbestblockhash())['mediantime']
                 self.log.info(f"  Block {height}: time={block_time}, MTP={mtp}")
 
@@ -103,7 +103,7 @@ class MaxActivationHeightTest(BitcoinTestFramework):
                 # Run bitcoind with invalid vbparams (both timeout and max_activation_height)
                 result = subprocess.run(
                     [bitcoind_path, f'-datadir={tmpdir}', '-regtest',
-                     '-vbparams=testdummy:0:1:0:432'],  # timeout=1, max_activation_height=432
+                     '-vbparams=testdummy:0:1:0:360'],  # timeout=1, max_activation_height=360
                     capture_output=True,
                     text=True,
                     timeout=5
@@ -125,43 +125,43 @@ class MaxActivationHeightTest(BitcoinTestFramework):
             except subprocess.TimeoutExpired:
                 raise AssertionError("bitcoind timed out (should have failed immediately with validation error)")
 
-        self.log.info("\n=== Test: max_activation_height=576 (full flow with non-mandatory period) ===")
+        self.log.info("\n=== Test: max_activation_height=480 (full flow with non-mandatory period) ===")
         node = self.nodes[0]
 
         # Check deployment info to verify max_activation_height is set
         info = node.getdeploymentinfo()
         self.log.info(f"Deployment info: {info['deployments']['testdummy']}")
 
-        # Period 0 (0-143): DEFINED
-        self.log.info("\n--- Period 0 (blocks 0-143): DEFINED ---")
-        self.mine_blocks(node, 143, signal=False)
-        assert_equal(node.getblockcount(), 143)
+        # Period 0 (0-119): DEFINED
+        self.log.info("\n--- Period 0 (blocks 0-119): DEFINED ---")
+        self.mine_blocks(node, 119, signal=False)
+        assert_equal(node.getblockcount(), 119)
         status, since = self.get_status(node)
-        self.log.info(f"Block 143: Status={status}")
+        self.log.info(f"Block 119: Status={status}")
         assert_equal(status, 'defined')
 
-        # Block 144: Transition to STARTED
-        self.log.info("\n--- Block 144: Transition to STARTED ---")
+        # Block 120: Transition to STARTED
+        self.log.info("\n--- Block 120: Transition to STARTED ---")
         self.mine_blocks(node, 1, signal=False)
         status, since = self.get_status(node)
-        self.log.info(f"Block 144: Status={status}, Since={since}")
+        self.log.info(f"Block 120: Status={status}, Since={since}")
         assert_equal(status, 'started')
-        assert_equal(since, 144)
+        assert_equal(since, 120)
 
-        # Period 1 (144-287): STARTED
-        self.log.info("\n--- Period 1 (blocks 145-287): STARTED ---")
-        self.mine_blocks(node, 143, signal=False)
-        assert_equal(node.getblockcount(), 287)
+        # Period 1 (120-239): STARTED
+        self.log.info("\n--- Period 1 (blocks 145-239): STARTED ---")
+        self.mine_blocks(node, 119, signal=False)
+        assert_equal(node.getblockcount(), 239)
         status, since = self.get_status(node)
-        self.log.info(f"Block 287: Status={status}")
+        self.log.info(f"Block 239: Status={status}")
         assert_equal(status, 'started')
 
-        # Period 2 (288-431): STARTED - forced lock-in will occur at end of this period
-        self.log.info("\n--- Period 2 (blocks 288-431): STARTED ---")
-        self.log.info("Forced lock-in will occur at block 432 (max_activation_height - nPeriod)")
+        # Period 2 (240-359): STARTED - forced lock-in will occur at end of this period
+        self.log.info("\n--- Period 2 (blocks 240-359): STARTED ---")
+        self.log.info("Forced lock-in will occur at block 360 (max_activation_height - nPeriod)")
 
-        # Try to mine block 288 without signaling - should be REJECTED
-        self.log.info("\nNEGATIVE TEST: Attempting to mine block 288 without signaling...")
+        # Try to mine block 240 without signaling - should be REJECTED
+        self.log.info("\nNEGATIVE TEST: Attempting to mine block 240 without signaling...")
         tip = node.getbestblockhash()
         height = node.getblockcount() + 1
         tip_header = node.getblockheader(tip)
@@ -172,47 +172,47 @@ class MaxActivationHeightTest(BitcoinTestFramework):
         block.solve()
         result = node.submitblock(block.serialize().hex())
         self.log.info(f"Submitblock result (should be rejected): {result}")
-        # Block should be rejected - check we're still at block 287
-        assert_equal(node.getblockcount(), 287)
+        # Block should be rejected - check we're still at block 239
+        assert_equal(node.getblockcount(), 239)
         self.log.info("SUCCESS: Block without signaling was correctly REJECTED during enforcement window")
 
         # Now mine Period 2 with proper signaling
         self.log.info("\nMining Period 2 with proper signaling...")
-        self.mine_blocks(node, 144, signal=True)
-        assert_equal(node.getblockcount(), 431)
+        self.mine_blocks(node, 120, signal=True)
+        assert_equal(node.getblockcount(), 359)
         status, since = self.get_status(node)
-        self.log.info(f"Block 431: Status={status}")
+        self.log.info(f"Block 359: Status={status}")
         assert_equal(status, 'started')
 
-        # Period 3 (432-575): LOCKED_IN (forced by max_activation_height)
-        self.log.info("\n--- Period 3 (blocks 432-575): LOCKED_IN ---")
-        self.mine_blocks(node, 1, signal=False)  # Mine block 432
-        assert_equal(node.getblockcount(), 432)
+        # Period 3 (360-479): LOCKED_IN (forced by max_activation_height)
+        self.log.info("\n--- Period 3 (blocks 360-479): LOCKED_IN ---")
+        self.mine_blocks(node, 1, signal=False)  # Mine block 360
+        assert_equal(node.getblockcount(), 360)
         status, since = self.get_status(node)
-        self.log.info(f"Block 432: Status={status}, Since={since}")
+        self.log.info(f"Block 360: Status={status}, Since={since}")
         assert_equal(status, 'locked_in')
-        assert_equal(since, 432)
+        assert_equal(since, 360)
 
-        # Mine through period 3 to activate at block 576
-        self.log.info("Mining blocks 433-575...")
-        self.mine_blocks(node, 143, signal=False)
-        assert_equal(node.getblockcount(), 575)
+        # Mine through period 3 to activate at block 480
+        self.log.info("Mining blocks 433-479...")
+        self.mine_blocks(node, 119, signal=False)
+        assert_equal(node.getblockcount(), 479)
         status, since = self.get_status(node)
         assert_equal(status, 'locked_in')
 
-        # Period 4 (576+): ACTIVE
-        self.log.info("\n--- Period 4 (block 576+): ACTIVE ---")
+        # Period 4 (480+): ACTIVE
+        self.log.info("\n--- Period 4 (block 480+): ACTIVE ---")
         self.mine_blocks(node, 1, signal=False)
-        assert_equal(node.getblockcount(), 576)
+        assert_equal(node.getblockcount(), 480)
         status, since = self.get_status(node)
-        self.log.info(f"Block 576: Status={status}, Since={since}")
+        self.log.info(f"Block 480: Status={status}, Since={since}")
         assert_equal(status, 'active')
-        assert_equal(since, 576)
+        assert_equal(since, 480)
 
         self.log.info("\n=== TEST 1 COMPLETE ===")
-        self.log.info("Summary: max_activation_height=576 test passed")
-        self.log.info("- Deployment activated at height 576 via forced lock-in at 432")
-        self.log.info("- Mandatory signaling enforced during blocks 288-431 (BIP148-style)")
+        self.log.info("Summary: max_activation_height=480 test passed")
+        self.log.info("- Deployment activated at height 480 via forced lock-in at 360")
+        self.log.info("- Mandatory signaling enforced during blocks 240-359 (BIP148-style)")
         self.log.info("- Non-signaling blocks rejected during enforcement window")
         self.log.info("- Non-signaling blocks accepted outside enforcement window")
 
@@ -220,34 +220,34 @@ class MaxActivationHeightTest(BitcoinTestFramework):
         self.log.info("\n\n=== TEST 2: Deployment without max_height requires signaling ===")
         node = self.nodes[1]
 
-        # Period 0 (0-143): DEFINED
-        self.log.info("\n--- Period 0 (blocks 0-143): DEFINED ---")
-        self.mine_blocks(node, 143, signal=False)
-        assert_equal(node.getblockcount(), 143)
+        # Period 0 (0-119): DEFINED
+        self.log.info("\n--- Period 0 (blocks 0-119): DEFINED ---")
+        self.mine_blocks(node, 119, signal=False)
+        assert_equal(node.getblockcount(), 119)
         status, since = self.get_status(node)
-        self.log.info(f"Block 143: Status={status}")
+        self.log.info(f"Block 119: Status={status}")
         assert_equal(status, 'defined')
 
-        # Mine period 1 (blocks 144-287) without signaling - should transition to STARTED
-        self.log.info("Mining period 1 (blocks 144-287) without signaling...")
-        self.mine_blocks(node, 144, signal=False)
-        assert_equal(node.getblockcount(), 287)
+        # Mine period 1 (blocks 120-239) without signaling - should transition to STARTED
+        self.log.info("Mining period 1 (blocks 120-239) without signaling...")
+        self.mine_blocks(node, 120, signal=False)
+        assert_equal(node.getblockcount(), 239)
         status, since = self.get_status(node)
-        self.log.info(f"Block 287: Status={status}")
+        self.log.info(f"Block 239: Status={status}")
         assert_equal(status, 'started')
 
-        # Mine period 2 (blocks 288-431) without signaling - should remain STARTED
-        self.log.info("Mining period 2 (blocks 288-431) without signaling...")
-        self.mine_blocks(node, 144, signal=False)
+        # Mine period 2 (blocks 240-359) without signaling - should remain STARTED
+        self.log.info("Mining period 2 (blocks 240-359) without signaling...")
+        self.mine_blocks(node, 120, signal=False)
         status, since = self.get_status(node)
-        self.log.info(f"Block 431: Status={status}")
+        self.log.info(f"Block 359: Status={status}")
         assert_equal(status, 'started')  # Should NOT lock in without signaling
 
-        # Mine period 3 (blocks 432-575) without signaling - should remain STARTED
-        self.log.info("Mining period 3 (blocks 432-575) without signaling...")
-        self.mine_blocks(node, 144, signal=False)
+        # Mine period 3 (blocks 360-479) without signaling - should remain STARTED
+        self.log.info("Mining period 3 (blocks 360-479) without signaling...")
+        self.mine_blocks(node, 120, signal=False)
         status, since = self.get_status(node)
-        self.log.info(f"Block 575: Status={status}")
+        self.log.info(f"Block 479: Status={status}")
         assert_equal(status, 'started')  # Still STARTED without signaling
 
         self.log.info("\n=== TEST 2 COMPLETE ===")
@@ -257,85 +257,85 @@ class MaxActivationHeightTest(BitcoinTestFramework):
         self.log.info("\n\n=== TEST 3: Early activation via signaling before max_height ===")
         node = self.nodes[2]
 
-        # Period 0 (0-143): DEFINED
-        self.log.info("\n--- Period 0 (blocks 0-143): DEFINED ---")
-        self.mine_blocks(node, 143, signal=False)
-        assert_equal(node.getblockcount(), 143)
+        # Period 0 (0-119): DEFINED
+        self.log.info("\n--- Period 0 (blocks 0-119): DEFINED ---")
+        self.mine_blocks(node, 119, signal=False)
+        assert_equal(node.getblockcount(), 119)
         status, since = self.get_status(node)
-        self.log.info(f"Block 143: Status={status}")
+        self.log.info(f"Block 119: Status={status}")
         assert_equal(status, 'defined')
 
-        # Mine period 1 (blocks 144-287) with 100% signaling
-        self.log.info("Mining period 1 (blocks 144-287) with 100% signaling...")
-        self.mine_blocks(node, 144, signal=True)
-        assert_equal(node.getblockcount(), 287)
+        # Mine period 1 (blocks 120-239) with 100% signaling
+        self.log.info("Mining period 1 (blocks 120-239) with 100% signaling...")
+        self.mine_blocks(node, 120, signal=True)
+        assert_equal(node.getblockcount(), 239)
         status, since = self.get_status(node)
-        self.log.info(f"Block 287: Status={status}")
+        self.log.info(f"Block 239: Status={status}")
         assert_equal(status, 'started')
 
-        # Mine period 2 (blocks 288-431) with signaling - should lock in
-        self.log.info("Mining period 2 (blocks 288-431) with signaling - should lock in...")
-        self.mine_blocks(node, 144, signal=True)
-        assert_equal(node.getblockcount(), 431)
+        # Mine period 2 (blocks 240-359) with signaling - should lock in
+        self.log.info("Mining period 2 (blocks 240-359) with signaling - should lock in...")
+        self.mine_blocks(node, 120, signal=True)
+        assert_equal(node.getblockcount(), 359)
         status, since = self.get_status(node)
-        self.log.info(f"Block 431: Status={status}, Since={since}")
+        self.log.info(f"Block 359: Status={status}, Since={since}")
         assert_equal(status, 'locked_in')
-        assert_equal(since, 288)  # Locked in at start of period 2 via signaling threshold
+        assert_equal(since, 240)  # Locked in at start of period 2 via signaling threshold
 
-        # Mine block 432 - should activate via signaling (well before max_height 576)
-        self.log.info("Mining block 432 - should activate via signaling (before max_height 576)...")
+        # Mine block 360 - should activate via signaling (well before max_height 480)
+        self.log.info("Mining block 360 - should activate via signaling (before max_height 480)...")
         self.mine_blocks(node, 1, signal=True)
-        assert_equal(node.getblockcount(), 432)
+        assert_equal(node.getblockcount(), 360)
         status, since = self.get_status(node)
-        self.log.info(f"Block 432: Status={status}, Since={since}")
+        self.log.info(f"Block 360: Status={status}, Since={since}")
         assert_equal(status, 'active')
-        assert_equal(since, 432)
+        assert_equal(since, 360)
 
         self.log.info("\n=== TEST 3 COMPLETE ===")
-        self.log.info("SUCCESS: Deployment activated early via signaling (at 432, before max_height 576)")
+        self.log.info("SUCCESS: Deployment activated early via signaling (at 360, before max_height 480)")
 
         # Test 4: Verify ACTIVE state is permanent
         self.log.info("\n\n=== TEST 4: Verify ACTIVE state is permanent ===")
         node = self.nodes[3]
 
-        # Activate via max_height (max_height=432)
-        # Mine to block 143 (period 0) without signaling
-        self.log.info("Mining period 0 (blocks 0-143) without signaling...")
-        self.mine_blocks(node, 143, signal=False)
-        assert_equal(node.getblockcount(), 143)
+        # Activate via max_height (max_height=360)
+        # Mine to block 119 (period 0) without signaling
+        self.log.info("Mining period 0 (blocks 0-119) without signaling...")
+        self.mine_blocks(node, 119, signal=False)
+        assert_equal(node.getblockcount(), 119)
 
-        # Mine through enforcement window (blocks 144-287) WITH signaling
-        # Enforcement window for max_height=432 is [144, 288)
-        self.log.info("Mining blocks 144-287 with signaling (enforcement window)...")
-        self.mine_blocks(node, 144, signal=True)
-        assert_equal(node.getblockcount(), 287)
+        # Mine through enforcement window (blocks 120-239) WITH signaling
+        # Enforcement window for max_height=360 is [120, 240)
+        self.log.info("Mining blocks 120-239 with signaling (enforcement window)...")
+        self.mine_blocks(node, 120, signal=True)
+        assert_equal(node.getblockcount(), 239)
         status, since = self.get_status(node)
         assert_equal(status, 'started')
 
-        # Mine period 2 (blocks 288-431) - will force lock-in at 288 (432 - 144)
-        self.log.info("Mining period 2 (blocks 288-431) - forced lock-in at end...")
-        self.mine_blocks(node, 144, signal=False)
-        assert_equal(node.getblockcount(), 431)
+        # Mine period 2 (blocks 240-359) - will force lock-in at 240 (360 - 120)
+        self.log.info("Mining period 2 (blocks 240-359) - forced lock-in at end...")
+        self.mine_blocks(node, 120, signal=False)
+        assert_equal(node.getblockcount(), 359)
         status, since = self.get_status(node)
         assert_equal(status, 'locked_in')
 
-        # Mine block 432 - should activate
-        self.log.info("Mining block 432 - should activate via max_height...")
+        # Mine block 360 - should activate
+        self.log.info("Mining block 360 - should activate via max_height...")
         self.mine_blocks(node, 1, signal=False)
-        assert_equal(node.getblockcount(), 432)
+        assert_equal(node.getblockcount(), 360)
         status, since = self.get_status(node)
-        self.log.info(f"Block 432: Status={status}, Since={since}")
+        self.log.info(f"Block 360: Status={status}, Since={since}")
         assert_equal(status, 'active')
-        assert_equal(since, 432)
+        assert_equal(since, 360)
 
         # Mine 300 more blocks to verify permanence
         self.log.info("Mining 300 more blocks to verify ACTIVE state persists...")
         self.mine_blocks(node, 300, signal=False)
-        assert_equal(node.getblockcount(), 732)
+        assert_equal(node.getblockcount(), 660)
         status, since = self.get_status(node)
-        self.log.info(f"Block 732: Status={status}, Since={since}")
+        self.log.info(f"Block 660: Status={status}, Since={since}")
         assert_equal(status, 'active')
-        assert_equal(since, 432)
+        assert_equal(since, 360)
 
         self.log.info("\n=== TEST 4 COMPLETE ===")
         self.log.info("SUCCESS: Deployment remains ACTIVE permanently")
@@ -344,128 +344,128 @@ class MaxActivationHeightTest(BitcoinTestFramework):
         self.log.info("\n\n=== TEST 5: Temporary deployment with max_height ===")
         node = self.nodes[4]
 
-        # This node has max_activation_height=432 AND active_duration=144
-        # Should activate at 432 via max_height, then expire at 432+144=576
-        # Mine to block 143 (period 0) without signaling
-        self.log.info("Mining period 0 (blocks 0-143) without signaling...")
-        self.mine_blocks(node, 143, signal=False)
-        assert_equal(node.getblockcount(), 143)
+        # This node has max_activation_height=360 AND active_duration=120
+        # Should activate at 360 via max_height, then expire at 360+120=480
+        # Mine to block 119 (period 0) without signaling
+        self.log.info("Mining period 0 (blocks 0-119) without signaling...")
+        self.mine_blocks(node, 119, signal=False)
+        assert_equal(node.getblockcount(), 119)
 
-        # Mine through enforcement window (blocks 144-287) WITH signaling
-        # Enforcement window for max_height=432 is [144, 288)
-        self.log.info("Mining blocks 144-287 with signaling (enforcement window)...")
-        self.mine_blocks(node, 144, signal=True)
-        assert_equal(node.getblockcount(), 287)
+        # Mine through enforcement window (blocks 120-239) WITH signaling
+        # Enforcement window for max_height=360 is [120, 240)
+        self.log.info("Mining blocks 120-239 with signaling (enforcement window)...")
+        self.mine_blocks(node, 120, signal=True)
+        assert_equal(node.getblockcount(), 239)
         status, since = self.get_status(node)
-        self.log.info(f"Block 287: Status={status}")
+        self.log.info(f"Block 239: Status={status}")
         assert_equal(status, 'started')
 
-        # Mine period 2 (blocks 288-431) - will force lock-in at 288 (432 - 144)
-        self.log.info("Mining period 2 (blocks 288-431) - forced lock-in at end...")
-        self.mine_blocks(node, 144, signal=False)
-        assert_equal(node.getblockcount(), 431)
+        # Mine period 2 (blocks 240-359) - will force lock-in at 240 (360 - 120)
+        self.log.info("Mining period 2 (blocks 240-359) - forced lock-in at end...")
+        self.mine_blocks(node, 120, signal=False)
+        assert_equal(node.getblockcount(), 359)
         status, since = self.get_status(node)
-        self.log.info(f"Block 431: Status={status}")
+        self.log.info(f"Block 359: Status={status}")
         assert_equal(status, 'locked_in')
 
-        # Mine block 432 - should activate via max_height
-        self.log.info("Mining block 432 - should activate via max_height...")
+        # Mine block 360 - should activate via max_height
+        self.log.info("Mining block 360 - should activate via max_height...")
         self.mine_blocks(node, 1, signal=False)
-        assert_equal(node.getblockcount(), 432)
+        assert_equal(node.getblockcount(), 360)
         status, since = self.get_status(node)
-        self.log.info(f"Block 432: Status={status}, Since={since}")
+        self.log.info(f"Block 360: Status={status}, Since={since}")
         assert_equal(status, 'active')
-        assert_equal(since, 432)
+        assert_equal(since, 360)
 
-        # Mine through active period to block 575 (432+144-1)
-        self.log.info("Mining through active period to block 575 (432+144-1)...")
-        self.mine_blocks(node, 143, signal=False)
-        assert_equal(node.getblockcount(), 575)
+        # Mine through active period to block 479 (360+120-1)
+        self.log.info("Mining through active period to block 479 (360+120-1)...")
+        self.mine_blocks(node, 119, signal=False)
+        assert_equal(node.getblockcount(), 479)
         status, since = self.get_status(node)
-        self.log.info(f"Block 575: Status={status}")
+        self.log.info(f"Block 479: Status={status}")
         assert_equal(status, 'active')
 
-        # Mine block 576 (432+144) - deployment has expired
-        # RPC status uses State(blockindex->pprev), so expired appears at tip 576
-        self.log.info("Mining block 576 (432+144) - deployment should be expired...")
+        # Mine block 480 (360+120) - deployment has expired
+        # RPC status uses State(blockindex->pprev), so expired appears at tip 480
+        self.log.info("Mining block 480 (360+120) - deployment should be expired...")
         self.mine_blocks(node, 1, signal=False)
-        assert_equal(node.getblockcount(), 576)
+        assert_equal(node.getblockcount(), 480)
         status, since = self.get_status(node)
-        self.log.info(f"Block 576: Status={status}, Since={since}")
+        self.log.info(f"Block 480: Status={status}, Since={since}")
         assert_equal(status, 'expired')
-        assert_equal(since, 576)
+        assert_equal(since, 480)
 
-        # Mine block 577 - verify EXPIRED is terminal
-        self.log.info("Mining block 577 - verify EXPIRED is terminal...")
+        # Mine block 481 - verify EXPIRED is terminal
+        self.log.info("Mining block 481 - verify EXPIRED is terminal...")
         self.mine_blocks(node, 1, signal=False)
-        assert_equal(node.getblockcount(), 577)
+        assert_equal(node.getblockcount(), 481)
         status, since = self.get_status(node)
-        self.log.info(f"Block 577: Status={status}")
+        self.log.info(f"Block 481: Status={status}")
         assert_equal(status, 'expired')
 
         self.log.info("\n=== TEST 5 COMPLETE ===")
         self.log.info("SUCCESS: Temporary deployment with max_height activated and expired correctly")
 
         # Test 6: Custom per-deployment threshold
-        self.log.info("\n\n=== TEST 6: Custom per-deployment threshold (50% = 72/144 blocks) ===")
+        self.log.info("\n\n=== TEST 6: Custom per-deployment threshold (50% = 60/120 blocks) ===")
         node = self.nodes[5]
 
-        # This node has threshold=72 (50% of 144 blocks)
-        # Default regtest threshold is 108 (75%), but this deployment should activate at 72
+        # This node has threshold=60 (50% of 120 blocks)
+        # Default regtest threshold is 90 (75%), but this deployment should activate at 60
 
-        # Period 0 (0-143): DEFINED
-        self.log.info("Mining period 0 (blocks 0-143) without signaling...")
-        self.mine_blocks(node, 143, signal=False)
-        assert_equal(node.getblockcount(), 143)
+        # Period 0 (0-119): DEFINED
+        self.log.info("Mining period 0 (blocks 0-119) without signaling...")
+        self.mine_blocks(node, 119, signal=False)
+        assert_equal(node.getblockcount(), 119)
         status, _ = self.get_status(node)
         assert_equal(status, 'defined')
 
-        # Block 144: Transition to STARTED
-        self.log.info("Mining block 144 to transition to STARTED...")
+        # Block 120: Transition to STARTED
+        self.log.info("Mining block 120 to transition to STARTED...")
         self.mine_blocks(node, 1, signal=False)
-        assert_equal(node.getblockcount(), 144)
+        assert_equal(node.getblockcount(), 120)
         status, since = self.get_status(node)
-        self.log.info(f"Block 144: Status={status}, Since={since}")
+        self.log.info(f"Block 120: Status={status}, Since={since}")
         assert_equal(status, 'started')
-        assert_equal(since, 144)
+        assert_equal(since, 120)
 
-        # Period 1 (144-287): Mine exactly 72 signaling blocks (50%)
-        # With custom threshold of 72, this should be enough to lock in
-        self.log.info("Mining period 1 with exactly 72 signaling blocks (50%)...")
-        self.mine_blocks(node, 72, signal=True)   # 72 signaling blocks
-        self.mine_blocks(node, 71, signal=False)  # 71 non-signaling blocks
-        assert_equal(node.getblockcount(), 287)
+        # Period 1 (120-239): Mine exactly 60 signaling blocks (50%)
+        # With custom threshold of 60, this should be enough to lock in
+        self.log.info("Mining period 1 with exactly 60 signaling blocks (50%)...")
+        self.mine_blocks(node, 60, signal=True)   # 60 signaling blocks
+        self.mine_blocks(node, 59, signal=False)  # 59 non-signaling blocks
+        assert_equal(node.getblockcount(), 239)
         status, since = self.get_status(node)
-        self.log.info(f"Block 287: Status={status}")
+        self.log.info(f"Block 239: Status={status}")
         assert_equal(status, 'started')  # Still started until next period boundary
 
-        # Block 288: Should transition to LOCKED_IN (threshold met in previous period)
-        self.log.info("Mining block 288 to check lock-in...")
+        # Block 240: Should transition to LOCKED_IN (threshold met in previous period)
+        self.log.info("Mining block 240 to check lock-in...")
         self.mine_blocks(node, 1, signal=False)
-        assert_equal(node.getblockcount(), 288)
+        assert_equal(node.getblockcount(), 240)
         status, since = self.get_status(node)
-        self.log.info(f"Block 288: Status={status}, Since={since}")
+        self.log.info(f"Block 240: Status={status}, Since={since}")
         assert_equal(status, 'locked_in')
-        assert_equal(since, 288)
+        assert_equal(since, 240)
 
         # Mine through locked_in period to activate
-        self.log.info("Mining through locked_in period (289-431)...")
-        self.mine_blocks(node, 143, signal=False)
-        assert_equal(node.getblockcount(), 431)
+        self.log.info("Mining through locked_in period (241-359)...")
+        self.mine_blocks(node, 119, signal=False)
+        assert_equal(node.getblockcount(), 359)
         status, since = self.get_status(node)
         assert_equal(status, 'locked_in')
 
-        # Block 432: Should transition to ACTIVE
-        self.log.info("Mining block 432 to activate...")
+        # Block 360: Should transition to ACTIVE
+        self.log.info("Mining block 360 to activate...")
         self.mine_blocks(node, 1, signal=False)
-        assert_equal(node.getblockcount(), 432)
+        assert_equal(node.getblockcount(), 360)
         status, since = self.get_status(node)
-        self.log.info(f"Block 432: Status={status}, Since={since}")
+        self.log.info(f"Block 360: Status={status}, Since={since}")
         assert_equal(status, 'active')
-        assert_equal(since, 432)
+        assert_equal(since, 360)
 
         self.log.info("\n=== TEST 6 COMPLETE ===")
-        self.log.info("SUCCESS: Deployment activated with custom 50% threshold (72/144 blocks)")
+        self.log.info("SUCCESS: Deployment activated with custom 50% threshold (60/120 blocks)")
         self.log.info("- Custom threshold overrode default 75% threshold")
         self.log.info("- Lock-in occurred with only 50% signaling support")
 

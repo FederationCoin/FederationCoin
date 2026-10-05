@@ -37,8 +37,10 @@ class RPCWhitelistTest(BitcoinTestFramework):
 
     def set_test_params(self):
         self.num_nodes = 1
-        if self.is_wallet_compiled():
-            self.skip_if_no_wallet()
+
+    def skip_test_if_missing_module(self):
+        # Heritage: Core wallet RPC whitelist. Product wallets are Sparrow and mill.
+        self.skip_if_no_wallet()
 
     def setup_chain(self):
         super().setup_chain()

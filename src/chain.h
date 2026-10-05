@@ -7,6 +7,7 @@
 #define BITCOIN_CHAIN_H
 
 #include <arith_uint256.h>
+#include <consensus/epoch_watermark.h>
 #include <consensus/params.h>
 #include <flatfile.h>
 #include <kernel/cs_main.h>
@@ -185,6 +186,10 @@ public:
     //! @sa NeedsRedownload
     //! @sa ActivateSnapshot
     uint32_t nStatus GUARDED_BY(::cs_main){0};
+
+    //! Cap that applied to this block, and the in-progress epoch watermark.
+    uint64_t nFlexCap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
+    Consensus::EpochWatermark nEpochWatermark{};
 
     //! (memory only) Sequential id assigned to distinguish order in which blocks are received.
     //! Initialized to SEQ_ID_INIT_FROM_DISK{1} when loading blocks from disk, except for blocks
@@ -367,6 +372,8 @@ public:
         if (obj.nStatus & (BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO)) READWRITE(VARINT_MODE(obj.nFile, VarIntMode::NONNEGATIVE_SIGNED));
         if (obj.nStatus & BLOCK_HAVE_DATA) READWRITE(VARINT(obj.nDataPos));
         if (obj.nStatus & BLOCK_HAVE_UNDO) READWRITE(VARINT(obj.nUndoPos));
+        READWRITE(obj.nFlexCap);
+        READWRITE(obj.nEpochWatermark);
 
         // block header
         CBlockHeader header;

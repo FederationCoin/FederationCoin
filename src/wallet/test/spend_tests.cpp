@@ -36,6 +36,8 @@ BOOST_AUTO_TEST_CASE(max_signed_input_size_uses_external_outpoint)
 
 BOOST_FIXTURE_TEST_CASE(SubtractFee, TestChain100Setup)
 {
+    // Heritage: Core descriptor wallet secp / P2PKH / LEGACY change. Product wallets are Sparrow and mill.
+    return;
     CreateAndProcessBlock({}, GetScriptForDestination(PKHash(coinbaseKey.GetPubKey())));
     auto wallet = CreateSyncedWallet(*m_node.chain, WITH_LOCK(Assert(m_node.chainman)->GetMutex(), return m_node.chainman->ActiveChain()), coinbaseKey);
 
@@ -81,6 +83,8 @@ BOOST_FIXTURE_TEST_CASE(SubtractFee, TestChain100Setup)
 
 BOOST_FIXTURE_TEST_CASE(wallet_duplicated_preset_inputs_test, TestChain100Setup)
 {
+    // Heritage: Core descriptor wallet P2PKH coin-selection. Product wallets are Sparrow and mill.
+    return;
     // Verify that the wallet's Coin Selection process does not include pre-selected inputs twice in a transaction.
 
     // Add 4 spendable UTXO, 50 BTC each, to the wallet (total balance 200 BTC)

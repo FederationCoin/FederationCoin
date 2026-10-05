@@ -473,7 +473,7 @@ BOOST_AUTO_TEST_CASE(count_addr)
     BOOST_CHECK_EQUAL(addrman->CountAddr(NODE_BLAKE2B, 100), 0U);
     BOOST_CHECK_EQUAL(addrman->CountAddr(NODE_BLAKE2B, 0), 0U);
 
-    const ServiceFlags hf{ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_BLAKE2B)};
+    const ServiceFlags hf{ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_REDUCED_DATA | NODE_BLAKE2B)};
     const ServiceFlags non_hf{ServiceFlags(NODE_NETWORK | NODE_WITNESS)};
     const CNetAddr source = ResolveIP("252.2.2.2");
 

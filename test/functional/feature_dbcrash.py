@@ -40,6 +40,7 @@ from test_framework.util import (
 )
 from test_framework.wallet import (
     MiniWallet,
+    MiniWalletMode,
     getnewdestination,
 )
 
@@ -63,9 +64,10 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
         self.node1_args = ["-dbcrashratio=16", "-dbcache=8"] + self.base_args
         self.node2_args = ["-dbcrashratio=24", "-dbcache=16"] + self.base_args
 
-        # Node3 is a normal node with default args, except it mines up to the
-        # RDTS weight cap and allows dust outputs.
-        self.node3_args = ["-blockmaxweight=800000", "-dustrelayfee=0"]
+        # Node3 mines up to the flex-weight floor and allows dust. The old
+        # 800000 Bitcoin-era miner cap cannot hold five 1000-output prep txs
+        # when MiniWallet is the default Dilithium 44 kind.
+        self.node3_args = ["-blockmaxweight=2400000", "-dustrelayfee=0"]
         self.extra_args = [self.node0_args, self.node1_args, self.node2_args, self.node3_args]
 
     def setup_network(self):
@@ -184,39 +186,52 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
             assert_equal(nodei_utxo_hash, node3_utxo_hash)
 
     def generate_small_transactions(self, node, count, utxo_list):
-        FEE = 1000  # TODO: replace this with node relay fee based calculation
         num_transactions = 0
         random.shuffle(utxo_list)
         while len(utxo_list) >= 2 and num_transactions < count:
             utxos_to_spend = [utxo_list.pop() for _ in range(2)]
             input_amount = int(sum([utxo['value'] for utxo in utxos_to_spend]) * COIN)
-            if input_amount < FEE:
-                # Sanity check -- if we chose inputs that are too small, skip
+            if input_amount < 150_000:
+                # MiniWallet default fee_per_output is 50_000; three outputs plus
+                # the consensus floor need a live-kind fee, not 1000 sat.
                 continue
 
             self.wallet.send_self_transfer_multi(
                 from_node=node,
                 utxos_to_spend=utxos_to_spend,
                 num_outputs=3,
-                fee_per_output=FEE // 3,
             )
             num_transactions += 1
 
     def run_test(self):
-        self.wallet = MiniWallet(self.nodes[3])
+        # Crash recovery is a coins-db flush test. Mine and split warned secp
+        # so the 2500-tx crash batches stay in the same size class as the
+        # Bitcoin-era OP_TRUE case. Dilithium 44 1000-output prep txs left
+        # ReplayBlocks asking for a tip that was not in the block index.
+        self.wallet = MiniWallet(self.nodes[3], mode=MiniWalletMode.ADDRESS_SECP)
         initial_height = self.nodes[3].getblockcount()
-        self.generate(self.nodes[3], COINBASE_MATURITY, sync_fun=self.no_op)
+        # Default generate() coinbases are Dilithium 44. Mine maturity plus
+        # enough extra secp coinbases that 50 of them are spendable.
+        self.generate(self.wallet, COINBASE_MATURITY + 49, sync_fun=self.no_op)
 
         # Track test coverage statistics
         self.restart_counts = [0, 0, 0]  # Track the restarts for nodes 0-2
         self.crashed_on_restart = 0      # Track count of crashes during recovery
 
-        # Start by creating a lot of utxos on node3
-        utxo_list = []
-        for _ in range(5):
-            utxo_list.extend(self.wallet.send_self_transfer_multi(from_node=self.nodes[3], num_outputs=1000)['new_utxos'])
-        self.generate(self.nodes[3], 1, sync_fun=self.no_op)
+        # Start by creating a lot of utxos on node3. 50 × 100-output secp
+        # splits, mined in batches of 10, keep each block well under the
+        # 200000-byte coins batch that -dbcrashratio interrupts.
+        for i in range(50):
+            self.wallet.send_self_transfer_multi(
+                from_node=self.nodes[3],
+                num_outputs=100,
+                fee_per_output=1000,
+            )
+            if (i + 1) % 10 == 0:
+                self.generate(self.nodes[3], 1, sync_fun=self.no_op)
         assert_equal(len(self.nodes[3].getrawmempool()), 0)
+        self.wallet.rescan_utxos()
+        utxo_list = self.wallet.get_utxos()
         self.log.info(f"Prepped {len(utxo_list)} utxo entries")
 
         # Sync these blocks with the other nodes

@@ -1397,7 +1397,11 @@ static void SyncCoinsTipAfterChainSync(const NodeContext& node)
     }
 
     LogDebug(BCLog::COINDB, "Finished syncing to tip, syncing chainstate to disk\n");
-    node.chainman->ActiveChainstate().CoinsTip().Sync();
+    // FlushStateToDisk writes block files and the block index before the
+    // coins view. CoinsTip().Sync() alone can persist DB_HEAD_BLOCKS for a
+    // tip that is still only in memory, and ReplayBlocks then refuses to
+    // start after a mid-flush crash.
+    node.chainman->ActiveChainstate().ForceFlushStateToDisk();
 }
 
 bool AppInitInterfaces(NodeContext& node)

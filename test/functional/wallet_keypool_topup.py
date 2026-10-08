@@ -25,7 +25,7 @@ class KeypoolRestoreTest(BitcoinTestFramework):
 
     def set_test_params(self):
         self.setup_clean_chain = True
-        self.num_nodes = 5
+        self.num_nodes = 4
         self.extra_args = [[]]
         for _ in range(self.num_nodes - 1):
             self.extra_args.append(['-keypool=100'])
@@ -42,10 +42,10 @@ class KeypoolRestoreTest(BitcoinTestFramework):
         self.stop_node(1)
         shutil.copyfile(wallet_path, wallet_backup_path)
         self.start_node(1, self.extra_args[1])
-        for i in [1, 2, 3, 4]:
+        for i in range(1, self.num_nodes):
             self.connect_nodes(0, i)
 
-        output_types = ["legacy", "p2sh-segwit", "bech32"]
+        output_types = ["mldsa87", "mldsa44", "secp"]
         for i, output_type in enumerate(output_types):
             self.log.info("Generate keys for wallet with address type: {}".format(output_type))
             idx = i+1
@@ -56,14 +56,12 @@ class KeypoolRestoreTest(BitcoinTestFramework):
 
             # Make sure we're creating the outputs we expect
             address_details = self.nodes[idx].validateaddress(addr_extpool)
-            if i == 0:
-                assert not address_details["isscript"] and not address_details["iswitness"]
-            elif i == 1:
-                assert address_details["isscript"] and not address_details["iswitness"]
-            elif i == 2:
-                assert not address_details["isscript"] and address_details["iswitness"]
-            elif i == 3:
-                assert address_details["isscript"] and address_details["iswitness"]
+            assert address_details["iswitness"]
+            assert_equal(address_details["witness_version"], 0)
+            if output_type == "secp":
+                assert_equal(len(address_details["witness_program"]), 40)
+            else:
+                assert_equal(len(address_details["witness_program"]), 64)
 
             self.log.info("Send funds to wallet")
             self.nodes[0].sendtoaddress(addr_oldpool, 10)
@@ -82,17 +80,13 @@ class KeypoolRestoreTest(BitcoinTestFramework):
             assert_equal(self.nodes[idx].getbalance(), 15)
             assert_equal(self.nodes[idx].listtransactions()[0]['category'], "receive")
             # Check that we have marked all keys up to the used keypool key as used
-            if self.options.descriptors:
-                if output_type == 'legacy':
-                    assert_equal(self.nodes[idx].getaddressinfo(self.nodes[idx].getnewaddress(address_type=output_type))['hdkeypath'], "m/44h/1h/0h/0/110")
-                elif output_type == 'p2sh-segwit':
-                    assert_equal(self.nodes[idx].getaddressinfo(self.nodes[idx].getnewaddress(address_type=output_type))['hdkeypath'], "m/49h/1h/0h/0/110")
-                elif output_type == 'bech32':
-                    assert_equal(self.nodes[idx].getaddressinfo(self.nodes[idx].getnewaddress(address_type=output_type))['hdkeypath'], "m/84h/1h/0h/0/110")
-                elif output_type == 'bech32m':
-                    assert_equal(self.nodes[idx].getaddressinfo(self.nodes[idx].getnewaddress(address_type=output_type))['hdkeypath'], "m/86h/1h/0h/0/110")
+            next_info = self.nodes[idx].getaddressinfo(self.nodes[idx].getnewaddress(address_type=output_type))
+            if output_type == 'mldsa87':
+                assert_equal(next_info['hdkeypath'], "m/87h/1h/0h/0/110")
+            elif output_type == 'mldsa44':
+                assert_equal(next_info['hdkeypath'], "m/44h/1h/0h/0/110")
             else:
-                assert_equal(self.nodes[idx].getaddressinfo(self.nodes[idx].getnewaddress(address_type=output_type))['hdkeypath'], "m/0'/0'/110'")
+                assert_equal(next_info['hdkeypath'], "m/84h/1h/0h/0/110")
 
 
 if __name__ == '__main__':

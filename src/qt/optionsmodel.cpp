@@ -199,21 +199,33 @@ static const QLatin1String fontchoice_str_best_system{"best_system"};
 static const QString fontchoice_str_custom_prefix{QStringLiteral("custom, ")};
 
 static const std::map<OutputType, std::pair<const char*, const char*>> UntranslatedOutputTypeDescriptions{
+    {OutputType::DILITHIUM87, {
+        QT_TRANSLATE_NOOP("Output type name", "Dilithium 87"),
+        QT_TRANSLATE_NOOP("Output type description", "Default receive. Quantum-safe single-key."),
+    }},
+    {OutputType::DILITHIUM44, {
+        QT_TRANSLATE_NOOP("Output type name", "Dilithium 44"),
+        QT_TRANSLATE_NOOP("Output type description", "Middle size. Quantum-safe single-key."),
+    }},
+    {OutputType::SECP, {
+        QT_TRANSLATE_NOOP("Output type name", "secp"),
+        QT_TRANSLATE_NOOP("Output type description", "Cheap, not quantum-safe. The payment still goes."),
+    }},
     {OutputType::LEGACY, {
         QT_TRANSLATE_NOOP("Output type name", "Base58 (Legacy)"),
-        QT_TRANSLATE_NOOP("Output type description", "Widest compatibility and best for health of the Federation Coin network, but may result in higher fees later. Recommended."),
+        QT_TRANSLATE_NOOP("Output type description", "Not a FederationCoin receive type."),
     }},
     {OutputType::P2SH_SEGWIT, {
         QT_TRANSLATE_NOOP("Output type name", "Base58 (P2SH Segwit)"),
-        QT_TRANSLATE_NOOP("Output type description", "Compatible with most older wallets, and may result in lower fees than Legacy."),
+        QT_TRANSLATE_NOOP("Output type description", "Not a FederationCoin receive type."),
     }},
     {OutputType::BECH32, {
-        QT_TRANSLATE_NOOP("Output type name", "Native Segwit (Bech32)"),
-        QT_TRANSLATE_NOOP("Output type description", "Lower fees than Base58, but some old wallets don't support it."),
+        QT_TRANSLATE_NOOP("Output type name", "secp"),
+        QT_TRANSLATE_NOOP("Output type description", "Cheap, not quantum-safe. The payment still goes."),
     }},
     {OutputType::BECH32M, {
         QT_TRANSLATE_NOOP("Output type name", "Taproot (Bech32m)"),
-        QT_TRANSLATE_NOOP("Output type description", "Lowest fees, but wallet support is still limited."),
+        QT_TRANSLATE_NOOP("Output type description", "Not a FederationCoin receive type."),
     }},
 };
 

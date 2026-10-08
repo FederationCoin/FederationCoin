@@ -240,7 +240,7 @@ class ListTransactionsTest(BitcoinTestFramework):
 
         self.log.info("Setup the same wallet on two nodes")
         # refill keypool otherwise the second node wouldn't recognize addresses generated on the first nodes
-        self.nodes[0].keypoolrefill(1000)
+        self.nodes[0].keypoolrefill(20)
         self.stop_nodes()
         wallet0 = os.path.join(self.nodes[0].chain_path, self.default_wallet_name, "wallet.dat")
         wallet2 = os.path.join(self.nodes[2].chain_path, self.default_wallet_name, "wallet.dat")
@@ -251,9 +251,9 @@ class ListTransactionsTest(BitcoinTestFramework):
         self.connect_nodes(1, 2)
         self.connect_nodes(2, 0)
 
-        addr1 = self.nodes[0].getnewaddress("pizza1", 'legacy')
-        addr2 = self.nodes[0].getnewaddress("pizza2", 'p2sh-segwit')
-        addr3 = self.nodes[0].getnewaddress("pizza3", 'bech32')
+        addr1 = self.nodes[0].getnewaddress("pizza1", 'mldsa87')
+        addr2 = self.nodes[0].getnewaddress("pizza2", 'mldsa44')
+        addr3 = self.nodes[0].getnewaddress("pizza3", 'secp')
 
         self.log.info("Send to externally generated addresses")
         # send to an address beyond the next to be generated to test the keypool gap

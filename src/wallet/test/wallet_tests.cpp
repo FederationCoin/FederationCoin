@@ -719,37 +719,49 @@ void TestCoinsResult(ListCoinsTest& context, OutputType out_type, CAmount amount
     for (const auto& [type, size] : expected_coins_sizes) BOOST_CHECK_EQUAL(size, available_coins.coins[type].size());
 }
 
+BOOST_FIXTURE_TEST_CASE(output_type_parse_epic21, WalletTestingSetup)
+{
+    BOOST_CHECK(ParseOutputType("mldsa87") == OutputType::DILITHIUM87);
+    BOOST_CHECK(ParseOutputType("mldsa44") == OutputType::DILITHIUM44);
+    BOOST_CHECK(ParseOutputType("secp") == OutputType::SECP);
+    BOOST_CHECK(ParseOutputType("bech32") == OutputType::SECP);
+    BOOST_CHECK(!ParseOutputType("legacy"));
+    BOOST_CHECK(!ParseOutputType("p2sh-segwit"));
+    BOOST_CHECK(!ParseOutputType("bech32m"));
+    BOOST_CHECK_EQUAL(FormatOutputType(OutputType::DILITHIUM87), "mldsa87");
+    BOOST_CHECK_EQUAL(FormatOutputType(OutputType::DILITHIUM44), "mldsa44");
+    BOOST_CHECK_EQUAL(FormatOutputType(OutputType::SECP), "secp");
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::DILITHIUM87));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::DILITHIUM44));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP));
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::LEGACY));
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::P2SH_SEGWIT));
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M));
+    BOOST_CHECK(DEFAULT_ADDRESS_TYPE == OutputType::DILITHIUM87);
+}
+
 BOOST_FIXTURE_TEST_CASE(BasicOutputTypesTest, ListCoinsTest)
 {
-    // Heritage: Core descriptor wallet LEGACY / P2PKH output types. Product wallets are Sparrow and mill.
-    return;
     std::map<OutputType, size_t> expected_coins_sizes;
     for (const auto& out_type : OUTPUT_TYPES) { expected_coins_sizes[out_type] = 0U; }
 
-    // Coinbase is P2PKH (RDTS); it belongs in LEGACY, not UNKNOWN/P2PK.
-    expected_coins_sizes[OutputType::LEGACY] = 1U;
-    CoinsResult available_coins = WITH_LOCK(wallet->cs_wallet, return AvailableCoins(*wallet));
-    BOOST_CHECK_EQUAL(available_coins.Size(), expected_coins_sizes[OutputType::LEGACY]);
-    BOOST_CHECK_EQUAL(available_coins.coins[OutputType::LEGACY].size(), expected_coins_sizes[OutputType::LEGACY]);
-
-    // We will create a self transfer for each of the OutputTypes and
-    // verify it is put in the correct bucket after running GetAvailablecoins
-    //
-    // For each OutputType, We expect 2 UTXOs in our wallet following the self transfer:
-    //   1. One UTXO as the recipient
-    //   2. One UTXO from the change, due to payment address matching logic
-
     for (const auto& out_type : OUTPUT_TYPES) {
-        if (out_type == OutputType::UNKNOWN) continue;
-        // Default change is BECH32. A bech32m send is 1× BECH32M payment + 1× BECH32 change.
-        if (out_type == OutputType::BECH32M) {
-            expected_coins_sizes[OutputType::BECH32M] += 1U;
-            expected_coins_sizes[OutputType::BECH32] += 1U;
+        LOCK(wallet->cs_wallet);
+        const auto dest = wallet->GetNewDestination(out_type, "");
+        BOOST_REQUIRE(dest);
+        int witness_version{0};
+        std::vector<unsigned char> program;
+        const CScript script{GetScriptForDestination(*dest)};
+        BOOST_REQUIRE(script.IsWitnessProgram(witness_version, program));
+        BOOST_CHECK_EQUAL(witness_version, 0);
+        if (out_type == OutputType::SECP) {
+            BOOST_CHECK_EQUAL(program.size(), 20U);
         } else {
-            expected_coins_sizes[out_type] += 2U;
+            BOOST_CHECK_EQUAL(program.size(), 32U);
         }
-        TestCoinsResult(*this, out_type, 1 * COIN, expected_coins_sizes);
     }
+
+    BOOST_CHECK_EQUAL(expected_coins_sizes.size(), OUTPUT_TYPES.size());
 }
 
 BOOST_FIXTURE_TEST_CASE(wallet_disableprivkeys, TestChain100Setup)
@@ -759,8 +771,7 @@ BOOST_FIXTURE_TEST_CASE(wallet_disableprivkeys, TestChain100Setup)
         wallet->SetupLegacyScriptPubKeyMan();
         wallet->SetMinVersion(FEATURE_LATEST);
         wallet->SetWalletFlag(WALLET_FLAG_DISABLE_PRIVATE_KEYS);
-        BOOST_CHECK(!wallet->TopUpKeyPool(1000));
-        BOOST_CHECK(!wallet->GetNewDestination(OutputType::BECH32, ""));
+        BOOST_CHECK(!wallet->GetNewDestination(OutputType::DILITHIUM87, ""));
     }
     {
         const std::shared_ptr<CWallet> wallet = std::make_shared<CWallet>(m_node.chain.get(), "", CreateMockableWalletDatabase());
@@ -768,7 +779,7 @@ BOOST_FIXTURE_TEST_CASE(wallet_disableprivkeys, TestChain100Setup)
         wallet->SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
         wallet->SetMinVersion(FEATURE_LATEST);
         wallet->SetWalletFlag(WALLET_FLAG_DISABLE_PRIVATE_KEYS);
-        BOOST_CHECK(!wallet->GetNewDestination(OutputType::BECH32, ""));
+        BOOST_CHECK(!wallet->GetNewDestination(OutputType::DILITHIUM87, ""));
     }
 }
 
@@ -1018,7 +1029,7 @@ BOOST_FIXTURE_TEST_CASE(wallet_sync_tx_invalid_state_test, TestingSetup)
     }
 
     // Add tx to wallet
-    const auto op_dest{*Assert(wallet.GetNewDestination(OutputType::BECH32, ""))};
+    const auto op_dest{*Assert(wallet.GetNewDestination(OutputType::DILITHIUM87, ""))};
 
     CMutableTransaction mtx;
     mtx.vout.emplace_back(COIN, GetScriptForDestination(op_dest));

@@ -217,7 +217,7 @@ class WalletMiniscriptTest(BitcoinTestFramework):
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
-        self.skip_if_no_sqlite()
+        self.skip_heritage_secp_script()
 
     def watchonly_test(self, desc):
         self.log.info(f"Importing descriptor '{desc}'")

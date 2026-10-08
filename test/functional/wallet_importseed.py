@@ -12,6 +12,7 @@ addresses, when given only seeds as private data."""
 import time
 
 from test_framework.test_framework import BitcoinTestFramework
+from test_framework.test_framework import SkipTest
 from test_framework.util import (
     assert_raises_rpc_error,
 )
@@ -28,6 +29,9 @@ class ImportDescriptorsTest(BitcoinTestFramework):
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
+        # BIP93 vectors import pkh / tr / rawtr. Live single-key spends are
+        # Dilithium 87, Dilithium 44, and warned secp P2WPKH.
+        raise SkipTest("BIP93 seed import of pkh/tr/rawtr; live descriptors are mldsa87, mldsa, and wpkh.")
 
     def run_test(self):
         test_start = int(time.time())
@@ -48,10 +52,9 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         # xpub converted from BIP 93 test vector 1 xpriv using rust-bitcoin
         xpub = "trB6nMbsSD2SBxuhQ833245rztoMVE8NdiXHrDN1YHypfqDaG3B3x2Ubfrk8NrcwNVb1s8VzVYmM5qHf1F59pTVkD75m1pP3hWERYG2G3ZAZtr3"
         descriptors = [
-            f"wsh(pk({xpub}/55/*))",
-            f"tr({xpub}/1/2/3/4/5/*)",
             f"pkh({xpub}/*)",
             f"wpkh({xpub}/*)",
+            f"tr({xpub}/1/2/3/4/5/*)",
             f"rawtr({xpub}/1/2/3/*)",
         ]
         assert_raises_rpc_error(-4, "This wallet has no available keys", w1.getnewaddress)
@@ -89,8 +92,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         descriptor = f"tr([fab6868a/1h/2]{xpub}/1h/2/*h)"
         descriptor_chk = w2.getdescriptorinfo(descriptor)["descriptor"]
         assert_raises_rpc_error(
-            -4,
-            "This wallet has no available keys",
+            -5,
+            "Unknown address type",
             w2.getnewaddress,
             address_type="bech32m",
         )
@@ -102,8 +105,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         )
         assert "Cannot expand descriptor." in err[0]["error"]["message"]
         assert_raises_rpc_error(
-            -4,
-            "This wallet has no available keys",
+            -5,
+            "Unknown address type",
             w2.getnewaddress,
             address_type="bech32m",
         )
@@ -150,7 +153,7 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         # Taproot stays disabled even after the seed imports.
         assert_raises_rpc_error(
             -5,
-            "Bech32m / Taproot addresses are not valid on this chain.",
+            "Unknown address type",
             w2.getnewaddress,
             address_type="bech32m",
         )
@@ -188,8 +191,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         descriptor3_chk = w3.getdescriptorinfo(descriptor3)["descriptor"]
 
         assert_raises_rpc_error(
-            -4,
-            "This wallet has no available keys",
+            -5,
+            "Unknown address type",
             w3.getnewaddress,
             address_type="bech32m",
         )
@@ -200,8 +203,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
             address_type="bech32",
         )
         assert_raises_rpc_error(
-            -4,
-            "This wallet has no available keys",
+            -5,
+            "Unknown address type",
             w3.getnewaddress,
             address_type="legacy",
         )
@@ -249,14 +252,13 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         w3.getnewaddress(address_type="bech32")
         assert_raises_rpc_error(
             -5,
-            "Bech32m / Taproot addresses are not valid on this chain.",
+            "Unknown address type",
             w3.getnewaddress,
             address_type="bech32m",
         )
-        # but the one without a seed still doesn't work
         assert_raises_rpc_error(
-            -12,
-            "No legacy addresses available",
+            -5,
+            "Unknown address type",
             w3.getnewaddress,
             address_type="legacy",
         )
@@ -271,11 +273,11 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         w3.getnewaddress(address_type="bech32")
         assert_raises_rpc_error(
             -5,
-            "Bech32m / Taproot addresses are not valid on this chain.",
+            "Unknown address type",
             w3.getnewaddress,
             address_type="bech32m",
         )
-        w3.getnewaddress(address_type="legacy")
+        w3.getnewaddress(address_type="secp")
 
 
 if __name__ == '__main__':

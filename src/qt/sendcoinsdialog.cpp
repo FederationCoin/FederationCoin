@@ -22,6 +22,7 @@
 #include <chainparams.h>
 #include <interfaces/node.h>
 #include <key_io.h>
+#include <outputtype.h>
 #include <node/interface_ui.h>
 #include <node/types.h>
 #include <policy/fees.h>
@@ -507,6 +508,23 @@ void SendCoinsDialog::sendButtonClicked([[maybe_unused]] bool checked)
 
     QString question_string, informative_text, detailed_text;
     if (!PrepareSendText(question_string, informative_text, detailed_text)) return;
+
+    bool secp_used{model->wallet().getDefaultAddressType() == OutputType::SECP};
+    if (m_current_transaction) {
+        for (const auto& recipient : m_current_transaction->getRecipients()) {
+            const CTxDestination dest{DecodeDestination(recipient.address.toStdString())};
+            if (OutputTypeFromDestination(dest) == OutputType::SECP) {
+                secp_used = true;
+                break;
+            }
+        }
+    }
+    if (secp_used) {
+        const auto ret = QMessageBox::warning(this, windowTitle(),
+            tr("secp is cheap, not quantum-safe. The payment still goes. Send anyway?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (ret != QMessageBox::Yes) return;
+    }
     assert(m_current_transaction);
 
     bool have_warning = false;

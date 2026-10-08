@@ -29,9 +29,9 @@ class CreateWalletWatchonlyTest(BitcoinTestFramework):
         self.nodes[0].createwallet(wallet_name='default')
         def_wallet = node.get_wallet_rpc('default')
 
-        a1 = def_wallet.getnewaddress()
-        wo_change = def_wallet.getnewaddress()
-        wo_addr = def_wallet.getnewaddress()
+        a1 = def_wallet.getnewaddress("", "secp")
+        wo_change = def_wallet.getnewaddress("", "secp")
+        wo_addr = def_wallet.getnewaddress("", "secp")
 
         self.nodes[0].createwallet(wallet_name='wo', disable_private_keys=True)
         wo_wallet = node.get_wallet_rpc('wo')

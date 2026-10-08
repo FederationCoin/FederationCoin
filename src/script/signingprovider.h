@@ -202,6 +202,8 @@ private:
 
 public:
     HidingSigningProvider(const SigningProvider* provider, bool hide_secret, bool hide_origin) : m_hide_secret(hide_secret), m_hide_origin(hide_origin), m_provider(provider) {}
+    /** Keys when this wrapper is not hiding them. Dilithium sign walks Flat keys. */
+    const SigningProvider* Unhidden() const { return m_hide_secret ? nullptr : m_provider; }
     bool GetCScript(const CScriptID& scriptid, CScript& script) const override;
     bool GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const override;
     bool GetKey(const CKeyID& keyid, CKey& key) const override;

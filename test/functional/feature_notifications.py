@@ -35,6 +35,7 @@ class NotificationsTest(BitcoinTestFramework):
     def skip_test_if_missing_module(self):
         # Heritage: Core walletnotify + descriptor import. Product wallets are Sparrow and mill.
         self.skip_if_no_wallet()
+        self.skip_heritage_legacy_wallet()
 
     def setup_network(self):
         self.wallet = ''.join(chr(i) for i in range(FILE_CHAR_START, FILE_CHAR_END) if chr(i) not in FILE_CHARS_DISALLOWED)

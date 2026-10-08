@@ -20,7 +20,9 @@ import sys
 import tempfile
 import time
 
-from .address import program_to_witness, script_to_p2wsh
+from .address import base58_to_byte, key_to_p2wpkh, program_to_witness, script_to_p2wsh
+from .key import ECKey
+from .descriptors import descsum_create
 from .mldsa import keygen
 from .authproxy import JSONRPCException
 from .script import CScript, OP_TRUE
@@ -122,6 +124,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         # addrman will not result in automatic connections to them.
         self.disable_autoconnect = True
         self.set_test_params()
+        self._apply_secp_wallet_cli_defaults()
         assert self.wallet_names is None or len(self.wallet_names) <= self.num_nodes
         self.rpc_timeout = int(self.rpc_timeout * self.options.timeout_factor) # optionally, increase timeout by a factor
 
@@ -374,6 +377,23 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         """Tests must override this method to change default values for number of nodes, topology, etc"""
         raise NotImplementedError
 
+    def _apply_secp_wallet_cli_defaults(self):
+        """Most functional tests assume Bitcoin-sized P2WPKH receive/change.
+
+        Product default is Dilithium 87. Tests that exercise all three live
+        kinds set keep_epic21_address_types on the test instance.
+        """
+        if getattr(self, "keep_epic21_address_types", False):
+            return
+        if self.extra_args is None:
+            self.extra_args = [[] for _ in range(self.num_nodes)]
+        for args in self.extra_args:
+            joined = " ".join(args)
+            if "-addresstype=" not in joined:
+                args.append("-addresstype=secp")
+            if "-changetype=" not in joined:
+                args.append("-changetype=secp")
+
     def add_options(self, parser):
         """Override this method to add command-line options to the test"""
         pass
@@ -441,7 +461,17 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             n = self.nodes[node]
             if wallet_name is not None:
                 n.createwallet(wallet_name=wallet_name, descriptors=self.options.descriptors, load_on_startup=True)
-            n.importprivkey(privkey=n.get_deterministic_priv_key().key, label='coinbase', rescan=True)
+            privkey = n.get_deterministic_priv_key().key
+            if self.options.descriptors:
+                imported = n.importdescriptors([{
+                    "desc": descsum_create(f"wpkh({privkey})"),
+                    "timestamp": 0,
+                    "label": "coinbase",
+                }])
+                if not imported[0]["success"]:
+                    raise RuntimeError(imported[0].get("error", {}).get("message", "importdescriptors pkh failed"))
+            else:
+                n.importprivkey(privkey=privkey, label='coinbase', rescan=True)
 
     # Only enables wallet support when the module is available
     def enable_wallet_if_possible(self):
@@ -832,8 +862,8 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         CACHE_NODE_ID = 0  # Use node 0 to create the cache for all other nodes
         cache_node_dir = get_datadir_path(self.options.cachedir, CACHE_NODE_ID)
         assert self.num_nodes <= MAX_NODES
-        # The premine pays MiniWallet's ML-DSA key. An older cache pays P2WSH.
-        cache_marker = os.path.join(cache_node_dir, "mldsa-spend")
+        # Premine pays secp P2WPKH of the first three node keys plus MiniWallet ML-DSA.
+        cache_marker = os.path.join(cache_node_dir, "secp-spend")
         if os.path.isdir(cache_node_dir) and not os.path.isfile(cache_marker):
             shutil.rmtree(cache_node_dir)
 
@@ -874,7 +904,14 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             # see the tip age check in IsInitialBlockDownload().
             # The fourth address is MiniWallet's untagged ML-DSA-44 key.
             program = bytes.fromhex(keygen(self.options.bitcoind)["program"])
-            gen_addresses = [k.address for k in TestNode.PRIV_KEYS][:3] + [program_to_witness(0, program)]
+            def wif_to_p2wpkh(wif):
+                payload, _ver = base58_to_byte(wif)
+                secret = payload[:32]
+                compressed = len(payload) > 32 and payload[32] == 1
+                key = ECKey()
+                key.set(secret, compressed)
+                return key_to_p2wpkh(key.get_pubkey().get_bytes())
+            gen_addresses = [wif_to_p2wpkh(k.key) for k in TestNode.PRIV_KEYS][:3] + [program_to_witness(0, program)]
             assert_equal(len(gen_addresses), 4)
             for i in range(8):
                 self.generatetoaddress(
@@ -897,7 +934,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 if entry not in ['chainstate', 'blocks', 'indexes']:  # Only indexes, chainstate and blocks folders
                     os.remove(cache_path(entry))
             with open(cache_marker, "w", encoding="utf8") as marker:
-                marker.write("mldsa\n")
+                marker.write("secp\n")
 
         for i in range(self.num_nodes):
             self.log.debug("Copy cache directory {} to node {}".format(cache_node_dir, i))
@@ -965,10 +1002,19 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         Dilithium 87, Dilithium 44, and warned secp P2WPKH."""
         raise SkipTest("Heritage P2SH/P2WSH/CHECKSIG script success; live spends are Dilithium 87, Dilithium 44, and warned secp P2WPKH.")
 
+    def skip_heritage_legacy_wallet(self):
+        """BDB dump, implicit segwit, and legacy-to-descriptor migration."""
+        raise SkipTest("Legacy BDB dumpwallet, implicit segwit, and wallet migration; product wallets are descriptor-only Dilithium 87, Dilithium 44, and secp.")
+
     def skip_if_no_wallet(self):
-        """Heritage: Knots descriptor/secp wallet. Product wallets are Sparrow and mill."""
+        """Skip the running test if wallet has not been compiled."""
         self._requires_wallet = True
-        raise SkipTest("Heritage Core descriptor wallet; product wallets are Sparrow and mill.")
+        if not self.is_wallet_compiled():
+            raise SkipTest("wallet has not been compiled.")
+        if self.options.descriptors:
+            self.skip_if_no_sqlite()
+        else:
+            self.skip_if_no_bdb()
 
     def skip_if_no_sqlite(self):
         """Skip the running test if sqlite has not been compiled."""
@@ -981,8 +1027,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             raise SkipTest("BDB has not been compiled.")
 
     def skip_if_no_wallet_tool(self):
-        """Heritage: bitcoin-wallet descriptor/secp tool. Product wallets are Sparrow and mill."""
-        raise SkipTest("Heritage Core wallet tool; product wallets are Sparrow and mill.")
+        """Skip the running test if bitcoin-wallet has not been compiled."""
+        if not self.is_wallet_tool_compiled():
+            raise SkipTest("bitcoin-wallet has not been compiled")
 
     def skip_if_no_bitcoin_util(self):
         """Skip the running test if bitcoin-util has not been compiled."""

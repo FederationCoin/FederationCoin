@@ -163,20 +163,24 @@ BOOST_AUTO_TEST_CASE(testnet_blake2b_floor)
 
 BOOST_AUTO_TEST_CASE(output_type_is_allowed_forks)
 {
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::LEGACY));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::P2SH_SEGWIT));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::UNKNOWN));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::DILITHIUM87));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::DILITHIUM44));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP));
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::LEGACY));
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::P2SH_SEGWIT));
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M));
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::UNKNOWN));
 
     const auto parked{CreateChainParams(ArgsManager{}, ChainType::REGTEST)};
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M, parked->GetConsensus()));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32, parked->GetConsensus()));
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32, parked->GetConsensus()));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP, parked->GetConsensus()));
 
     Consensus::Params taproot_on{parked->GetConsensus()};
     taproot_on.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32M, taproot_on));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32, taproot_on));
+    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M, taproot_on));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP, taproot_on));
 }
 
 BOOST_AUTO_TEST_CASE(format_subversion_true_equals_false)

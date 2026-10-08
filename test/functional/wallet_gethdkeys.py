@@ -166,7 +166,7 @@ class WalletGetHDKeyTest(BitcoinTestFramework):
 
         xpub = wallet.gethdkeys()[0]["xpub"]
         xprv = wallet.gethdkeys(private=True)[0]["xprv"]
-        pub = def_wallet.getaddressinfo(def_wallet.getnewaddress())["pubkey"]
+        pub = def_wallet.getaddressinfo(def_wallet.getnewaddress("", "secp"))["pubkey"]
 
         prv_multi_desc = descsum_create(f"wsh(multi(2,{xprv},{pub}))")
         pub_multi_desc = descsum_create(f"wsh(multi(2,{xpub},{pub}))")

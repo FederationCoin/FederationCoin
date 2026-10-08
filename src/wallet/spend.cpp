@@ -7,6 +7,7 @@
 #include <common/messages.h>
 #include <common/system.h>
 #include <consensus/amount.h>
+#include <consensus/mldsa87_spend.h>
 #include <consensus/validation.h>
 #include <interfaces/chain.h>
 #include <node/types.h>
@@ -42,6 +43,33 @@ TRACEPOINT_SEMAPHORE(coin_selection, aps_create_tx_internal);
 
 namespace wallet {
 static constexpr size_t OUTPUT_GROUP_MAX_ENTRIES{100};
+
+/** Worst-case Dilithium 87 witness input when InferDescriptor cannot attach a descriptor. */
+static int64_t Dilithium87MaxInputWeight()
+{
+    const int64_t pk = Consensus::MLDSA87_PUBLIC_KEY_SIZE;
+    const int64_t sig = Consensus::MLDSA87_SIGNATURE_SIZE;
+    const int64_t sat = GetSizeOfCompactSize(pk) + pk + GetSizeOfCompactSize(sig) + sig;
+    return (32 + 4 + 4 + 1) * WITNESS_SCALE_FACTOR + GetSizeOfCompactSize(2) + sat;
+}
+
+static bool IsDilithiumWitnessV0(const CScript& script)
+{
+    int witver = 0;
+    std::vector<unsigned char> program;
+    return script.IsWitnessProgram(witver, program) && witver == 0 && program.size() == 32;
+}
+
+/** Input weight when InferDescriptor is not solvable (Address/Raw). */
+static std::optional<int64_t> ScriptShapedInputWeight(const CScript& script, bool tx_is_segwit)
+{
+    int witver = 0;
+    std::vector<unsigned char> program;
+    if (script.IsWitnessProgram(witver, program) && witver == 0 && program.size() == 32) {
+        return Dilithium87MaxInputWeight();
+    }
+    return std::nullopt;
+}
 
 /** Whether the descriptor represents, directly or not, a witness program. */
 static bool IsSegwit(const Descriptor& desc) {
@@ -89,12 +117,16 @@ static std::optional<int64_t> MaxInputWeight(const Descriptor& desc, const std::
 
 int CalculateMaximumSignedInputSize(const CTxOut& txout, const COutPoint outpoint, const SigningProvider* provider, bool can_grind_r, const CCoinControl* coin_control)
 {
-    if (!provider) return -1;
-
-    if (const auto desc = InferDescriptor(txout.scriptPubKey, *provider)) {
-        if (const auto weight = MaxInputWeight(*desc, CTxIn{outpoint}, coin_control, true, can_grind_r)) {
-            return static_cast<int>(GetVirtualTransactionSize(*weight, 0, 0));
+    if (provider) {
+        if (const auto desc = InferDescriptor(txout.scriptPubKey, *provider)) {
+            if (const auto weight = MaxInputWeight(*desc, CTxIn{outpoint}, coin_control, true, can_grind_r)) {
+                return static_cast<int>(GetVirtualTransactionSize(*weight, 0, 0));
+            }
         }
+    }
+
+    if (const auto shaped = ScriptShapedInputWeight(txout.scriptPubKey, /*tx_is_segwit=*/false)) {
+        return static_cast<int>(GetVirtualTransactionSize(*shaped, 0, 0));
     }
 
     return -1;
@@ -133,7 +165,12 @@ static std::optional<int64_t> GetSignedTxinWeight(const CWallet* wallet, const C
 
     // Otherwise, use the maximum satisfaction size provided by the descriptor.
     std::unique_ptr<Descriptor> desc{GetDescriptor(wallet, coin_control, txo.scriptPubKey)};
-    if (desc) return MaxInputWeight(*desc, {txin}, coin_control, tx_is_segwit, can_grind_r);
+    if (desc) {
+        if (const auto weight = MaxInputWeight(*desc, {txin}, coin_control, tx_is_segwit, can_grind_r)) {
+            return weight;
+        }
+    }
+    if (const auto shaped = ScriptShapedInputWeight(txo.scriptPubKey, tx_is_segwit)) return shaped;
 
     return {};
 }
@@ -148,7 +185,7 @@ TxSize CalculateMaximumSignedTxSize(const CTransaction &tx, const CWallet *walle
     bool is_segwit = std::any_of(txouts.begin(), txouts.end(), [&](const CTxOut& txo) {
         std::unique_ptr<Descriptor> desc{GetDescriptor(wallet, coin_control, txo.scriptPubKey)};
         if (desc) return IsSegwit(*desc);
-        return false;
+        return IsDilithiumWitnessV0(txo.scriptPubKey);
     });
     // Segwit marker and flag
     if (is_segwit) weight += 2;
@@ -251,9 +288,11 @@ static OutputType GetOutputType(TxoutType type, bool is_from_p2sh)
         case TxoutType::WITNESS_V1_TAPROOT:
             return OutputType::BECH32M;
         case TxoutType::WITNESS_V0_KEYHASH:
+            if (is_from_p2sh) return OutputType::P2SH_SEGWIT;
+            return OutputType::SECP;
         case TxoutType::WITNESS_V0_SCRIPTHASH:
             if (is_from_p2sh) return OutputType::P2SH_SEGWIT;
-            else return OutputType::BECH32;
+            return OutputType::DILITHIUM87;
         case TxoutType::SCRIPTHASH:
         case TxoutType::PUBKEYHASH:
             return OutputType::LEGACY;

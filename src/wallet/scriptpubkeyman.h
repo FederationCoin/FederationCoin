@@ -689,6 +689,7 @@ public:
 
     // Fetch the SigningProvider for the given pubkey and always include private keys. This should only be called by signing code.
     std::unique_ptr<FlatSigningProvider> GetSigningProvider(const CPubKey& pubkey) const;
+    std::unique_ptr<FlatSigningProvider> GetSigningProviderForScript(const CScript& script, bool include_private = false) const { return GetSigningProvider(script, include_private); }
 
     bool SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, bilingual_str>& input_errors, std::optional<CAmount>* inputs_amount_sum = nullptr) const override;
     SigningResult SignMessage(const MessageSignatureFormat format, const std::string& message, const CTxDestination& address, std::string& str_sig) const override;
@@ -697,6 +698,7 @@ public:
     uint256 GetID() const override;
 
     void SetCache(const DescriptorCache& cache);
+    void FillMissingScripts();
 
     bool AddKey(const CKeyID& key_id, const CKey& key);
     bool AddCryptedKey(const CKeyID& key_id, const CPubKey& pubkey, const std::vector<unsigned char>& crypted_key);

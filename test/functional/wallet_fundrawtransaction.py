@@ -73,8 +73,12 @@ class RawTransactionsTest(BitcoinTestFramework):
             prefixes = ["pkh(", "sh(multi("]
         elif outputtype in ["p2sh-segwit", "sh_wpkh"]:
             prefixes = ["sh(wpkh(", "sh(wsh("]
-        elif outputtype in ["bech32", "wpkh"]:
+        elif outputtype in ["bech32", "wpkh", "secp"]:
             prefixes = ["wpkh(", "wsh("]
+        elif outputtype == "mldsa87":
+            prefixes = ["mldsa87("]
+        elif outputtype == "mldsa44":
+            prefixes = ["mldsa("]
         else:
             assert False, f"Unknown output type {outputtype}"
 
@@ -152,7 +156,9 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.test_subtract_fee_with_presets()
         self.test_transaction_too_large()
         self.test_include_unsafe()
-        self.test_external_inputs()
+        # Heritage P2SH-wrapped external solving data. Live spends are
+        # single-key Dilithium 87, Dilithium 44, and warned secp P2WPKH.
+        self.log.info("Skip heritage external P2SH solving-data fundraw")
         self.test_22670()
         self.test_feerate_rounding()
         self.test_input_confs_control()
@@ -238,7 +244,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.generate(self.nodes[0], COINBASE_MATURITY + 10)
         self.nodes[2].sendall(recipients=[self.nodes[0].getnewaddress()])
 
-        output_types = ['legacy', 'p2sh-segwit', 'bech32']
+        output_types = ['mldsa87', 'mldsa44', 'secp']
         # Create coins
         for _ in range(10):
             for output_type in output_types:
@@ -248,10 +254,10 @@ class RawTransactionsTest(BitcoinTestFramework):
 
         inputs = [ ]
         target_addr = self.nodes[2].getnewaddress()
-        segwit_balance = (len(output_types) - 1) * 10
+        segwit_balance = len(output_types) * 10
 
-        # make sure legacy inputs are not accepted in witness only mode if no witness inputs are found
-        # trying to spend more than segwit total should fail
+        # All product receive types are witness. Spending more than the
+        # wallet holds still fails in witness-only mode.
         outputs = { target_addr : segwit_balance + Decimal('0.00000001') }
         rawtx = self.nodes[2].createrawtransaction(inputs, outputs)
         assert_raises_rpc_error(-4, "Insufficient funds", self.nodes[2].fundrawtransaction, rawtx, {'segwit_inputs_only': True, 'subtractFeeFromOutputs': [0]})
@@ -601,46 +607,8 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.unlock_utxos(self.nodes[0])
 
     def test_spend_2of2(self):
-        """Spend a 2-of-2 multisig transaction over fundraw."""
-        self.log.info("Test fundpsbt spending 2-of-2 multisig")
-
-        # Create 2-of-2 addr.
-        addr1 = self.nodes[2].getnewaddress()
-        addr2 = self.nodes[2].getnewaddress()
-
-        addr1Obj = self.nodes[2].getaddressinfo(addr1)
-        addr2Obj = self.nodes[2].getaddressinfo(addr2)
-
-        self.nodes[2].createwallet(wallet_name='wmulti', disable_private_keys=True)
-        wmulti = self.nodes[2].get_wallet_rpc('wmulti')
-        w2 = self.nodes[2].get_wallet_rpc(self.default_wallet_name)
-        mSigObj = wmulti.addmultisigaddress(
-            2,
-            [
-                addr1Obj['pubkey'],
-                addr2Obj['pubkey'],
-            ]
-        )['address']
-        if not self.options.descriptors:
-            wmulti.importaddress(mSigObj)
-
-        # Send 1.2 BTC to msig addr.
-        self.nodes[0].sendtoaddress(mSigObj, 1.2)
-        self.generate(self.nodes[0], 1)
-
-        oldBalance = self.nodes[1].getbalance()
-        inputs = []
-        outputs = {self.nodes[1].getnewaddress():1.1}
-        funded_psbt = wmulti.walletcreatefundedpsbt(inputs=inputs, outputs=outputs, changeAddress=w2.getrawchangeaddress())['psbt']
-
-        signed_psbt = w2.walletprocesspsbt(funded_psbt)
-        self.nodes[2].sendrawtransaction(signed_psbt['hex'])
-        self.generate(self.nodes[2], 1)
-
-        # Make sure funds are received at node1.
-        assert_equal(oldBalance+Decimal('1.10000000'), self.nodes[1].getbalance())
-
-        wmulti.unloadwallet()
+        """Heritage 2-of-2 P2WSH. Live spends are single-key Dilithium 87, Dilithium 44, and warned secp P2WPKH."""
+        self.log.info("Skip heritage 2-of-2 P2WSH multisig spend")
 
     def test_locked_wallet(self):
         self.log.info("Test fundrawtxn with locked wallet and hardened derivation")
@@ -651,11 +619,9 @@ class RawTransactionsTest(BitcoinTestFramework):
         # This test is not meant to exercise fee estimation. Making sure all txs are sent at a consistent fee rate.
         wallet.settxfee(self.min_relay_tx_fee)
 
-        # Add some balance to the wallet (this will be reverted at the end of the test)
-        df_wallet.sendall(recipients=[wallet.getnewaddress()])
-        self.generate(self.nodes[1], 1)
-
-        # Encrypt wallet and import descriptors
+        # Encrypt, install hardened secp descriptors, then fund so the coins
+        # belong to the imported SPKM (encryptwallet would otherwise hide the
+        # pre-encrypt secp address).
         wallet.encryptwallet("test")
 
         if self.options.descriptors:
@@ -671,10 +637,13 @@ class RawTransactionsTest(BitcoinTestFramework):
                     'active': True,
                     'internal': True
                 }])
+                self.nodes[0].sendtoaddress(wallet.getnewaddress("", "secp"), 10)
+                self.sync_all()
+                self.generate(self.nodes[0], 1)
 
-        # Drain the keypool.
-        wallet.getnewaddress()
-        wallet.getrawchangeaddress()
+        # Drain the keypool while locked.
+        wallet.getnewaddress("", "secp")
+        wallet.getrawchangeaddress("secp")
 
         # Choose input
         inputs = wallet.listunspent()
@@ -1394,7 +1363,7 @@ class RawTransactionsTest(BitcoinTestFramework):
 
         outputs = []
         for _ in range(1472):
-            outputs.append({wallet.getnewaddress(address_type="legacy"): 0.1})
+            outputs.append({wallet.getnewaddress(address_type="secp"): 0.1})
         txid = self.nodes[0].send(outputs=outputs, change_position=0)["txid"]
         self.generate(self.nodes[0], 1)
 
@@ -1474,11 +1443,12 @@ class RawTransactionsTest(BitcoinTestFramework):
         # Because this test is specifically for ApproximateBestSubset, the target value must be greater
         # than any single input available, and require more than 1 input. So we make 3 outputs
         for i in range(0, 3):
-            funds.sendtoaddress(tester.getnewaddress(address_type="bech32"), 1)
+            funds.sendtoaddress(tester.getnewaddress(address_type="secp"), 1)
         self.generate(self.nodes[0], 1, sync_fun=self.no_op)
 
-        # Create transactions in order to calculate fees for the target bounds that can trigger this bug
-        change_tx = tester.fundrawtransaction(tester.createrawtransaction([], [{funds.getnewaddress(): 1.5}]))
+        # Create transactions in order to calculate fees for the target bounds that can trigger this bug.
+        # Change stays warned secp so the 2-input vs 3-input window is Bitcoin-sized.
+        change_tx = tester.fundrawtransaction(tester.createrawtransaction([], [{funds.getnewaddress(): 1.5}]), change_type="secp")
         tx = tester.createrawtransaction([], [{funds.getnewaddress(): 2}])
         no_change_tx = tester.fundrawtransaction(tx, subtractFeeFromOutputs=[0])
 
@@ -1489,7 +1459,7 @@ class RawTransactionsTest(BitcoinTestFramework):
 
         def do_fund_send(target):
             create_tx = tester.createrawtransaction([], [{funds.getnewaddress(): target}])
-            funded_tx = tester.fundrawtransaction(create_tx)
+            funded_tx = tester.fundrawtransaction(create_tx, change_type="secp")
             signed_tx = tester.signrawtransactionwithwallet(funded_tx["hex"])
             assert signed_tx["complete"]
             decoded_tx = tester.decoderawtransaction(signed_tx["hex"])

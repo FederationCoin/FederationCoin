@@ -90,23 +90,24 @@ class SegWitTest(BitcoinTestFramework):
             [
                 "-acceptnonstdtxn=1",
                 "-testactivationheight=segwit@165",
-                "-addresstype=legacy",
+                "-addresstype=secp",
             ],
             [
                 "-acceptnonstdtxn=1",
                 "-testactivationheight=segwit@165",
-                "-addresstype=legacy",
+                "-addresstype=secp",
             ],
             [
                 "-acceptnonstdtxn=1",
                 "-testactivationheight=segwit@165",
-                "-addresstype=legacy",
+                "-addresstype=secp",
             ],
         ]
         self.rpc_timeout = 120
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
+        self.skip_heritage_secp_script()
 
     def setup_network(self):
         super().setup_network()
@@ -320,7 +321,7 @@ class SegWitTest(BitcoinTestFramework):
         self.generate(self.nodes[0], 1)
 
         self.log.info("Signing with all-segwit inputs reveals fee rate")
-        addr = self.nodes[0].getnewaddress(address_type='p2sh-segwit')
+        addr = self.nodes[0].getnewaddress(address_type='secp')
         txid = self.nodes[0].sendtoaddress(addr, 1)
         tx = self.nodes[0].getrawtransaction(txid, True)
         n = -1

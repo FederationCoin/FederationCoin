@@ -27,7 +27,7 @@ RPCHelpMan getnewaddress()
                 "so payments received with the address will be associated with 'label'.\n",
                 {
                     {"label", RPCArg::Type::STR, RPCArg::Default{""}, "The label name for the address to be linked to. It can also be set to the empty string \"\" to represent the default label. The label does not need to exist, it will be created if there is no label by the given name."},
-                    {"address_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -addresstype"}, "The address type to use. Options are \"legacy\", \"p2sh-segwit\", \"bech32\", and \"bech32m\"."},
+                    {"address_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -addresstype"}, "The address type to use. Options are \"mldsa87\", \"mldsa44\", and \"secp\". \"bech32\" is accepted as an alias for secp."},
                 },
                 RPCResult{
                     RPCResult::Type::STR, "address", "The new bitcoin address"
@@ -43,11 +43,8 @@ RPCHelpMan getnewaddress()
 
     LOCK(pwallet->cs_wallet);
 
-    if (!pwallet->CanGetAddresses()) {
-        throw JSONRPCError(RPC_WALLET_ERROR, "Error: This wallet has no available keys");
-    }
-
-    // Parse the label first so we don't generate a key if there's an error
+    // Parse the label and type first so unknown types stay -5 even when
+    // the wallet has no receive keypool (internal-only descriptor).
     const std::string label{LabelFromValue(request.params[0])};
 
     OutputType output_type = pwallet->m_default_address_type;
@@ -56,11 +53,15 @@ RPCHelpMan getnewaddress()
         if (!parsed) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("Unknown address type '%s'", request.params[1].get_str()));
         } else if (!OutputTypeIsAllowed(parsed.value())) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Bech32m / Taproot addresses are not valid on this chain.");
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Address type is not valid on this chain.");
         } else if (parsed.value() == OutputType::BECH32M && pwallet->GetLegacyScriptPubKeyMan()) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Legacy wallets cannot provide bech32m addresses");
         }
         output_type = parsed.value();
+    }
+
+    if (!pwallet->CanGetAddresses()) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Error: This wallet has no available keys");
     }
 
     auto op_dest = pwallet->GetNewDestination(output_type, label);
@@ -79,7 +80,7 @@ RPCHelpMan getrawchangeaddress()
                 "\nReturns a new Bitcoin address, for receiving change.\n"
                 "This is for use with raw transactions, NOT normal use.\n",
                 {
-                    {"address_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -changetype"}, "The address type to use. Options are \"legacy\", \"p2sh-segwit\", \"bech32\", and \"bech32m\"."},
+                    {"address_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -changetype"}, "The address type to use. Options are \"mldsa87\", \"mldsa44\", and \"secp\". \"bech32\" is accepted as an alias for secp."},
                 },
                 RPCResult{
                     RPCResult::Type::STR, "address", "The address"
@@ -95,21 +96,21 @@ RPCHelpMan getrawchangeaddress()
 
     LOCK(pwallet->cs_wallet);
 
-    if (!pwallet->CanGetAddresses(true)) {
-        throw JSONRPCError(RPC_WALLET_ERROR, "Error: This wallet has no available keys");
-    }
-
     OutputType output_type = pwallet->m_default_change_type.value_or(pwallet->m_default_address_type);
     if (!request.params[0].isNull()) {
         std::optional<OutputType> parsed = ParseOutputType(request.params[0].get_str());
         if (!parsed) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("Unknown address type '%s'", request.params[0].get_str()));
         } else if (!OutputTypeIsAllowed(parsed.value())) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Bech32m / Taproot addresses are not valid on this chain.");
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Address type is not valid on this chain.");
         } else if (parsed.value() == OutputType::BECH32M && pwallet->GetLegacyScriptPubKeyMan()) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Legacy wallets cannot provide bech32m addresses");
         }
         output_type = parsed.value();
+    }
+
+    if (!pwallet->CanGetAddresses(true)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Error: This wallet has no available keys");
     }
 
     auto op_dest = pwallet->GetNewChangeDestination(output_type);
@@ -388,7 +389,7 @@ RPCHelpMan keypoolrefill()
 {
     return RPCHelpMan{"keypoolrefill",
                 "Refills each descriptor keypool in the wallet up to the specified number of new keys.\n"
-                "By default, descriptor wallets have 4 active ranged descriptors (\"legacy\", \"p2sh-segwit\", \"bech32\", and \"bech32m\"), each with " + util::ToString(DEFAULT_KEYPOOL_SIZE) + " entries.\n" +
+                "By default, descriptor wallets have 3 active ranged descriptors (\"mldsa87\", \"mldsa\", and \"wpkh\"), each with " + util::ToString(DEFAULT_KEYPOOL_SIZE) + " entries.\n" +
         HELP_REQUIRING_PASSPHRASE,
                 {
                     {"newsize", RPCArg::Type::NUM, RPCArg::DefaultHint{strprintf("%u, or as set by -keypool", DEFAULT_KEYPOOL_SIZE)}, "The new keypool size"},
@@ -681,6 +682,9 @@ RPCHelpMan getaddressinfo()
         std::string desc_str;
         if (desc_spk_man->GetDescriptorString(desc_str, /*priv=*/false)) {
             ret.pushKV("parent_desc", desc_str);
+            if (!ret.exists("desc")) {
+                ret.pushKV("desc", desc_str);
+            }
         }
     }
 

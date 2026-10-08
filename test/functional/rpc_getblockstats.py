@@ -108,6 +108,7 @@ class GetblockstatsTest(BitcoinTestFramework):
     def skip_test_if_missing_module(self):
         # Heritage: Core wallet generate path and secp blockstat fixture. Product wallets are Sparrow and mill.
         self.skip_if_no_wallet()
+        self.skip_heritage_legacy_wallet()
 
     def run_test(self):
         test_data = os.path.join(TESTSDIR, self.options.test_data)

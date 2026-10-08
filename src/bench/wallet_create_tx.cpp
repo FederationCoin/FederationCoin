@@ -198,13 +198,13 @@ static void AvailableCoins(benchmark::Bench& bench, const std::vector<OutputType
     });
 }
 
-static void WalletCreateTxUseOnlyPresetInputs(benchmark::Bench& bench) { WalletCreateTx(bench, OutputType::BECH32, /*allow_other_inputs=*/false,
+static void WalletCreateTxUseOnlyPresetInputs(benchmark::Bench& bench) { WalletCreateTx(bench, OutputType::SECP, /*allow_other_inputs=*/false,
                                                                                         {{/*num_of_internal_inputs=*/4}}); }
 
-static void WalletCreateTxUsePresetInputsAndCoinSelection(benchmark::Bench& bench) { WalletCreateTx(bench, OutputType::BECH32, /*allow_other_inputs=*/true,
+static void WalletCreateTxUsePresetInputsAndCoinSelection(benchmark::Bench& bench) { WalletCreateTx(bench, OutputType::SECP, /*allow_other_inputs=*/true,
                                                                                                     {{/*num_of_internal_inputs=*/4}}); }
 
-static void WalletAvailableCoins(benchmark::Bench& bench) { AvailableCoins(bench, {OutputType::BECH32M}); }
+static void WalletAvailableCoins(benchmark::Bench& bench) { AvailableCoins(bench, {OutputType::DILITHIUM87}); }
 
 BENCHMARK(WalletCreateTxUseOnlyPresetInputs, benchmark::PriorityLevel::LOW)
 BENCHMARK(WalletCreateTxUsePresetInputsAndCoinSelection, benchmark::PriorityLevel::LOW)

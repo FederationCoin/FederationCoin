@@ -11,6 +11,7 @@ except ImportError:
 
 import concurrent.futures
 
+from test_framework.authproxy import JSONRPCException
 from test_framework.blocktools import COINBASE_MATURITY
 from test_framework.descriptors import descsum_create
 from test_framework.test_framework import BitcoinTestFramework
@@ -26,6 +27,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         self.add_wallet_options(parser, legacy=False)
 
     def set_test_params(self):
+        self.keep_epic21_address_types = True
         self.setup_clean_chain = True
         self.num_nodes = 1
         self.extra_args = [['-keypool=100']]
@@ -72,14 +74,8 @@ class WalletDescriptorTest(BitcoinTestFramework):
         assert_equal(cache_records, 1000)
 
     def run_test(self):
-        if self.is_bdb_compiled():
-            # Make a legacy wallet and check it is BDB
-            self.nodes[0].createwallet(wallet_name="legacy1", descriptors=False)
-            wallet_info = self.nodes[0].getwalletinfo()
-            assert_equal(wallet_info['format'], 'bdb')
-            self.nodes[0].unloadwallet("legacy1")
-        else:
-            self.log.warning("Skipping BDB test")
+        self.log.info("createwallet descriptors=false is rejected")
+        assert_raises_rpc_error(-4, "Legacy wallets are not supported", self.nodes[0].createwallet, wallet_name="legacy1", descriptors=False)
 
         # Make a descriptor wallet
         self.log.info("Making a descriptor wallet")
@@ -95,40 +91,41 @@ class WalletDescriptorTest(BitcoinTestFramework):
 
         # Check that getnewaddress works
         self.log.info("Test that getnewaddress and getrawchangeaddress work")
-        addr = self.nodes[0].getnewaddress("", "legacy")
+        addr = self.nodes[0].getnewaddress("", "mldsa87")
         addr_info = self.nodes[0].getaddressinfo(addr)
-        assert addr_info['desc'].startswith('pkh(')
+        assert addr_info['desc'].startswith('mldsa87(')
+        assert_equal(addr_info['hdkeypath'], 'm/87h/1h/0h/0/0')
+
+        addr = self.nodes[0].getnewaddress("", "mldsa44")
+        addr_info = self.nodes[0].getaddressinfo(addr)
+        assert addr_info['desc'].startswith('mldsa(')
         assert_equal(addr_info['hdkeypath'], 'm/44h/1h/0h/0/0')
 
-        addr = self.nodes[0].getnewaddress("", "p2sh-segwit")
-        addr_info = self.nodes[0].getaddressinfo(addr)
-        assert addr_info['desc'].startswith('sh(wpkh(')
-        assert_equal(addr_info['hdkeypath'], 'm/49h/1h/0h/0/0')
-
-        addr = self.nodes[0].getnewaddress("", "bech32")
+        addr = self.nodes[0].getnewaddress("", "secp")
         addr_info = self.nodes[0].getaddressinfo(addr)
         assert addr_info['desc'].startswith('wpkh(')
         assert_equal(addr_info['hdkeypath'], 'm/84h/1h/0h/0/0')
 
-        assert_raises_rpc_error(-5, "Bech32m / Taproot addresses are not valid on this chain.", self.nodes[0].getnewaddress, "", "bech32m")
+        assert_raises_rpc_error(-5, "Unknown address type", self.nodes[0].getnewaddress, "", "bech32m")
+        assert_raises_rpc_error(-5, "Unknown address type", self.nodes[0].getnewaddress, "", "legacy")
 
         # Check that getrawchangeaddress works
-        addr = self.nodes[0].getrawchangeaddress("legacy")
+        addr = self.nodes[0].getrawchangeaddress("mldsa87")
         addr_info = self.nodes[0].getaddressinfo(addr)
-        assert addr_info['desc'].startswith('pkh(')
-        assert_equal(addr_info['hdkeypath'], 'm/44h/1h/0h/1/0')
+        assert addr_info['desc'].startswith('mldsa87(')
+        assert_equal(addr_info['hdkeypath'], 'm/87h/1h/0h/1/0')
 
-        addr = self.nodes[0].getrawchangeaddress("p2sh-segwit")
+        addr = self.nodes[0].getrawchangeaddress("mldsa44")
         addr_info = self.nodes[0].getaddressinfo(addr)
-        assert addr_info['desc'].startswith('sh(wpkh(')
-        assert_equal(addr_info['hdkeypath'], 'm/49h/1h/0h/1/0')
+        assert addr_info['desc'].startswith('mldsa(')
+        assert_equal(addr_info['hdkeypath'], 'm/44h/1h/0h/1/0')
 
         addr = self.nodes[0].getrawchangeaddress("bech32")
         addr_info = self.nodes[0].getaddressinfo(addr)
         assert addr_info['desc'].startswith('wpkh(')
         assert_equal(addr_info['hdkeypath'], 'm/84h/1h/0h/1/0')
 
-        assert_raises_rpc_error(-5, "Bech32m / Taproot addresses are not valid on this chain.", self.nodes[0].getrawchangeaddress, "bech32m")
+        assert_raises_rpc_error(-5, "Unknown address type", self.nodes[0].getrawchangeaddress, "bech32m")
 
         # Make a wallet to receive coins at
         self.nodes[0].createwallet(wallet_name="desc2", descriptors=True)
@@ -146,7 +143,8 @@ class WalletDescriptorTest(BitcoinTestFramework):
         # Make sure things are disabled
         self.log.info("Test disabled RPCs")
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importprivkey, "a8Y9zSHr5MiVY3XG2TPPoMayo1i1jXLzueVTQcpE3h3gC1R2vHAd")
-        assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importpubkey, send_wrpc.getaddressinfo(send_wrpc.getnewaddress())["pubkey"])
+        secp_info = send_wrpc.getaddressinfo(send_wrpc.getnewaddress("", "secp"))
+        assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importpubkey, secp_info["pubkey"])
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importmulti, [])
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.addmultisigaddress, 1, [recv_wrpc.getnewaddress()])
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.dumpprivkey, recv_wrpc.getnewaddress())
@@ -178,9 +176,14 @@ class WalletDescriptorTest(BitcoinTestFramework):
         info3 = send_wrpc.getaddressinfo(addr)
         assert_equal(info2['desc'], info3['desc'])
 
-        self.log.info("Test that getnewaddress still works after keypool is exhausted in an encrypted wallet")
-        for _ in range(500):
-            send_wrpc.getnewaddress()
+        self.log.info("Locked Dilithium keypool cannot grow; getnewaddress fails when the 87 pool is empty")
+        while True:
+            try:
+                send_wrpc.getnewaddress()
+            except JSONRPCException as e:
+                assert_equal(e.error["code"], -12)
+                assert "Keypool ran out" in e.error["message"]
+                break
 
         self.log.info("Test that unlock is needed when deriving only hardened keys in an encrypted wallet")
         with WalletUnlock(send_wrpc, "pass"):
@@ -217,14 +220,14 @@ class WalletDescriptorTest(BitcoinTestFramework):
         self.nodes[0].createwallet(wallet_name='desc_import', disable_private_keys=True, descriptors=True)
         imp_rpc = self.nodes[0].get_wallet_rpc('desc_import')
 
-        addr_types = [('legacy', False, 'pkh(', '44h/1h/0h', -13),
-                      ('p2sh-segwit', False, 'sh(wpkh(', '49h/1h/0h', -14),
-                      ('bech32', False, 'wpkh(', '84h/1h/0h', -13),
-                      ('legacy', True, 'pkh(', '44h/1h/0h', -13),
-                      ('p2sh-segwit', True, 'sh(wpkh(', '49h/1h/0h', -14),
-                      ('bech32', True, 'wpkh(', '84h/1h/0h', -13)]
+        addr_types = [('mldsa87', False, 'mldsa87(', '87h/1h/0h'),
+                      ('mldsa44', False, 'mldsa(', '44h/1h/0h'),
+                      ('secp', False, 'wpkh(', '84h/1h/0h'),
+                      ('mldsa87', True, 'mldsa87(', '87h/1h/0h'),
+                      ('mldsa44', True, 'mldsa(', '44h/1h/0h'),
+                      ('secp', True, 'wpkh(', '84h/1h/0h')]
 
-        for addr_type, internal, desc_prefix, deriv_path, int_idx in addr_types:
+        for addr_type, internal, desc_prefix, deriv_path in addr_types:
             int_str = 'internal' if internal else 'external'
 
             self.log.info("Testing descriptor address type for {} {}".format(addr_type, int_str))
@@ -237,9 +240,9 @@ class WalletDescriptorTest(BitcoinTestFramework):
             idx = desc.index('/') + 1
             assert_equal(deriv_path, desc[idx:idx + 9])
             if internal:
-                assert_equal('1', desc[int_idx])
+                assert '/1/*' in desc
             else:
-                assert_equal('0', desc[int_idx])
+                assert '/0/*' in desc
 
             self.log.info("Testing the same descriptor is returned for address type {} {}".format(addr_type, int_str))
             for i in range(0, 10):
@@ -259,14 +262,20 @@ class WalletDescriptorTest(BitcoinTestFramework):
                 'internal': internal
             }])
 
-            for i in range(0, 10):
+            if addr_type == 'secp':
+                for i in range(0, 10):
+                    if internal:
+                        exp_addr = exp_rpc.getrawchangeaddress(address_type=addr_type)
+                        imp_addr = imp_rpc.getrawchangeaddress(address_type=addr_type)
+                    else:
+                        exp_addr = exp_rpc.getnewaddress(address_type=addr_type)
+                        imp_addr = imp_rpc.getnewaddress(address_type=addr_type)
+                    assert_equal(exp_addr, imp_addr)
+            else:
                 if internal:
-                    exp_addr = exp_rpc.getrawchangeaddress(address_type=addr_type)
-                    imp_addr = imp_rpc.getrawchangeaddress(address_type=addr_type)
+                    assert_raises_rpc_error(-4, "This wallet has no available keys", imp_rpc.getrawchangeaddress, addr_type)
                 else:
-                    exp_addr = exp_rpc.getnewaddress(address_type=addr_type)
-                    imp_addr = imp_rpc.getnewaddress(address_type=addr_type)
-                assert_equal(exp_addr, imp_addr)
+                    assert_raises_rpc_error(-4, "This wallet has no available keys", imp_rpc.getnewaddress, '', addr_type)
 
         self.log.info("Test that loading descriptor wallet containing legacy key types throws error")
         self.nodes[0].createwallet(wallet_name="crashme", descriptors=True)

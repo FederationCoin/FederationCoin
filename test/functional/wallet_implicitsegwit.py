@@ -68,6 +68,7 @@ class ImplicitSegwitTest(BitcoinTestFramework):
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
+        self.skip_heritage_legacy_wallet()
 
     def run_test(self):
         self.log.info("Manipulating addresses and sending transactions to all variations")

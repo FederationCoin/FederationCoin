@@ -82,15 +82,17 @@ class AvoidReuseTest(BitcoinTestFramework):
         self.test_immutable()
 
         self.generate(self.nodes[0], 110)
+        self.nodes[0].sendtoaddress(self.nodes[1].getnewaddress("", "secp"), 10)
+        self.generate(self.nodes[0], 1)
         self.test_change_remains_change(self.nodes[1])
         reset_balance(self.nodes[1], self.nodes[0].getnewaddress())
         self.test_sending_from_reused_address_without_avoid_reuse()
         reset_balance(self.nodes[1], self.nodes[0].getnewaddress())
-        self.test_sending_from_reused_address_fails("legacy")
+        self.test_sending_from_reused_address_fails("mldsa87")
         reset_balance(self.nodes[1], self.nodes[0].getnewaddress())
-        self.test_sending_from_reused_address_fails("p2sh-segwit")
+        self.test_sending_from_reused_address_fails("mldsa44")
         reset_balance(self.nodes[1], self.nodes[0].getnewaddress())
-        self.test_sending_from_reused_address_fails("bech32")
+        self.test_sending_from_reused_address_fails("secp")
         reset_balance(self.nodes[1], self.nodes[0].getnewaddress())
         self.test_getbalances_used()
         reset_balance(self.nodes[1], self.nodes[0].getnewaddress())
@@ -235,7 +237,7 @@ class AvoidReuseTest(BitcoinTestFramework):
         '''
         self.log.info("Test sending from reused {} address fails".format(second_addr_type))
 
-        fundaddr = self.nodes[1].getnewaddress(label="", address_type="legacy")
+        fundaddr = self.nodes[1].getnewaddress(label="", address_type="secp")
         retaddr = self.nodes[0].getnewaddress()
 
         self.nodes[0].sendtoaddress(fundaddr, 10)

@@ -21,6 +21,9 @@ from test_framework.wallet_util import generate_keypair
 
 
 class RpcCreateMultiSigTest(BitcoinTestFramework):
+    def skip_test_if_missing_module(self):
+        self.skip_heritage_secp_script()
+
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1

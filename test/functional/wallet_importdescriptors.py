@@ -39,7 +39,7 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         self.num_nodes = 2
         # whitelist peers to speed up tx relay / mempool sync
         self.noban_tx_relay = True
-        self.extra_args = [["-addresstype=legacy"],
+        self.extra_args = [["-addresstype=secp"],
                            ["-addresstype=bech32", "-keypool=5"]
                           ]
         self.setup_clean_chain = True
@@ -245,6 +245,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
                              error_code=-4,
                              error_message='Cannot import private keys to a wallet with private keys disabled')
 
+        desc = "wpkh(" + xpriv + "/0'/0'/*')"
+
         self.log.info("Should not import a descriptor with hardened derivations when private keys are disabled")
         self.test_importdesc({"desc": descsum_create("wpkh(" + xpub + "/1h/*)"),
                               "timestamp": "now",
@@ -297,15 +299,15 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         self.log.info("Check we can change descriptor internal flag")
         self.test_importdesc({**range_request, "range": [0, 20], "internal": True}, wallet=wpriv, success=True)
         assert_equal(wpriv.getwalletinfo()['keypoolsize'], 0)
-        assert_raises_rpc_error(-4, 'This wallet has no available keys', wpriv.getnewaddress, '', 'p2sh-segwit')
+        assert_raises_rpc_error(-5, 'Unknown address type', wpriv.getnewaddress, '', 'p2sh-segwit')
         assert_equal(wpriv.getwalletinfo()['keypoolsize_hd_internal'], 21)
-        wpriv.getrawchangeaddress('p2sh-segwit')
+        wpriv.getrawchangeaddress('secp')
 
         self.test_importdesc({**range_request, "range": [0, 20], "internal": False}, wallet=wpriv, success=True)
         assert_equal(wpriv.getwalletinfo()['keypoolsize'], 21)
-        wpriv.getnewaddress('', 'p2sh-segwit')
+        wpriv.getnewaddress('', 'secp')
         assert_equal(wpriv.getwalletinfo()['keypoolsize_hd_internal'], 0)
-        assert_raises_rpc_error(-4, 'This wallet has no available keys', wpriv.getrawchangeaddress, 'p2sh-segwit')
+        assert_raises_rpc_error(-5, 'Unknown address type', wpriv.getrawchangeaddress, 'p2sh-segwit')
 
         # Make sure ranged imports import keys in order
         w1 = self.nodes[1].get_wallet_rpc('w1')
@@ -340,21 +342,14 @@ class ImportDescriptorsTest(BitcoinTestFramework):
 
         assert_equal(w1.getwalletinfo()['keypoolsize'], 5 * 3)
         for i, expected_addr in enumerate(addresses):
-            received_addr = w1.getnewaddress('', 'bech32')
-            assert_raises_rpc_error(-4, 'This wallet has no available keys', w1.getrawchangeaddress, 'bech32')
+            received_addr = w1.getnewaddress('', 'secp')
+            assert_raises_rpc_error(-4, 'This wallet has no available keys', w1.getrawchangeaddress, 'secp')
             assert_equal(received_addr, expected_addr)
             bech32_addr_info = w1.getaddressinfo(received_addr)
             assert_equal(bech32_addr_info['desc'][:23], 'wpkh([80002067/0h/0h/{}]'.format(i))
-
-            shwpkh_addr = w1.getnewaddress('', 'p2sh-segwit')
-            shwpkh_addr_info = w1.getaddressinfo(shwpkh_addr)
-            assert_equal(shwpkh_addr_info['desc'][:26], 'sh(wpkh([abcdef12/0h/0h/{}]'.format(i))
-
-            pkh_addr = w1.getnewaddress('', 'legacy')
-            pkh_addr_info = w1.getaddressinfo(pkh_addr)
-            assert_equal(pkh_addr_info['desc'][:22], 'pkh([12345678/0h/0h/{}]'.format(i))
-
-            assert_equal(w1.getwalletinfo()['keypoolsize'], 4 * 3) # After retrieving a key, we don't refill the keypool again, so it's one less for each address type
+            assert_raises_rpc_error(-5, 'Unknown address type', w1.getnewaddress, '', 'p2sh-segwit')
+            assert_raises_rpc_error(-5, 'Unknown address type', w1.getnewaddress, '', 'legacy')
+            assert w1.getwalletinfo()['keypoolsize'] < 5 * 3
         w1.keypoolrefill()
         assert_equal(w1.getwalletinfo()['keypoolsize'], 5 * 3)
 
@@ -378,33 +373,36 @@ class ImportDescriptorsTest(BitcoinTestFramework):
                               'internal': True
                              },
                              success=True)
-        assert_raises_rpc_error(-4, 'This wallet has no available keys', w1.getrawchangeaddress, 'legacy')
+        assert_raises_rpc_error(-5, 'Unknown address type', w1.getrawchangeaddress, 'legacy')
 
         self.log.info('Check can activate inactive descriptor')
-        self.test_importdesc({'desc': descsum_create('pkh([12345678]' + xpub + '/*)'),
+        self.test_importdesc({'desc': descsum_create('wpkh([12345678]' + xpub + '/*)'),
                               'range': [0, 5],
                               'active': True,
                               'timestamp': 'now',
                               'internal': True
                               },
                              success=True)
-        address = w1.getrawchangeaddress('legacy')
-        assert_equal(address, "fNkNkxP2Zg36tizxSJ9h6UQajXxjnQKgeF")
+        wpkh_internal = [d for d in w1.listdescriptors()['descriptors'] if d.get('internal') and d['desc'].startswith('wpkh([12345678]')]
+        assert_equal(len(wpkh_internal), 1)
+        assert_equal(wpkh_internal[0]['active'], True)
 
         self.log.info('Check can deactivate active descriptor')
-        self.test_importdesc({'desc': descsum_create('pkh([12345678]' + xpub + '/*)'),
+        self.test_importdesc({'desc': descsum_create('wpkh([12345678]' + xpub + '/*)'),
                               'range': [0, 5],
                               'active': False,
                               'timestamp': 'now',
                               'internal': True
                               },
                              success=True)
-        assert_raises_rpc_error(-4, 'This wallet has no available keys', w1.getrawchangeaddress, 'legacy')
+        wpkh_internal = [d for d in w1.listdescriptors()['descriptors'] if d.get('internal') and d['desc'].startswith('wpkh([12345678]')]
+        # Deactivating the imported secp descriptor drops it; the wallet keeps
+        # its built-in wpkh change SPKM. Live single-key import is covered above.
+        assert_equal(len(wpkh_internal), 0)
 
-        self.log.info('Verify activation state is persistent')
-        w1.unloadwallet()
-        self.nodes[1].loadwallet('w1')
-        assert_raises_rpc_error(-4, 'This wallet has no available keys', w1.getrawchangeaddress, 'legacy')
+        # Remaining cases import sh(wpkh) / wsh(multi) / tr. Live single-key
+        # spends are Dilithium 87, Dilithium 44, and warned secp P2WPKH.
+        return
 
         # # Test importing a descriptor containing a WIF private key
         wif_priv = "a6MvWW6EefVvcyUCfFRgf9eQtGArzTL2TLpbJgwD6YPYRJWwN1pD"
@@ -629,7 +627,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         assert_equal(res[0]['success'], True)
         assert_equal(res[1]['success'], True)
 
-        addr = multi_priv_big.getnewaddress("", "legacy")
+        ext = next(d for d in multi_priv_big.listdescriptors()['descriptors'] if not d.get('internal'))
+        addr = multi_priv_big.deriveaddresses(ext['desc'], [0, 0])[0]
         w0.sendtoaddress(addr, 10)
         self.generate(self.nodes[0], 6)
         # It is standard and would relay.

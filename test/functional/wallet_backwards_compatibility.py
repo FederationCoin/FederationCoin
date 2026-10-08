@@ -52,7 +52,7 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
-        self.skip_if_no_previous_releases()
+        self.skip_heritage_legacy_wallet()
 
     def setup_nodes(self):
         self.add_nodes(self.num_nodes, extra_args=self.extra_args, versions=[
@@ -345,19 +345,8 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
             # This must be done after the backup is created so that 0.21 can still load
             # the backup
             if self.options.descriptors and self.major_version_equals(node, 21):
-                assert_raises_rpc_error(-12, "No bech32m addresses available", wallet.getnewaddress, address_type="bech32m")
-                xpubs = wallet.gethdkeys(active_only=True)
-                assert_equal(len(xpubs), 1)
-                assert_equal(len(xpubs[0]["descriptors"]), 6)
-                wallet.createwalletdescriptor("bech32m")
-                xpubs = wallet.gethdkeys(active_only=True)
-                assert_equal(len(xpubs), 1)
-                assert_equal(len(xpubs[0]["descriptors"]), 8)
-                tr_descs = [desc["desc"] for desc in xpubs[0]["descriptors"] if desc["desc"].startswith("tr(")]
-                assert_equal(len(tr_descs), 2)
-                for desc in tr_descs:
-                    assert info["hdmasterfingerprint"] in desc
-                wallet.getnewaddress(address_type="bech32m")
+                assert_raises_rpc_error(-5, "Unknown address type", wallet.getnewaddress, address_type="bech32m")
+                assert_raises_rpc_error(-5, "Unknown address type", wallet.createwalletdescriptor, "bech32m")
 
             wallet.unloadwallet()
 

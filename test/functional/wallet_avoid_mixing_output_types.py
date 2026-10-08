@@ -6,10 +6,9 @@
 
 A wallet may have different types of UTXOs to choose from during coin selection,
 where output type is one of the following:
-    - BECH32M
-    - BECH32
-    - P2SH-SEGWIT
-    - LEGACY
+    - Dilithium 87
+    - Dilithium 44
+    - secp
 
 This test verifies that mixing different output types is avoided unless
 absolutely necessary. Both wallets start with zero funds. Alice mines
@@ -32,38 +31,25 @@ from test_framework.test_framework import BitcoinTestFramework
 from test_framework.blocktools import COINBASE_MATURITY
 
 ADDRESS_TYPES = [
-    "bech32",
-    "p2sh-segwit",
-    "legacy",
+    "mldsa87",
+    "mldsa44",
+    "secp",
 ]
 
 
-def is_bech32_address(node, addr):
-    """Check if an address contains a bech32 output."""
+def is_mldsa87_address(node, addr):
+    addr_info = node.getaddressinfo(addr)
+    return addr_info['desc'].startswith('mldsa87(')
+
+
+def is_mldsa44_address(node, addr):
+    addr_info = node.getaddressinfo(addr)
+    return addr_info['desc'].startswith('mldsa(')
+
+
+def is_secp_address(node, addr):
     addr_info = node.getaddressinfo(addr)
     return addr_info['desc'].startswith('wpkh(')
-
-
-def is_bech32m_address(node, addr):
-    """Check if an address contains a bech32m output."""
-    addr_info = node.getaddressinfo(addr)
-    return addr_info['desc'].startswith('tr(')
-
-
-def is_p2sh_segwit_address(node, addr):
-    """Check if an address contains a P2SH-Segwit output.
-       Note: this function does not actually determine the type
-       of P2SH output, but is sufficient for this test in that
-       we are only generating P2SH-Segwit outputs.
-    """
-    addr_info = node.getaddressinfo(addr)
-    return addr_info['desc'].startswith('sh(wpkh(')
-
-
-def is_legacy_address(node, addr):
-    """Check if an address contains a legacy output."""
-    addr_info = node.getaddressinfo(addr)
-    return addr_info['desc'].startswith('pkh(')
 
 
 def is_same_type(node, tx):
@@ -78,22 +64,19 @@ def is_same_type(node, tx):
                 True,
             )['vout'][n]['scriptPubKey']['address']
         )
-    has_legacy = False
-    has_p2sh = False
-    has_bech32 = False
-    has_bech32m = False
+    has_87 = False
+    has_44 = False
+    has_secp = False
 
     for addr in inputs:
-        if is_legacy_address(node, addr):
-            has_legacy = True
-        if is_p2sh_segwit_address(node, addr):
-            has_p2sh = True
-        if is_bech32_address(node, addr):
-            has_bech32 = True
-        if is_bech32m_address(node, addr):
-            has_bech32m = True
+        if is_mldsa87_address(node, addr):
+            has_87 = True
+        if is_mldsa44_address(node, addr):
+            has_44 = True
+        if is_secp_address(node, addr):
+            has_secp = True
 
-    return (sum([has_legacy, has_p2sh, has_bech32, has_bech32m]) == 1)
+    return (sum([has_87, has_44, has_secp]) == 1)
 
 
 def generate_payment_values(n, m):
@@ -109,6 +92,7 @@ class AddressInputTypeGrouping(BitcoinTestFramework):
         self.add_wallet_options(parser, legacy=False)
 
     def set_test_params(self):
+        self.keep_epic21_address_types = True
         self.setup_clean_chain = True
         self.num_nodes = 2
         # whitelist peers to speed up tx relay / mempool sync
@@ -119,7 +103,7 @@ class AddressInputTypeGrouping(BitcoinTestFramework):
                 "-txindex",
             ],
             [
-                "-addresstype=p2sh-segwit",
+                "-addresstype=mldsa44",
                 "-txindex",
             ],
         ]
@@ -146,20 +130,20 @@ class AddressInputTypeGrouping(BitcoinTestFramework):
 
         self.log.info("Creating mixed UTXOs in B's wallet")
         for v in generate_payment_values(3, 10):
-            self.log.debug(f"Making payment of {v} BTC to legacy")
-            A.sendtoaddress(B.getnewaddress(address_type="legacy"), v)
+            self.log.debug(f"Making payment of {v} BTC to Dilithium 87")
+            A.sendtoaddress(B.getnewaddress(address_type="mldsa87"), v)
 
         for v in generate_payment_values(3, 10):
-            self.log.debug(f"Making payment of {v} BTC to p2sh")
-            A.sendtoaddress(B.getnewaddress(address_type="p2sh-segwit"), v)
+            self.log.debug(f"Making payment of {v} BTC to Dilithium 44")
+            A.sendtoaddress(B.getnewaddress(address_type="mldsa44"), v)
 
         for v in generate_payment_values(3, 10):
-            self.log.debug(f"Making payment of {v} BTC to bech32")
-            A.sendtoaddress(B.getnewaddress(address_type="bech32"), v)
+            self.log.debug(f"Making payment of {v} BTC to secp")
+            A.sendtoaddress(B.getnewaddress(address_type="secp"), v)
 
         for v in generate_payment_values(3, 10):
-            self.log.debug(f"Making payment of {v} BTC to bech32")
-            A.sendtoaddress(B.getnewaddress(address_type="bech32"), v)
+            self.log.debug(f"Making payment of {v} BTC to secp")
+            A.sendtoaddress(B.getnewaddress(address_type="secp"), v)
 
         self.generate(A, 1)
 

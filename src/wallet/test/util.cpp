@@ -25,7 +25,7 @@ std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, CChain& cc
     {
         LOCK2(wallet->cs_wallet, ::cs_main);
         wallet->SetLastBlockProcessed(cchain.Height(), cchain.Tip()->GetBlockHash());
-        wallet->m_default_address_type = OutputType::BECH32;
+        wallet->m_default_address_type = OutputType::DILITHIUM87;
     }
     {
         LOCK(wallet->cs_wallet);
@@ -100,7 +100,7 @@ std::unique_ptr<WalletDatabase> DuplicateMockDatabase(WalletDatabase& database)
 
 std::string getnewaddress(CWallet& w)
 {
-    constexpr auto output_type = OutputType::BECH32;
+    constexpr auto output_type = OutputType::SECP;
     return EncodeDestination(getNewDestination(w, output_type));
 }
 

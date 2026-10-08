@@ -46,8 +46,8 @@ class WalletGroupTest(BitcoinTestFramework):
         self.generate(self.nodes[0], COINBASE_MATURITY + 1)
 
         # Get some addresses from the two nodes
-        addr1 = [self.nodes[1].getnewaddress() for _ in range(3)]
-        addr2 = [self.nodes[2].getnewaddress() for _ in range(3)]
+        addr1 = [self.nodes[1].getnewaddress("", "secp") for _ in range(3)]
+        addr2 = [self.nodes[2].getnewaddress("", "secp") for _ in range(3)]
         addrs = addr1 + addr2
 
         # Send 1 + 0.5 coin to each address
@@ -123,7 +123,7 @@ class WalletGroupTest(BitcoinTestFramework):
         tx5_6_grouped_fee = 8240
 
         self.log.info("Test wallet option maxapsfee")
-        addr_aps = self.nodes[3].getnewaddress()
+        addr_aps = self.nodes[3].getnewaddress("", "secp")
         self.nodes[0].sendtoaddress(addr_aps, 1.0)
         self.nodes[0].sendtoaddress(addr_aps, 1.0)
         self.generate(self.nodes[0], 1)
@@ -135,7 +135,7 @@ class WalletGroupTest(BitcoinTestFramework):
         assert_equal(2, len(tx4["vin"]))
         assert_equal(2, len(tx4["vout"]))
 
-        addr_aps2 = self.nodes[3].getnewaddress()
+        addr_aps2 = self.nodes[3].getnewaddress("", "secp")
         [self.nodes[0].sendtoaddress(addr_aps2, 1.0) for _ in range(5)]
         self.generate(self.nodes[0], 1)
         with self.nodes[3].assert_debug_log([f'Fee non-grouped = {tx5_6_ungrouped_fee}, grouped = {tx5_6_grouped_fee}, using non-grouped']):
@@ -148,7 +148,7 @@ class WalletGroupTest(BitcoinTestFramework):
         # Test wallet option maxapsfee with node 4, which sets maxapsfee
         # 1 sat higher, crossing the threshold from non-grouped to grouped.
         self.log.info("Test wallet option maxapsfee threshold from non-grouped to grouped")
-        addr_aps3 = self.nodes[4].getnewaddress()
+        addr_aps3 = self.nodes[4].getnewaddress("", "secp")
         [self.nodes[0].sendtoaddress(addr_aps3, 1.0) for _ in range(5)]
         self.generate(self.nodes[0], 1)
         with self.nodes[4].assert_debug_log([f'Fee non-grouped = {tx5_6_ungrouped_fee}, grouped = {tx5_6_grouped_fee}, using grouped']):

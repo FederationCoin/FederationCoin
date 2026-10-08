@@ -4,7 +4,11 @@
 
 #include <script/descriptor.h>
 
+#include <addresstype.h>
+#include <consensus/mldsa87_spend.h>
+#include <consensus/mldsa_spend.h>
 #include <hash.h>
+#include <key.h>
 #include <key_io.h>
 #include <pubkey.h>
 #include <script/miniscript.h>
@@ -696,7 +700,7 @@ public:
     }
 
     // NOLINTNEXTLINE(misc-no-recursion)
-    bool ExpandHelper(int pos, const SigningProvider& arg, const DescriptorCache* read_cache, std::vector<CScript>& output_scripts, FlatSigningProvider& out, DescriptorCache* write_cache) const
+    virtual bool ExpandHelper(int pos, const SigningProvider& arg, const DescriptorCache* read_cache, std::vector<CScript>& output_scripts, FlatSigningProvider& out, DescriptorCache* write_cache) const
     {
         std::vector<std::pair<CPubKey, KeyOriginInfo>> entries;
         entries.reserve(m_pubkey_args.size());
@@ -924,7 +928,7 @@ protected:
     }
 public:
     WPKHDescriptor(std::unique_ptr<PubkeyProvider> prov) : DescriptorImpl(Vector(std::move(prov)), "wpkh") {}
-    std::optional<OutputType> GetOutputType() const override { return OutputType::BECH32; }
+    std::optional<OutputType> GetOutputType() const override { return OutputType::SECP; }
     bool IsSingleType() const final { return true; }
 
     std::optional<int64_t> ScriptSize() const override { return 1 + 1 + 20; }
@@ -944,6 +948,72 @@ public:
     {
         return std::make_unique<WPKHDescriptor>(m_pubkey_args.at(0)->Clone());
     }
+};
+
+/** Single-key Dilithium 87 or 44. Seed is the BIP32 child private key. */
+class MldsaDescriptor final : public DescriptorImpl
+{
+    const OutputType m_type;
+protected:
+    std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, Span<const CScript>, FlatSigningProvider&) const override
+    {
+        return {};
+    }
+    bool ExpandHelper(int pos, const SigningProvider& arg, const DescriptorCache* read_cache, std::vector<CScript>& output_scripts, FlatSigningProvider& out, DescriptorCache* write_cache) const override
+    {
+        CKey key;
+        if (!m_pubkey_args[0]->GetPrivKey(pos, arg, key)) return false;
+        if (key.size() != 32) return false;
+        const std::span<const unsigned char> seed{reinterpret_cast<const unsigned char*>(key.begin()), 32};
+        uint256 program;
+        if (m_type == OutputType::DILITHIUM87) {
+            Consensus::MlDsa87Keypair kp;
+            if (!Consensus::MlDsa87Keygen(seed, kp)) return false;
+            program = Consensus::MlDsa87SingleKeyProgram(kp.pubkey);
+        } else {
+            Consensus::MlDsa44Keypair kp;
+            if (!Consensus::MlDsa44Keygen(seed, kp)) return false;
+            program = Consensus::MlDsa44SingleKeyProgram(kp.pubkey);
+        }
+        CPubKey pubkey;
+        KeyOriginInfo origin;
+        if (!m_pubkey_args[0]->GetPubKey(pos, arg, pubkey, origin, read_cache, write_cache)) return false;
+        out.origins.emplace(pubkey.GetID(), std::make_pair(pubkey, std::move(origin)));
+        out.pubkeys.emplace(pubkey.GetID(), pubkey);
+        out.keys.emplace(pubkey.GetID(), key);
+        CScript witprog = GetScriptForDestination(WitnessV0ScriptHash(program));
+        CScript marker;
+        marker << std::vector<unsigned char>{static_cast<unsigned char>(m_type == OutputType::DILITHIUM87 ? 87 : 44)};
+        marker << std::vector<unsigned char>(pubkey.GetID().begin(), pubkey.GetID().end());
+        out.scripts.emplace(CScriptID(witprog), std::move(marker));
+        output_scripts = Vector(std::move(witprog));
+        return true;
+    }
+public:
+    MldsaDescriptor(std::unique_ptr<PubkeyProvider> prov, OutputType type, std::string name)
+        : DescriptorImpl(Vector(std::move(prov)), std::move(name)), m_type(type) {}
+    std::optional<OutputType> GetOutputType() const override { return m_type; }
+    bool IsSingleType() const final { return true; }
+    std::unique_ptr<DescriptorImpl> Clone() const override
+    {
+        return std::make_unique<MldsaDescriptor>(m_pubkey_args.at(0)->Clone(), m_type, m_name);
+    }
+
+    std::optional<int64_t> ScriptSize() const override { return 1 + 1 + 32; }
+
+    std::optional<int64_t> MaxSatSize(bool) const override
+    {
+        const int64_t pk = m_type == OutputType::DILITHIUM87 ? Consensus::MLDSA87_PUBLIC_KEY_SIZE : Consensus::MLDSA44_PUBLIC_KEY_SIZE;
+        const int64_t sig = m_type == OutputType::DILITHIUM87 ? Consensus::MLDSA87_SIGNATURE_SIZE : Consensus::MLDSA44_SIGNATURE_SIZE;
+        return GetSizeOfCompactSize(pk) + pk + GetSizeOfCompactSize(sig) + sig;
+    }
+
+    std::optional<int64_t> MaxSatisfactionWeight(bool use_max_sig) const override
+    {
+        return MaxSatSize(use_max_sig);
+    }
+
+    std::optional<int64_t> MaxSatisfactionElems() const override { return 2; }
 };
 
 /** A parsed combo(P) descriptor. */
@@ -1077,7 +1147,11 @@ protected:
         return ret;
     }
 
-    bool IsSegwit() const { return m_subdescriptor_args[0]->GetOutputType() == OutputType::BECH32; }
+    bool IsSegwit() const
+    {
+        const auto inner = m_subdescriptor_args[0]->GetOutputType();
+        return inner == OutputType::BECH32 || inner == OutputType::SECP;
+    }
 
 public:
     SHDescriptor(std::unique_ptr<DescriptorImpl> desc) : DescriptorImpl({}, std::move(desc), "sh") {}
@@ -1890,6 +1964,30 @@ std::vector<std::unique_ptr<DescriptorImpl>> ParseScript(uint32_t& key_exp_index
         error = "Can only have multi_a/sortedmulti_a inside tr()";
         return {};
     }
+    if (ctx == ParseScriptContext::TOP && Func("mldsa87", expr)) {
+        auto pubkeys = ParsePubkey(key_exp_index, expr, ParseScriptContext::P2WPKH, out, error);
+        if (pubkeys.empty()) {
+            error = strprintf("mldsa87(): %s", error);
+            return {};
+        }
+        key_exp_index++;
+        for (auto& pubkey : pubkeys) {
+            ret.emplace_back(std::make_unique<MldsaDescriptor>(std::move(pubkey), OutputType::DILITHIUM87, "mldsa87"));
+        }
+        return ret;
+    }
+    if (ctx == ParseScriptContext::TOP && Func("mldsa", expr)) {
+        auto pubkeys = ParsePubkey(key_exp_index, expr, ParseScriptContext::P2WPKH, out, error);
+        if (pubkeys.empty()) {
+            error = strprintf("mldsa(): %s", error);
+            return {};
+        }
+        key_exp_index++;
+        for (auto& pubkey : pubkeys) {
+            ret.emplace_back(std::make_unique<MldsaDescriptor>(std::move(pubkey), OutputType::DILITHIUM44, "mldsa"));
+        }
+        return ret;
+    }
     if ((ctx == ParseScriptContext::TOP || ctx == ParseScriptContext::P2SH) && Func("wpkh", expr)) {
         auto pubkeys = ParsePubkey(key_exp_index, expr, ParseScriptContext::P2WPKH, out, error);
         if (pubkeys.empty()) {
@@ -2269,6 +2367,28 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
         if (provider.GetCScript(scriptid, subscript)) {
             auto sub = InferScript(subscript, ParseScriptContext::P2WSH, provider);
             if (sub) return std::make_unique<WSHDescriptor>(std::move(sub));
+        }
+        if (ctx == ParseScriptContext::TOP) {
+            CScript marker;
+            if (provider.GetCScript(CScriptID(script), marker)) {
+                CScript::const_iterator pc = marker.begin();
+                std::vector<unsigned char> vch_tag, vch_id;
+                opcodetype opcode;
+                if (marker.GetOp(pc, opcode, vch_tag) && marker.GetOp(pc, opcode, vch_id) &&
+                    vch_tag.size() == 1 && vch_id.size() == 20) {
+                    CPubKey pk;
+                    if (provider.GetPubKey(CKeyID(uint160(vch_id)), pk)) {
+                        if (auto pubkey_provider = InferPubkey(pk, ctx, provider)) {
+                            if (vch_tag[0] == 87) {
+                                return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM87, "mldsa87");
+                            }
+                            if (vch_tag[0] == 44) {
+                                return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM44, "mldsa");
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     if (txntype == TxoutType::WITNESS_V1_TAPROOT && ctx == ParseScriptContext::TOP) {

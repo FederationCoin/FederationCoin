@@ -16,6 +16,9 @@ from test_framework.wallet_util import bytes_to_wif, generate_keypair
 
 
 class SignRawTransactionWithKeyTest(BitcoinTestFramework):
+    def skip_test_if_missing_module(self):
+        self.skip_heritage_secp_script()
+
     def set_test_params(self):
         self.num_nodes = 1
 

@@ -369,7 +369,24 @@ class TestNode():
 
     def generate(self, nblocks, maxtries=1000000, **kwargs):
         self.log.debug("TestNode.generate() dispatches `generate` call to `generatetoaddress`")
-        return self.generatetoaddress(nblocks=nblocks, address=self.get_deterministic_priv_key().address, maxtries=maxtries, **kwargs)
+        address = None
+        try:
+            address = next(iter(self.getaddressesbylabel("coinbase")))
+        except JSONRPCException:
+            address = None
+        if address is None:
+            for wallet_name in ("default_wallet", ""):
+                try:
+                    address = next(iter(self.get_wallet_rpc(wallet_name).getaddressesbylabel("coinbase")))
+                    break
+                except JSONRPCException:
+                    continue
+        if address is None:
+            try:
+                address = self.getnewaddress("", "secp")
+            except JSONRPCException:
+                address = self.get_deterministic_priv_key().address
+        return self.generatetoaddress(nblocks=nblocks, address=address, maxtries=maxtries, **kwargs)
 
     def generateblock(self, *args, called_by_framework, **kwargs):
         assert called_by_framework, "Direct call of this mining RPC is discouraged. Please use one of the self.generate* methods on the test framework, which sync the nodes to avoid intermittent test issues. You may use sync_fun=self.no_op to disable the sync explicitly."

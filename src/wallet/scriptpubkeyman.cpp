@@ -2226,8 +2226,25 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
             return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
         }
         if (!m_wallet_descriptor.descriptor->ExpandFromCache(m_wallet_descriptor.next_index, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
-            // We can't generate anymore keys
-            return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
+            const int32_t want{m_wallet_descriptor.next_index};
+            for (const auto& [script, idx] : m_map_script_pub_keys) {
+                if (idx == want) {
+                    scripts_temp = {script};
+                    break;
+                }
+            }
+            if (scripts_temp.empty()) {
+                FlatSigningProvider provider;
+                provider.keys = GetKeys();
+                DescriptorCache write_cache;
+                if (!m_wallet_descriptor.descriptor->Expand(want, provider, scripts_temp, out_keys, &write_cache)) {
+                    return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
+                }
+                for (const CScript& script : scripts_temp) {
+                    m_map_script_pub_keys[script] = want;
+                }
+                m_map_signing_providers[want] = out_keys;
+            }
         }
 
         CTxDestination dest;
@@ -2428,6 +2445,7 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
             }
             m_map_pubkeys[pubkey] = i;
         }
+        m_map_signing_providers[i] = out_keys;
         // Merge and write the cache
         DescriptorCache new_items = m_wallet_descriptor.cache.MergeAndDiff(temp_cache);
         if (!batch.WriteDescriptorCacheItems(id, new_items)) {
@@ -2457,8 +2475,22 @@ std::vector<WalletDestination> DescriptorScriptPubKeyMan::MarkUnusedAddresses(co
             auto out_keys = std::make_unique<FlatSigningProvider>();
             std::vector<CScript> scripts_temp;
             while (index >= m_wallet_descriptor.next_index) {
-                if (!m_wallet_descriptor.descriptor->ExpandFromCache(m_wallet_descriptor.next_index, m_wallet_descriptor.cache, scripts_temp, *out_keys)) {
-                    throw std::runtime_error(std::string(__func__) + ": Unable to expand descriptor from cache");
+                scripts_temp.clear();
+                const int32_t want{m_wallet_descriptor.next_index};
+                if (!m_wallet_descriptor.descriptor->ExpandFromCache(want, m_wallet_descriptor.cache, scripts_temp, *out_keys)) {
+                    for (const auto& [spk, idx] : m_map_script_pub_keys) {
+                        if (idx == want) {
+                            scripts_temp = {spk};
+                            break;
+                        }
+                    }
+                    if (scripts_temp.empty()) {
+                        FlatSigningProvider provider;
+                        provider.keys = GetKeys();
+                        if (!m_wallet_descriptor.descriptor->Expand(want, provider, scripts_temp, *out_keys, nullptr)) {
+                            throw std::runtime_error(std::string(__func__) + ": Unable to expand descriptor");
+                        }
+                    }
                 }
                 CTxDestination dest;
                 ExtractDestination(scripts_temp[0], dest);
@@ -2635,7 +2667,13 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
     } else {
         // Get the scripts, keys, and key origins for this script
         std::vector<CScript> scripts_temp;
-        if (!m_wallet_descriptor.descriptor->ExpandFromCache(index, m_wallet_descriptor.cache, scripts_temp, *out_keys)) return nullptr;
+        if (!m_wallet_descriptor.descriptor->ExpandFromCache(index, m_wallet_descriptor.cache, scripts_temp, *out_keys)) {
+            if (!HavePrivateKeys()) return nullptr;
+            FlatSigningProvider master_provider;
+            master_provider.keys = GetKeys();
+            DescriptorCache write_cache;
+            if (!m_wallet_descriptor.descriptor->Expand(index, master_provider, scripts_temp, *out_keys, &write_cache)) return nullptr;
+        }
 
         // Cache SigningProvider so we don't need to re-derive if we need this SigningProvider again
         m_map_signing_providers[index] = *out_keys;
@@ -2807,6 +2845,13 @@ std::unique_ptr<CKeyMetadata> DescriptorScriptPubKeyMan::GetMetadata(const CTxDe
     if (provider) {
         KeyOriginInfo orig;
         CKeyID key_id = GetKeyForDestination(*provider, dest);
+        if (key_id.IsNull()) {
+            if (const auto* flat = dynamic_cast<const FlatSigningProvider*>(provider.get())) {
+                if (flat->pubkeys.size() == 1) {
+                    key_id = flat->pubkeys.begin()->first;
+                }
+            }
+        }
         if (provider->GetKeyOrigin(key_id, orig)) {
             LOCK(cs_desc_man);
             std::unique_ptr<CKeyMetadata> meta = std::make_unique<CKeyMetadata>();
@@ -2834,7 +2879,9 @@ void DescriptorScriptPubKeyMan::SetCache(const DescriptorCache& cache)
         FlatSigningProvider out_keys;
         std::vector<CScript> scripts_temp;
         if (!m_wallet_descriptor.descriptor->ExpandFromCache(i, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
-            throw std::runtime_error("Error: Unable to expand wallet descriptor from cache");
+            // Dilithium expand needs the BIP32 child secret. Scripts are
+            // filled after descriptor keys are loaded.
+            continue;
         }
         // Add all of the scriptPubKeys to the scriptPubKey set
         new_spks.insert(scripts_temp.begin(), scripts_temp.end());
@@ -2857,6 +2904,50 @@ void DescriptorScriptPubKeyMan::SetCache(const DescriptorCache& cache)
     }
     // Make sure the wallet knows about our new spks
     m_storage.TopUpCallback(new_spks, this);
+}
+
+void DescriptorScriptPubKeyMan::FillMissingScripts()
+{
+    LOCK(cs_desc_man);
+    FlatSigningProvider provider;
+    provider.keys = GetKeys();
+    if (provider.keys.empty()) return;
+    std::set<CScript> new_spks;
+    for (int32_t i = m_wallet_descriptor.range_start; i < m_wallet_descriptor.range_end; ++i) {
+        bool have = false;
+        for (const auto& [script, idx] : m_map_script_pub_keys) {
+            if (idx == i) {
+                have = true;
+                break;
+            }
+        }
+        if (have) continue;
+        FlatSigningProvider out_keys;
+        std::vector<CScript> scripts_temp;
+        DescriptorCache temp_cache;
+        if (!m_wallet_descriptor.descriptor->Expand(i, provider, scripts_temp, out_keys, &temp_cache)) {
+            continue;
+        }
+        new_spks.insert(scripts_temp.begin(), scripts_temp.end());
+        for (const CScript& script : scripts_temp) {
+            m_map_script_pub_keys[script] = i;
+        }
+        for (const auto& pk_pair : out_keys.pubkeys) {
+            if (m_map_pubkeys.count(pk_pair.second) == 0) {
+                m_map_pubkeys[pk_pair.second] = i;
+            }
+        }
+    }
+    if (!m_map_script_pub_keys.empty()) {
+        int32_t max_idx = m_wallet_descriptor.range_start - 1;
+        for (const auto& [_, idx] : m_map_script_pub_keys) {
+            max_idx = std::max(max_idx, idx);
+        }
+        m_max_cached_index = max_idx;
+    }
+    if (!new_spks.empty()) {
+        m_storage.TopUpCallback(new_spks, this);
+    }
 }
 
 bool DescriptorScriptPubKeyMan::AddKey(const CKeyID& key_id, const CKey& key)

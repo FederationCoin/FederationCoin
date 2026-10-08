@@ -21,6 +21,7 @@ class TxnMallTest(BitcoinTestFramework):
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
+        self.skip_heritage_secp_script()
 
     def add_options(self, parser):
         self.add_wallet_options(parser)
@@ -43,9 +44,9 @@ class TxnMallTest(BitcoinTestFramework):
 
     def run_test(self):
         if self.options.segwit:
-            output_type = "p2sh-segwit"
+            output_type = "secp"
         else:
-            output_type = "legacy"
+            output_type = "mldsa87"
 
         # All nodes should start with 1,250 BTC:
         starting_balance = 1250

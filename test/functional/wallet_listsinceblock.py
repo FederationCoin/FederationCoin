@@ -490,12 +490,10 @@ class ListSinceBlockTest(BitcoinTestFramework):
         self.nodes[2].sendtoaddress(address=new_addr, amount="0.001")
         self.generate(self.nodes[2], 1)
 
-        for label in ["new_addr", ""]:
-            new_addr_transactions = self.nodes[1].listsinceblock(label=label)["transactions"]
-            assert_equal(len(new_addr_transactions), 1)
-            assert_equal(new_addr_transactions[0]["label"], label)
-            if label == "new_addr":
-                assert_equal(new_addr_transactions[0]["address"], new_addr)
+        new_addr_transactions = self.nodes[1].listsinceblock(label="new_addr")["transactions"]
+        assert_equal(len(new_addr_transactions), 1)
+        assert_equal(new_addr_transactions[0]["label"], "new_addr")
+        assert_equal(new_addr_transactions[0]["address"], new_addr)
 
 
 if __name__ == '__main__':

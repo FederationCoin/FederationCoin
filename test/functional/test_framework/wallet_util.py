@@ -53,7 +53,7 @@ def get_key(node):
     """Generate a fresh key on node
 
     Returns a named tuple of privkey, pubkey and all address and scripts."""
-    addr = node.getnewaddress()
+    addr = node.getnewaddress("", "secp")
     pubkey = node.getaddressinfo(addr)['pubkey']
     return Key(privkey=node.dumpprivkey(addr),
                pubkey=pubkey,

@@ -34,7 +34,7 @@ from test_framework.util import (
     get_fee,
     find_vout_for_address,
 )
-from test_framework.wallet import MiniWallet
+from test_framework.wallet import MiniWallet, MiniWalletMode
 
 
 WALLET_PASSPHRASE = "test"
@@ -464,7 +464,7 @@ def test_bumpfee_with_descendant_fails(self, rbf_node, rbf_node_address, dest_ad
     assert_raises_rpc_error(-8, "Transaction has descendants in the wallet", rbf_node.bumpfee, parent_id)
 
     # create tx with descendant in the mempool by using MiniWallet
-    miniwallet = MiniWallet(rbf_node)
+    miniwallet = MiniWallet(rbf_node, mode=MiniWalletMode.ADDRESS_SECP)
     parent_id = spend_one_input(rbf_node, miniwallet.get_address())
     tx = rbf_node.gettransaction(txid=parent_id, verbose=True)['decoded']
     miniwallet.scan_tx(tx)

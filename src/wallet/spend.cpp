@@ -14,6 +14,7 @@
 #include <numeric>
 #include <policy/policy.h>
 #include <primitives/transaction.h>
+#include <script/descriptor.h>
 #include <script/script.h>
 #include <script/signingprovider.h>
 #include <script/solver.h>
@@ -301,6 +302,21 @@ static OutputType GetOutputType(TxoutType type, bool is_from_p2sh)
     }
 }
 
+/** 32-byte witness v0 is Dilithium 87 or 44. InferDescriptor reads the wallet marker. */
+static OutputType OutputTypeForCoin(const CTxOut& output, TxoutType type, bool is_from_p2sh, const SigningProvider* provider)
+{
+    if (type == TxoutType::WITNESS_V0_SCRIPTHASH && !is_from_p2sh && provider) {
+        if (const auto desc = InferDescriptor(output.scriptPubKey, *provider)) {
+            if (const auto typ = desc->GetOutputType()) {
+                if (*typ == OutputType::DILITHIUM44 || *typ == OutputType::DILITHIUM87) {
+                    return *typ;
+                }
+            }
+        }
+    }
+    return GetOutputType(type, is_from_p2sh);
+}
+
 // Fetch and validate the coin control selected inputs.
 // Coins could be internal (from the wallet) or external.
 util::Result<PreSelectedInputs> FetchSelectedInputs(const CWallet& wallet, const CCoinControl& coin_control,
@@ -493,7 +509,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
                 is_from_p2sh = true;
             }
 
-            result.Add(GetOutputType(type, is_from_p2sh),
+            result.Add(OutputTypeForCoin(output, type, is_from_p2sh, provider.get()),
                        COutput(outpoint, output, nDepth, input_bytes, spendable, solvable, safeTx, wtx.GetTxTime(), tx_from_me, feerate));
 
             outpoints.push_back(outpoint);

@@ -984,7 +984,9 @@ protected:
         CScript witprog = GetScriptForDestination(WitnessV0ScriptHash(program));
         CScript marker;
         marker << std::vector<unsigned char>{static_cast<unsigned char>(m_type == OutputType::DILITHIUM87 ? 87 : 44)};
-        marker << std::vector<unsigned char>(pubkey.GetID().begin(), pubkey.GetID().end());
+        // ToByteVector binds one CKeyID. pubkey.GetID().begin()/end() are two
+        // temporaries; libc++ treats that iterator pair as a huge size.
+        marker << ToByteVector(pubkey.GetID());
         out.scripts.emplace(CScriptID(witprog), std::move(marker));
         output_scripts = Vector(std::move(witprog));
         return true;

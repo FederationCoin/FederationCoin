@@ -29,9 +29,14 @@ typedef std::vector<unsigned char> valtype;
 
 static const FlatSigningProvider* FlatKeysOf(const SigningProvider& provider)
 {
-    if (const auto* flat = dynamic_cast<const FlatSigningProvider*>(&provider)) return flat;
-    if (const auto* hide = dynamic_cast<const HidingSigningProvider*>(&provider)) {
-        if (const SigningProvider* inner = hide->Unhidden()) return FlatKeysOf(*inner);
+    const SigningProvider* cur = &provider;
+    while (cur) {
+        if (const auto* flat = dynamic_cast<const FlatSigningProvider*>(cur)) return flat;
+        if (const auto* hide = dynamic_cast<const HidingSigningProvider*>(cur)) {
+            cur = hide->Unhidden();
+            continue;
+        }
+        break;
     }
     return nullptr;
 }

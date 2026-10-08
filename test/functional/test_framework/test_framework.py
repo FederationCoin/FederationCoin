@@ -577,6 +577,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 use_valgrind=self.options.valgrind,
                 descriptors=self.options.descriptors,
                 v2transport=self.options.v2transport,
+                wallet_compiled=self.is_wallet_compiled(),
             )
             self.nodes.append(test_node_i)
             if not test_node_i.version_is_at_least(170000):
@@ -886,6 +887,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                     coverage_dir=None,
                     cwd=self.options.tmpdir,
                     descriptors=self.options.descriptors,
+                    wallet_compiled=self.is_wallet_compiled(),
                 ))
             self.start_node(CACHE_NODE_ID)
             cache_node = self.nodes[CACHE_NODE_ID]

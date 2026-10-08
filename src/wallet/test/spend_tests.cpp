@@ -3,15 +3,19 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <addresstype.h>
+#include <chainparams.h>
 #include <consensus/amount.h>
 #include <key.h>
+#include <outputtype.h>
 #include <policy/fees.h>
+#include <primitives/transaction.h>
 #include <script/solver.h>
 #include <validation.h>
 #include <wallet/coincontrol.h>
 #include <wallet/spend.h>
 #include <wallet/test/util.h>
 #include <wallet/test/wallet_test_fixture.h>
+#include <wallet/wallet.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -124,6 +128,33 @@ BOOST_FIXTURE_TEST_CASE(wallet_duplicated_preset_inputs_test, TestChain100Setup)
     // Second case, don't use 'subtract_fee_from_outputs'.
     recipients[0].fSubtractFeeFromAmount = false;
     BOOST_CHECK(!CreateTransaction(*wallet, recipients, /*change_pos=*/std::nullopt, coin_control));
+}
+
+BOOST_AUTO_TEST_CASE(available_coins_separates_dilithium_kinds)
+{
+    std::unique_ptr<CWallet> wallet = std::make_unique<CWallet>(m_node.chain.get(), "", CreateMockableWalletDatabase());
+    BOOST_CHECK(wallet->LoadWallet() == DBErrors::LOAD_OK);
+    LOCK(wallet->cs_wallet);
+    wallet->SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+    wallet->SetupDescriptorScriptPubKeyMans();
+    wallet->SetLastBlockProcessed(300, uint256{});
+
+    auto add = [&](OutputType type) {
+        CMutableTransaction tx;
+        tx.vout.resize(1);
+        tx.vout[0].nValue = COIN;
+        tx.vout[0].scriptPubKey = GetScriptForDestination(*Assert(wallet->GetNewDestination(type, "")));
+        const uint256 txid = tx.GetHash();
+        wallet->mapWallet.emplace(std::piecewise_construct, std::forward_as_tuple(txid), std::forward_as_tuple(MakeTransactionRef(std::move(tx)), TxStateConfirmed{Params().GenesisBlock().GetHash(), /*height=*/0, /*index=*/0}));
+    };
+    add(OutputType::DILITHIUM87);
+    add(OutputType::DILITHIUM44);
+    add(OutputType::SECP);
+
+    const CoinsResult coins{AvailableCoins(*wallet)};
+    BOOST_CHECK_EQUAL(coins.coins.at(OutputType::DILITHIUM87).size(), 1U);
+    BOOST_CHECK_EQUAL(coins.coins.at(OutputType::DILITHIUM44).size(), 1U);
+    BOOST_CHECK_EQUAL(coins.coins.at(OutputType::SECP).size(), 1U);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

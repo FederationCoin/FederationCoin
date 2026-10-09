@@ -8,9 +8,19 @@ runs:
   using: 'composite'
   steps:
     - name: Set up Docker Buildx
+      id: buildx
+      continue-on-error: true
       uses: docker/setup-buildx-action@v3
       with:
         # Use host network to allow access to cirrus gha cache running on the host
+        driver-opts: |
+          network=host
+
+    # Docker Hub 500 on moby/buildkit is not a suite failure. One retry.
+    - name: Set up Docker Buildx (retry)
+      if: steps.buildx.outcome == 'failure'
+      uses: docker/setup-buildx-action@v3
+      with:
         driver-opts: |
           network=host
 

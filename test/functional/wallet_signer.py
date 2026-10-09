@@ -49,7 +49,6 @@ class WalletSignerTest(BitcoinTestFramework):
     def skip_test_if_missing_module(self):
         self.skip_if_no_external_signer()
         self.skip_if_no_wallet()
-        self.skip_heritage_secp_script()
 
     def set_mock_result(self, node, res):
         with open(os.path.join(node.cwd, "mock_result"), "w", encoding="utf8") as f:
@@ -204,7 +203,7 @@ class WalletSignerTest(BitcoinTestFramework):
 
         self.log.info('Test sendall using hww1')
 
-        res = hww.sendall(recipients=[{dest:0.5}, hww.getrawchangeaddress()], add_to_wallet=False)
+        res = hww.sendall(recipients=[{dest:0.5}, hww.getrawchangeaddress("secp")], add_to_wallet=False)
         assert res["complete"]
         assert_equal(res["hex"], mock_tx)
         # Broadcast transaction so we can bump the fee
@@ -253,7 +252,7 @@ class WalletSignerTest(BitcoinTestFramework):
         hww = self.nodes[1].get_wallet_rpc('hww_disconnect')
 
         # Try to spend
-        dest = hww.getrawchangeaddress()
+        dest = hww.getrawchangeaddress("secp")
         assert_raises_rpc_error(-25, "External signer not found", hww.send, outputs=[{dest:0.5}])
 
     def test_invalid_signer(self):

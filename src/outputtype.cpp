@@ -16,6 +16,7 @@
 
 #include <assert.h>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 static const std::string OUTPUT_TYPE_STRING_LEGACY = "legacy";
@@ -114,24 +115,25 @@ CTxDestination AddAndGetDestinationForScript(FlatSigningProvider& keystore, cons
     case OutputType::LEGACY:
         return ScriptHash(script);
     case OutputType::P2SH_SEGWIT:
-    case OutputType::BECH32: {
+    case OutputType::BECH32:
+    case OutputType::SECP: {
+        // "bech32" parses as SECP. createmultisig still emits P2WSH (not a spend kind).
         CTxDestination witdest = WitnessV0ScriptHash(script);
         CScript witprog = GetScriptForDestination(witdest);
         // Add the redeemscript, so that P2WSH and P2SH-P2WSH outputs are recognized as ours.
         keystore.scripts.emplace(CScriptID(witprog), witprog);
-        if (type == OutputType::BECH32) {
-            return witdest;
-        } else {
+        if (type == OutputType::P2SH_SEGWIT) {
             return ScriptHash(witprog);
         }
+        return witdest;
     }
-    case OutputType::SECP:
     case OutputType::DILITHIUM87:
     case OutputType::DILITHIUM44:
     case OutputType::BECH32M:
-    case OutputType::UNKNOWN: {} // secp and Dilithium are not script-wrap types
+    case OutputType::UNKNOWN:
+        break;
     } // no default case, so the compiler can warn about missing cases
-    assert(false);
+    throw std::invalid_argument("AddAndGetDestinationForScript: not a script-wrap output type");
 }
 
 std::optional<OutputType> OutputTypeFromDestination(const CTxDestination& dest) {

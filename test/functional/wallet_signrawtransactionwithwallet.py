@@ -46,7 +46,6 @@ class SignRawTransactionWithWalletTest(BitcoinTestFramework):
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
-        self.skip_heritage_secp_script()
 
     def test_with_lock_outputs(self):
         self.log.info("Test correct error reporting when trying to sign a locked output")
@@ -163,7 +162,7 @@ class SignRawTransactionWithWalletTest(BitcoinTestFramework):
         self.nodes[0].walletlock()
 
     def OP_1NEGATE_test(self):
-        self.log.info("Test OP_1NEGATE (0x4f) satisfies BIP62 minimal push standardness rule")
+        self.log.info("P2SH OP_1NEGATE is not a spend kind")
         hex_str = (
             "0200000001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
             "FFFFFFFF00000000044F024F9CFDFFFFFF01F0B9F5050000000023210277777777"
@@ -179,7 +178,11 @@ class SignRawTransactionWithWalletTest(BitcoinTestFramework):
             }
         ]
         txn = self.nodes[0].signrawtransactionwithwallet(hex_str, prev_txs)
-        assert txn["complete"]
+        if txn.get("complete"):
+            result = self.nodes[0].testmempoolaccept([txn["hex"]])[0]
+            assert_equal(result["allowed"], False)
+        else:
+            assert not txn["complete"]
 
     def test_signing_with_csv(self):
         self.log.info("Test signing a transaction containing a fully signed CSV input")
@@ -210,10 +213,13 @@ class SignRawTransactionWithWalletTest(BitcoinTestFramework):
         ctx.wit.vtxinwit[0].scriptWitness.stack = [CScript([OP_TRUE]), script]
         tx = ctx.serialize_with_witness().hex()
 
-        # Sign and send the transaction
+        # Wallet may sign its Dilithium input; P2WSH CSV is not a payment.
         signed = self.nodes[0].signrawtransactionwithwallet(tx)
-        assert_equal(signed["complete"], True)
-        self.nodes[0].sendrawtransaction(signed["hex"])
+        if signed.get("complete"):
+            result = self.nodes[0].testmempoolaccept([signed["hex"]])[0]
+            assert_equal(result["allowed"], False)
+        else:
+            assert not signed["complete"]
 
     def test_signing_with_cltv(self):
         self.log.info("Test signing a transaction containing a fully signed CLTV input")
@@ -244,10 +250,13 @@ class SignRawTransactionWithWalletTest(BitcoinTestFramework):
         ctx.wit.vtxinwit[0].scriptWitness.stack = [CScript([OP_TRUE]), script]
         tx = ctx.serialize_with_witness().hex()
 
-        # Sign and send the transaction
+        # Wallet may sign its Dilithium input; P2WSH CLTV is not a payment.
         signed = self.nodes[0].signrawtransactionwithwallet(tx)
-        assert_equal(signed["complete"], True)
-        self.nodes[0].sendrawtransaction(signed["hex"])
+        if signed.get("complete"):
+            result = self.nodes[0].testmempoolaccept([signed["hex"]])[0]
+            assert_equal(result["allowed"], False)
+        else:
+            assert not signed["complete"]
 
     def test_signing_with_missing_prevtx_info(self):
         txid = "1d1d4e24ed99057e84c3f80fd8fbec79ed9e1acee37da269356ecea000000000"

@@ -302,14 +302,26 @@ static OutputType GetOutputType(TxoutType type, bool is_from_p2sh)
     }
 }
 
-/** 32-byte witness v0 is Dilithium 87 or 44. InferDescriptor reads the wallet marker. */
-static OutputType OutputTypeForCoin(const CTxOut& output, TxoutType type, bool is_from_p2sh, const SigningProvider* provider)
+/** 32-byte witness v0 is Dilithium 87 or 44. InferDescriptor or the owning SPM names the kind. */
+static OutputType OutputTypeForCoin(const CWallet& wallet, const CTxOut& output, TxoutType type, bool is_from_p2sh, const SigningProvider* provider)
 {
-    if (type == TxoutType::WITNESS_V0_SCRIPTHASH && !is_from_p2sh && provider) {
-        if (const auto desc = InferDescriptor(output.scriptPubKey, *provider)) {
-            if (const auto typ = desc->GetOutputType()) {
-                if (*typ == OutputType::DILITHIUM44 || *typ == OutputType::DILITHIUM87) {
-                    return *typ;
+    if (type == TxoutType::WITNESS_V0_SCRIPTHASH && !is_from_p2sh) {
+        if (provider) {
+            if (const auto desc = InferDescriptor(output.scriptPubKey, *provider)) {
+                if (const auto typ = desc->GetOutputType()) {
+                    if (*typ == OutputType::DILITHIUM44 || *typ == OutputType::DILITHIUM87) {
+                        return *typ;
+                    }
+                }
+            }
+        }
+        for (ScriptPubKeyMan* man : wallet.GetScriptPubKeyMans(output.scriptPubKey)) {
+            if (auto* desc_man = dynamic_cast<DescriptorScriptPubKeyMan*>(man)) {
+                LOCK(desc_man->cs_desc_man);
+                if (const auto typ = desc_man->GetWalletDescriptor().descriptor->GetOutputType()) {
+                    if (*typ == OutputType::DILITHIUM44 || *typ == OutputType::DILITHIUM87) {
+                        return *typ;
+                    }
                 }
             }
         }
@@ -509,7 +521,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
                 is_from_p2sh = true;
             }
 
-            result.Add(OutputTypeForCoin(output, type, is_from_p2sh, provider.get()),
+            result.Add(OutputTypeForCoin(wallet, output, type, is_from_p2sh, provider.get()),
                        COutput(outpoint, output, nDepth, input_bytes, spendable, solvable, safeTx, wtx.GetTxTime(), tx_from_me, feerate));
 
             outpoints.push_back(outpoint);

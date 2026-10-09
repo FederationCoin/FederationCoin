@@ -21,9 +21,6 @@ from test_framework.wallet_util import generate_keypair
 
 
 class RpcCreateMultiSigTest(BitcoinTestFramework):
-    def skip_test_if_missing_module(self):
-        self.skip_heritage_secp_script()
-
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
@@ -69,12 +66,15 @@ class RpcCreateMultiSigTest(BitcoinTestFramework):
 
         for nsigs, nkeys in ((2, 3), (1, 1)):
             for address_type in ("bech32", "p2sh-segwit", "legacy"):
+                if address_type in ("legacy", "p2sh-segwit"):
+                    assert_raises_rpc_error(-5, "Unknown address type", node.createmultisig, nsigs, self.pub[:nkeys], address_type)
+                    continue
                 created = node.createmultisig(nsigs, self.pub[:nkeys], address_type)
                 self.assert_not_a_payment(created["address"], created["redeemScript"])
 
-        assert_raises_rpc_error(-8, "redeemScript exceeds size limit: 684 > 520", node.createmultisig, 16, self.pub[:20], "legacy")
+        assert_raises_rpc_error(-5, "Unknown address type", node.createmultisig, 16, self.pub[:20], "legacy")
         assert_raises_rpc_error(-8, "Number of keys involved in the multisignature address creation > 20", node.createmultisig, 16, self.pub, "bech32")
-        assert_raises_rpc_error(-5, "createmultisig cannot create bech32m multisig addresses", node.createmultisig, 2, self.pub[:2], "bech32m")
+        assert_raises_rpc_error(-5, "Unknown address type", node.createmultisig, 2, self.pub[:2], "bech32m")
 
         self.log.info("Check correct encoding of multisig script for all n (1..20)")
         for nkeys in range(1, 21):
@@ -94,13 +94,10 @@ class RpcCreateMultiSigTest(BitcoinTestFramework):
         pk_obj.set(bytes.fromhex(pubs[2]))
         pk_obj.compressed = False
         pubs[2] = pk_obj.get_bytes().hex()
-        legacy = self.nodes[0].createmultisig(2, pubs, "legacy")
-        self.assert_not_a_payment(legacy["address"], legacy["redeemScript"])
-        for address_type in ("bech32", "p2sh-segwit"):
-            created = self.nodes[0].createmultisig(nrequired=2, keys=pubs, address_type=address_type)
-            assert_equal(legacy["address"], created["address"])
-            assert_equal(created["warnings"], ["Unable to make chosen address type, please ensure no uncompressed public keys are present."])
-            self.assert_not_a_payment(created["address"], created["redeemScript"])
+        assert_raises_rpc_error(-5, "Unknown address type", self.nodes[0].createmultisig, 2, pubs, "legacy")
+        created = self.nodes[0].createmultisig(nrequired=2, keys=pubs, address_type="bech32")
+        assert_equal(created["warnings"], ["Unable to make chosen address type, please ensure no uncompressed public keys are present."])
+        self.assert_not_a_payment(created["address"], created["redeemScript"])
 
     def test_sortedmulti_descriptors_bip67(self):
         self.log.info("Testing sortedmulti descriptors with BIP 67 test vectors")

@@ -33,6 +33,7 @@ from .util import (
     MAX_NODES,
     PortSeed,
     assert_equal,
+    assert_raises_rpc_error,
     check_json_precision,
     find_vout_for_address,
     get_datadir_path,
@@ -999,14 +1000,18 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         if not self.is_zmq_compiled():
             raise SkipTest("bitcoind has not been built with zmq enabled.")
 
-    def skip_heritage_secp_script(self):
-        """Heritage P2SH/P2WSH/CHECKSIG/Taproot script success. Live spends are
-        Dilithium 87, Dilithium 44, and warned secp P2WPKH."""
-        raise SkipTest("Heritage P2SH/P2WSH/CHECKSIG script success; live spends are Dilithium 87, Dilithium 44, and warned secp P2WPKH.")
+    def assert_closed_address_types(self, node):
+        """legacy, p2sh-segwit, and bech32m are not spend kinds."""
+        for bad in ("legacy", "p2sh-segwit", "bech32m"):
+            assert_raises_rpc_error(-5, "Unknown address type", node.getnewaddress, "", bad)
 
-    def skip_heritage_legacy_wallet(self):
-        """BDB dump, implicit segwit, and legacy-to-descriptor migration."""
-        raise SkipTest("Legacy BDB dumpwallet, implicit segwit, and wallet migration; product wallets are descriptor-only Dilithium 87, Dilithium 44, and secp.")
+    def assert_legacy_wallet_refused(self, node, wallet_name="legacy_bdb"):
+        """Product wallets are descriptor-only. BDB create is refused."""
+        assert_raises_rpc_error(-4, "Legacy wallets are not supported", node.createwallet, wallet_name=wallet_name, descriptors=False)
+        self.assert_closed_address_types(node)
+        for kind in ("mldsa87", "mldsa44", "secp"):
+            addr = node.getnewaddress("", kind)
+            assert node.validateaddress(addr)["isvalid"]
 
     def skip_if_no_wallet(self):
         """Skip the running test if wallet has not been compiled."""

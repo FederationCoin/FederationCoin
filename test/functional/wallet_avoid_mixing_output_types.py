@@ -99,7 +99,7 @@ class AddressInputTypeGrouping(BitcoinTestFramework):
         self.noban_tx_relay = True
         self.extra_args = [
             [
-                "-addresstype=bech32",
+                "-addresstype=secp",
                 "-txindex",
             ],
             [

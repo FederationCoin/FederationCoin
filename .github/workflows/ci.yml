@@ -43,6 +43,35 @@ jobs:
           #   echo "::notice title=Runner Selection::Using GitHub-hosted runners"
           # fi
 
+  # Pull moby/buildkit once on amd64, save the tarball. Later jobs load it.
+  # A lint failure must not block TSan; this job is not lint.
+  buildx-warm:
+    name: 'warm Buildx'
+    needs: runners
+    runs-on: ubuntu-latest
+    if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.ref || '' }}
+      - name: Configure Docker
+        id: docker
+        uses: ./.github/actions/configure-docker
+        with:
+          use-warp: ${{ needs.runners.outputs.use-warp-runners }}
+      - name: Export Buildx image
+        if: steps.docker.outputs.buildx-image-hit != 'true'
+        shell: bash
+        run: docker save moby/buildkit:buildx-stable-1 -o "${RUNNER_TEMP}/buildx-buildkit.tar"
+      - name: Save Buildx image
+        if: steps.docker.outputs.buildx-image-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/buildx-buildkit.tar
+          key: buildx-moby-buildkit-${{ runner.os }}-${{ runner.arch }}
+
   test-each-commit:
     name: 'test each commit'
     # Every other job already tests the pull-request tip. Replaying
@@ -276,7 +305,7 @@ jobs:
 
   ci-matrix:
     name: ${{ matrix.name }}
-    needs: runners
+    needs: [runners, buildx-warm]
     runs-on: ${{ needs.runners.outputs.provider == 'warp' && matrix.warp-runner || matrix.fallback-runner }}
     # depends-sdks, qa-assets, and previous-release bins are not hosted yet,
     # so those rows are omitted. matrix is not available in a job-level if.
@@ -289,6 +318,8 @@ jobs:
 
     strategy:
       fail-fast: false
+      # Eight x64 rows queue as 3 / 3 / 2. ARM may take a slot in an early wave.
+      max-parallel: 3
       matrix:
         include:
           - name: '32 bit ARM, unit tests, no functional tests'
@@ -379,7 +410,7 @@ jobs:
 
   lint:
     name: 'lint'
-    needs: runners
+    needs: [runners, buildx-warm]
     runs-on: ${{ needs.runners.outputs.provider == 'warp' && 'warp-ubuntu-latest-x64-2x' || 'ubuntu-latest' }}
     if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
     timeout-minutes: 20

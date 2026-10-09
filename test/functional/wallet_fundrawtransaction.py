@@ -19,7 +19,6 @@ from test_framework.messages import (
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
-    assert_approx,
     assert_equal,
     assert_fee_amount,
     assert_greater_than,
@@ -66,15 +65,9 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.connect_nodes(0, 3)
 
     def lock_outputs_type(self, wallet, outputtype):
-        """
-        Only allow UTXOs of the given type
-        """
-        if outputtype in ["legacy", "p2pkh", "pkh"]:
-            prefixes = ["pkh(", "sh(multi("]
-        elif outputtype in ["p2sh-segwit", "sh_wpkh"]:
-            prefixes = ["sh(wpkh(", "sh(wsh("]
-        elif outputtype in ["bech32", "wpkh", "secp"]:
-            prefixes = ["wpkh(", "wsh("]
+        """Only allow UTXOs of the given spend kind (lock every other kind)."""
+        if outputtype in ["bech32", "wpkh", "secp"]:
+            prefixes = ["wpkh("]
         elif outputtype == "mldsa87":
             prefixes = ["mldsa87("]
         elif outputtype == "mldsa44":
@@ -84,21 +77,45 @@ class RawTransactionsTest(BitcoinTestFramework):
 
         to_lock = []
         for utxo in wallet.listunspent():
-            if "desc" in utxo:
-                for prefix in prefixes:
-                    if utxo["desc"].startswith(prefix):
-                        to_lock.append({"txid": utxo["txid"], "vout": utxo["vout"]})
-        wallet.lockunspent(False, to_lock)
+            desc = utxo.get("desc", "")
+            if not any(desc.startswith(prefix) for prefix in prefixes):
+                to_lock.append({"txid": utxo["txid"], "vout": utxo["vout"]})
+        if to_lock:
+            wallet.lockunspent(False, to_lock)
+
+    def ensure_kind_coins(self, wallet, kind, count=4, amount=5):
+        """Pay `wallet` `count` confirmed UTXOs of `kind` from node 0."""
+        outputs = {wallet.getnewaddress("", kind): amount for _ in range(count)}
+        self.nodes[0].sendmany("", outputs)
+        self.generate(self.nodes[0], 1)
+
+    def assert_fund_feerate(self, wallet, funded, feerate, extra=""):
+        """fundraw fee must match the signed vsize at `feerate`. Prints both sides."""
+        signed = wallet.signrawtransactionwithwallet(funded["hex"])
+        assert signed["complete"], f"{extra} funded tx did not sign complete: {signed}"
+        dec = wallet.decoderawtransaction(signed["hex"])
+        fee = Decimal(funded["fee"])
+        vsize = dec["vsize"]
+        target = get_fee(vsize, feerate)
+        try:
+            assert_fee_amount(fee, vsize, feerate)
+        except AssertionError as exc:
+            raise AssertionError(
+                f"{extra} fundraw_fee={fee} signed_vsize={vsize} target={target} feerate={feerate}: {exc}"
+            ) from exc
+        return signed, dec
 
     def unlock_utxos(self, wallet):
-        """
-        Unlock all UTXOs except the watchonly one
-        """
-        to_keep = []
-        if self.watchonly_utxo is not None:
-            to_keep.append(self.watchonly_utxo)
+        """Unlock all UTXOs. Relock the watchonly coin only if this wallet owns it."""
         wallet.lockunspent(True)
-        wallet.lockunspent(False, to_keep)
+        if self.watchonly_utxo is None:
+            return
+        owned = any(
+            u["txid"] == self.watchonly_utxo["txid"] and int(u["vout"]) == int(self.watchonly_utxo["vout"])
+            for u in wallet.listunspent(minconf=0)
+        )
+        if owned:
+            wallet.lockunspent(False, [self.watchonly_utxo])
 
     def run_test(self):
         self.watchonly_utxo = None
@@ -108,14 +125,6 @@ class RawTransactionsTest(BitcoinTestFramework):
         # to be sure all txs are sent at a consistent desired feerate
         for node in self.nodes:
             node.settxfee(self.min_relay_tx_fee)
-
-        # if the fee's positive delta is higher than this value tests will fail,
-        # neg. delta always fail the tests.
-        # The size of the signature of every input may be at most 2 bytes larger
-        # than a minimum sized signature.
-
-        #            = 2 bytes * minRelayTxFeePerByte
-        self.fee_tolerance = 2 * self.min_relay_tx_fee / 1000
 
         self.generate(self.nodes[2], 1)
         self.generate(self.nodes[0], 121)
@@ -138,10 +147,9 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.test_two_vin()
         self.test_two_vin_two_vout()
         self.test_invalid_input()
-        self.test_fee_p2pkh()
-        self.test_fee_p2pkh_multi_out()
-        self.test_fee_p2sh()
-        self.test_fee_4of5()
+        self.test_fee_spend_kinds()
+        self.test_fee_spend_kinds_multi_out()
+        self.test_closed_createmultisig()
         self.test_spend_2of2()
         self.test_locked_wallet()
         self.test_many_inputs_fee()
@@ -156,9 +164,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.test_subtract_fee_with_presets()
         self.test_transaction_too_large()
         self.test_include_unsafe()
-        # Heritage P2SH-wrapped external solving data. Live spends are
-        # single-key Dilithium 87, Dilithium 44, and warned secp P2WPKH.
-        self.log.info("Skip heritage external P2SH solving-data fundraw")
+        self.test_external_inputs()
         self.test_22670()
         self.test_feerate_rounding()
         self.test_input_confs_control()
@@ -307,7 +313,6 @@ class RawTransactionsTest(BitcoinTestFramework):
 
         rawtxfund = self.nodes[2].fundrawtransaction(rawtx)
         fee = rawtxfund['fee']
-        self.test_no_change_fee = fee  # Use the same fee for the next tx
         dec_tx  = self.nodes[2].decoderawtransaction(rawtxfund['hex'])
         totalOut = 0
         for out in dec_tx['vout']:
@@ -320,12 +325,12 @@ class RawTransactionsTest(BitcoinTestFramework):
         utx = get_unspent(self.nodes[2].listunspent(), 5)
 
         inputs  = [ {'txid' : utx['txid'], 'vout' : utx['vout']}]
-        outputs = {self.nodes[0].getnewaddress(): Decimal(5.0) - self.test_no_change_fee - self.fee_tolerance}
+        outputs = {self.nodes[0].getnewaddress(): Decimal(5.0)}
         rawtx   = self.nodes[2].createrawtransaction(inputs, outputs)
         dec_tx  = self.nodes[2].decoderawtransaction(rawtx)
         assert_equal(utx['txid'], dec_tx['vin'][0]['txid'])
 
-        rawtxfund = self.nodes[2].fundrawtransaction(rawtx)
+        rawtxfund = self.nodes[2].fundrawtransaction(rawtx, subtractFeeFromOutputs=[0])
         fee = rawtxfund['fee']
         dec_tx  = self.nodes[2].decoderawtransaction(rawtxfund['hex'])
         totalOut = 0
@@ -490,125 +495,70 @@ class RawTransactionsTest(BitcoinTestFramework):
         rawtx   = self.nodes[2].createrawtransaction(inputs, outputs)
         assert_raises_rpc_error(-4, "Unable to find UTXO for external input", self.nodes[2].fundrawtransaction, rawtx)
 
-    def test_fee_p2pkh(self):
-        """Compare fee of a standard pubkeyhash transaction."""
-        self.log.info("Test fundrawtxn p2pkh fee")
-        self.lock_outputs_type(self.nodes[0], "p2pkh")
-        inputs = []
-        outputs = {self.nodes[1].getnewaddress():1.1}
-        rawtx = self.nodes[0].createrawtransaction(inputs, outputs)
-        fundedTx = self.nodes[0].fundrawtransaction(rawtx)
+    def test_fee_spend_kinds(self):
+        """fundraw fee matches signed vsize for each spend kind."""
+        self.log.info("Test fundrawtxn fee for Dilithium 87, Dilithium 44, and secp")
+        wallet = self.nodes[0]
+        self.unlock_utxos(wallet)
+        for kind in ("mldsa87", "mldsa44", "secp"):
+            self.ensure_kind_coins(wallet, kind, count=6, amount=10)
+        for kind in ("mldsa87", "mldsa44", "secp"):
+            self.unlock_utxos(wallet)
+            self.lock_outputs_type(wallet, kind)
+            spendable = sum((u["amount"] for u in wallet.listunspent()), Decimal(0))
+            assert spendable >= 2, f"{kind} spendable {spendable} after lock; {wallet.listunspent()}"
+            rawtx = wallet.createrawtransaction([], {self.nodes[1].getnewaddress("", kind): 1.1})
+            funded = wallet.fundrawtransaction(rawtx)
+            self.assert_fund_feerate(wallet, funded, self.min_relay_tx_fee, extra=f"{kind} single")
+            self.unlock_utxos(wallet)
 
-        # Create same transaction over sendtoaddress.
-        txId = self.nodes[0].sendtoaddress(self.nodes[1].getnewaddress(), 1.1)
-        signedFee = self.nodes[0].getmempoolentry(txId)['fees']['base']
+    def test_fee_spend_kinds_multi_out(self):
+        """Same feerate check with several outputs per kind."""
+        self.log.info("Test fundrawtxn fee for each spend kind with multiple outputs")
+        wallet = self.nodes[0]
+        for kind in ("mldsa87", "mldsa44", "secp"):
+            self.unlock_utxos(wallet)
+            self.lock_outputs_type(wallet, kind)
+            outputs = {self.nodes[1].getnewaddress("", kind): amt for amt in (1.1, 1.2, 0.1, 1.3, 0.2, 0.3)}
+            rawtx = wallet.createrawtransaction([], outputs)
+            funded = wallet.fundrawtransaction(rawtx)
+            self.assert_fund_feerate(wallet, funded, self.min_relay_tx_fee, extra=f"{kind} multi")
+            self.unlock_utxos(wallet)
 
-        # Compare fee.
-        feeDelta = Decimal(fundedTx['fee']) - Decimal(signedFee)
-        assert feeDelta >= 0 and feeDelta <= self.fee_tolerance
-
-        self.unlock_utxos(self.nodes[0])
-
-    def test_fee_p2pkh_multi_out(self):
-        """Compare fee of a standard pubkeyhash transaction with multiple outputs."""
-        self.log.info("Test fundrawtxn p2pkh fee with multiple outputs")
-        self.lock_outputs_type(self.nodes[0], "p2pkh")
-        inputs = []
-        outputs = {
-            self.nodes[1].getnewaddress():1.1,
-            self.nodes[1].getnewaddress():1.2,
-            self.nodes[1].getnewaddress():0.1,
-            self.nodes[1].getnewaddress():1.3,
-            self.nodes[1].getnewaddress():0.2,
-            self.nodes[1].getnewaddress():0.3,
-        }
-        rawtx = self.nodes[0].createrawtransaction(inputs, outputs)
-        fundedTx = self.nodes[0].fundrawtransaction(rawtx)
-
-        # Create same transaction over sendtoaddress.
-        txId = self.nodes[0].sendmany("", outputs)
-        signedFee = self.nodes[0].getmempoolentry(txId)['fees']['base']
-
-        # Compare fee.
-        feeDelta = Decimal(fundedTx['fee']) - Decimal(signedFee)
-        assert feeDelta >= 0 and feeDelta <= self.fee_tolerance
-
-        self.unlock_utxos(self.nodes[0])
-
-    def test_fee_p2sh(self):
-        """Compare fee of a 2-of-2 multisig p2sh transaction."""
-        self.lock_outputs_type(self.nodes[0], "p2pkh")
-        # Create 2-of-2 addr.
-        addr1 = self.nodes[1].getnewaddress()
-        addr2 = self.nodes[1].getnewaddress()
-
-        addr1Obj = self.nodes[1].getaddressinfo(addr1)
-        addr2Obj = self.nodes[1].getaddressinfo(addr2)
-
-        mSigObj = self.nodes[3].createmultisig(2, [addr1Obj['pubkey'], addr2Obj['pubkey']])['address']
-
-        inputs = []
-        outputs = {mSigObj:1.1}
-        rawtx = self.nodes[0].createrawtransaction(inputs, outputs)
-        fundedTx = self.nodes[0].fundrawtransaction(rawtx)
-
-        # Create same transaction over sendtoaddress.
-        txId = self.nodes[0].sendtoaddress(mSigObj, 1.1)
-        signedFee = self.nodes[0].getmempoolentry(txId)['fees']['base']
-
-        # Compare fee.
-        feeDelta = Decimal(fundedTx['fee']) - Decimal(signedFee)
-        assert feeDelta >= 0 and feeDelta <= self.fee_tolerance
-
-        self.unlock_utxos(self.nodes[0])
-
-    def test_fee_4of5(self):
-        """Compare fee of a standard pubkeyhash transaction."""
-        self.log.info("Test fundrawtxn fee with 4-of-5 addresses")
-        self.lock_outputs_type(self.nodes[0], "p2pkh")
-
-        # Create 4-of-5 addr.
-        addr1 = self.nodes[1].getnewaddress()
-        addr2 = self.nodes[1].getnewaddress()
-        addr3 = self.nodes[1].getnewaddress()
-        addr4 = self.nodes[1].getnewaddress()
-        addr5 = self.nodes[1].getnewaddress()
-
-        addr1Obj = self.nodes[1].getaddressinfo(addr1)
-        addr2Obj = self.nodes[1].getaddressinfo(addr2)
-        addr3Obj = self.nodes[1].getaddressinfo(addr3)
-        addr4Obj = self.nodes[1].getaddressinfo(addr4)
-        addr5Obj = self.nodes[1].getaddressinfo(addr5)
-
-        mSigObj = self.nodes[1].createmultisig(
-            4,
-            [
-                addr1Obj['pubkey'],
-                addr2Obj['pubkey'],
-                addr3Obj['pubkey'],
-                addr4Obj['pubkey'],
-                addr5Obj['pubkey'],
-            ]
-        )['address']
-
-        inputs = []
-        outputs = {mSigObj:1.1}
-        rawtx = self.nodes[0].createrawtransaction(inputs, outputs)
-        fundedTx = self.nodes[0].fundrawtransaction(rawtx)
-
-        # Create same transaction over sendtoaddress.
-        txId = self.nodes[0].sendtoaddress(mSigObj, 1.1)
-        signedFee = self.nodes[0].getmempoolentry(txId)['fees']['base']
-
-        # Compare fee.
-        feeDelta = Decimal(fundedTx['fee']) - Decimal(signedFee)
-        assert feeDelta >= 0 and feeDelta <= self.fee_tolerance
-
-        self.unlock_utxos(self.nodes[0])
+    def test_closed_createmultisig(self):
+        """P2SH/legacy/Dilithium createmultisig is not a spend-kind fee test."""
+        self.log.info("Closed createmultisig types reject")
+        self.assert_closed_address_types(self.nodes[1])
+        secp_pubs = [
+            self.nodes[1].getaddressinfo(self.nodes[1].getnewaddress("", "secp"))["pubkey"]
+            for _ in range(5)
+        ]
+        assert_raises_rpc_error(-5, "Unknown address type", self.nodes[3].createmultisig, 2, secp_pubs[:2], "legacy")
+        assert_raises_rpc_error(-5, "Unknown address type", self.nodes[3].createmultisig, 2, secp_pubs[:2], "p2sh-segwit")
+        assert_raises_rpc_error(-5, "createmultisig cannot create Dilithium multisig addresses",
+                                self.nodes[3].createmultisig, 2, secp_pubs[:2], "mldsa87")
+        assert_raises_rpc_error(-5, "createmultisig cannot create Dilithium multisig addresses",
+                                self.nodes[3].createmultisig, 4, secp_pubs, "mldsa44")
 
     def test_spend_2of2(self):
-        """Heritage 2-of-2 P2WSH. Live spends are single-key Dilithium 87, Dilithium 44, and warned secp P2WPKH."""
-        self.log.info("Skip heritage 2-of-2 P2WSH multisig spend")
+        """P2WSH 2-of-2 is closed. Fund and sign single-key Dilithium 87 and secp."""
+        self.log.info("P2WSH 2-of-2 is closed; fundraw+sign Dilithium 87 and secp")
+        secp_pubs = [
+            self.nodes[1].getaddressinfo(self.nodes[1].getnewaddress("", "secp"))["pubkey"]
+            for _ in range(2)
+        ]
+        assert_raises_rpc_error(-5, "Unknown address type", self.nodes[1].createmultisig, 2, secp_pubs, "legacy")
+        created = self.nodes[1].createmultisig(2, secp_pubs, "bech32")
+        assert "address" in created
+        wallet = self.nodes[0]
+        for kind in ("mldsa87", "secp"):
+            self.lock_outputs_type(wallet, kind)
+            rawtx = wallet.createrawtransaction([], {self.nodes[1].getnewaddress("", kind): 1.1})
+            funded = wallet.fundrawtransaction(rawtx)
+            signed, _ = self.assert_fund_feerate(wallet, funded, self.min_relay_tx_fee, extra=f"single-key {kind}")
+            wallet.sendrawtransaction(signed["hex"])
+            self.unlock_utxos(wallet)
+        self.generate(self.nodes[0], 1)
 
     def test_locked_wallet(self):
         self.log.info("Test fundrawtxn with locked wallet and hardened derivation")
@@ -693,41 +643,39 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.generate(self.nodes[1], 1)
 
     def test_many_inputs_fee(self):
-        """Multiple (~19) inputs tx test | Compare fee."""
-        self.log.info("Test fundrawtxn fee with many inputs")
-
-        # Empty node1, send some small coins from node0 to node1.
-        self.nodes[1].sendall(recipients=[self.nodes[0].getnewaddress()])
+        """Many small secp inputs, then a few Dilithium 87 inputs."""
+        dest = self.nodes[1]
+        self.log.info("Test fundrawtxn fee with many small secp inputs")
+        dest.sendall(recipients=[self.nodes[0].getnewaddress()])
         self.generate(self.nodes[1], 1)
-
         for _ in range(20):
-            self.nodes[0].sendtoaddress(self.nodes[1].getnewaddress(), 0.01)
+            self.nodes[0].sendtoaddress(dest.getnewaddress("", "secp"), 0.01)
         self.generate(self.nodes[0], 1)
+        self.lock_outputs_type(dest, "secp")
+        outputs = {self.nodes[0].getnewaddress(): 0.15, self.nodes[0].getnewaddress(): 0.04}
+        funded = dest.fundrawtransaction(dest.createrawtransaction([], outputs))
+        self.assert_fund_feerate(dest, funded, self.min_relay_tx_fee, extra="many secp")
+        self.unlock_utxos(dest)
 
-        # Fund a tx with ~20 small inputs.
-        inputs = []
-        outputs = {self.nodes[0].getnewaddress():0.15,self.nodes[0].getnewaddress():0.04}
-        rawtx = self.nodes[1].createrawtransaction(inputs, outputs)
-        fundedTx = self.nodes[1].fundrawtransaction(rawtx)
-
-        # Create same transaction over sendtoaddress.
-        txId = self.nodes[1].sendmany("", outputs)
-        signedFee = self.nodes[1].getmempoolentry(txId)['fees']['base']
-
-        # Compare fee.
-        feeDelta = Decimal(fundedTx['fee']) - Decimal(signedFee)
-        assert feeDelta >= 0 and feeDelta <= self.fee_tolerance * 19  #~19 inputs
+        self.log.info("Test fundrawtxn fee with few Dilithium 87 inputs")
+        for _ in range(3):
+            self.nodes[0].sendtoaddress(dest.getnewaddress("", "mldsa87"), 1)
+        self.generate(self.nodes[0], 1)
+        self.lock_outputs_type(dest, "mldsa87")
+        funded = dest.fundrawtransaction(dest.createrawtransaction([], {self.nodes[0].getnewaddress(): 1.5}))
+        self.assert_fund_feerate(dest, funded, self.min_relay_tx_fee, extra="few 87")
+        self.unlock_utxos(dest)
 
     def test_many_inputs_send(self):
-        """Multiple (~19) inputs tx test | sign/send."""
-        self.log.info("Test fundrawtxn sign+send with many inputs")
+        """Multiple (~19) secp inputs tx test | sign/send."""
+        self.log.info("Test fundrawtxn sign+send with many small secp inputs")
 
         # Again, empty node1, send some small coins from node0 to node1.
         self.nodes[1].sendall(recipients=[self.nodes[0].getnewaddress()])
         self.generate(self.nodes[1], 1)
 
         for _ in range(20):
-            self.nodes[0].sendtoaddress(self.nodes[1].getnewaddress(), 0.01)
+            self.nodes[0].sendtoaddress(self.nodes[1].getnewaddress("", "secp"), 0.01)
         self.generate(self.nodes[0], 1)
 
         # Fund a tx with ~20 small inputs.
@@ -859,11 +807,11 @@ class RawTransactionsTest(BitcoinTestFramework):
         for param, zero_value in product(["fee_rate", "feeRate"], [0, 0.000, 0.00000000, "0", "0.000", "0.00000000"]):
             assert_equal(self.nodes[3].fundrawtransaction(rawtx, {param: zero_value})["fee"], 0)
 
-        # With no arguments passed, expect fee of 141 satoshis.
-        assert_approx(node.fundrawtransaction(rawtx)["fee"], vexp=0.00000423, vspan=0.00000020)
-        # Expect fee to be 10,000x higher when an explicit fee rate 10,000x greater is specified.
-        result = node.fundrawtransaction(rawtx, fee_rate=10000)
-        assert_approx(result["fee"], vexp=0.0141, vspan=0.0001)
+        default_funded = node.fundrawtransaction(rawtx)
+        self.assert_fund_feerate(node, default_funded, self.min_relay_tx_fee, extra="settxfee default")
+        # 10000 token/vB is 0.1 COIN/kvB. Kind is priced by signed vsize, not a 141-vbyte secp fixture.
+        high_funded = node.fundrawtransaction(rawtx, fee_rate=10000)
+        self.assert_fund_feerate(node, high_funded, Decimal("0.1"), extra="fee_rate 10000")
 
         self.log.info("Test fundrawtxn with invalid estimate_mode settings")
         for k, v in {"number": 42, "object": {"foo": "bar"}}.items():
@@ -1048,37 +996,48 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.nodes[0].sendrawtransaction(signedtx['hex'])
 
     def test_transaction_too_large(self):
-        self.log.info("Test fundrawtx where BnB solution would result in a too large transaction, but Knapsack would not")
+        self.log.info("Test fundrawtx BnB solution exceeds max weight (secp many-small)")
         self.nodes[0].createwallet("large")
         wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
         recipient = self.nodes[0].get_wallet_rpc("large")
-        outputs = {}
-        rawtx = recipient.createrawtransaction([], {wallet.getnewaddress(): 147.99899260})
-
-        # Make 1500 0.1 BTC outputs. The amount that we target for funding is in
-        # the BnB range when these outputs are used.  However if these outputs
-        # are selected, the transaction will end up being too large, so it
-        # shouldn't use BnB and instead fall back to Knapsack but that behavior
-        # is not implemented yet. For now we just check that we get an error.
-        # First, force the wallet to bulk-generate the addresses we'll need.
+        # Same many-small secp pattern as test_weight_limits. Default getnewaddress
+        # is Dilithium 87; 1500 of those is a sanitizer time bomb, not the BnB story.
         recipient.keypoolrefill(1500)
-        for _ in range(1500):
-            outputs[recipient.getnewaddress()] = 0.1
+        outputs = {recipient.getnewaddress("", "secp"): 0.1 for _ in range(1472)}
         wallet.sendmany("", outputs)
-        self.generate(self.nodes[0], 10)
+        self.generate(self.nodes[0], 1)
+        rawtx = recipient.createrawtransaction([], {wallet.getnewaddress(): 0.1 * 1471})
         assert_raises_rpc_error(-4, "The inputs size exceeds the maximum weight. "
                                     "Please try sending a smaller amount or manually consolidating your wallet's UTXOs",
                                 recipient.fundrawtransaction, rawtx)
         self.nodes[0].unloadwallet("large")
 
+        self.log.info("A few dozen Dilithium 87 inputs also exceed max weight")
+        self.nodes[0].createwallet("large87")
+        r87 = self.nodes[0].get_wallet_rpc("large87")
+        n87 = 80
+        wallet.sendmany("", {r87.getnewaddress("", "mldsa87"): 1 for _ in range(n87)})
+        self.generate(self.nodes[0], 1)
+        rawtx87 = r87.createrawtransaction([], {wallet.getnewaddress(): 75})
+        assert_raises_rpc_error(-4, "The inputs size exceeds the maximum weight",
+                                r87.fundrawtransaction, rawtx87)
+        self.nodes[0].unloadwallet("large87")
+
     def test_external_inputs(self):
-        self.log.info("Test funding with external inputs")
+        self.log.info("Closed P2SH/legacy types are not external spend kinds")
+        self.assert_closed_address_types(self.nodes[2])
+        raw_closed = self.nodes[2].createrawtransaction([], {self.nodes[2].getnewaddress(): 1})
+        assert_raises_rpc_error(-5, "Unknown change type 'legacy'",
+                                self.nodes[2].fundrawtransaction, raw_closed, change_type="legacy")
+        assert_raises_rpc_error(-5, "Unknown change type 'p2sh-segwit'",
+                                self.nodes[2].fundrawtransaction, raw_closed, change_type="p2sh-segwit")
+
+        self.log.info("Test funding with external secp wpkh inputs")
         privkey, _ = generate_keypair(wif=True)
         self.nodes[2].createwallet("extfund")
         wallet = self.nodes[2].get_wallet_rpc("extfund")
 
-        # Make a weird but signable script. sh(pkh()) descriptor accomplishes this
-        desc = descsum_create("sh(pkh({}))".format(privkey))
+        desc = descsum_create("wpkh({})".format(privkey))
         if self.options.descriptors:
             res = self.nodes[0].importdescriptors([{"desc": desc, "timestamp": "now"}])
         else:
@@ -1109,7 +1068,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         assert_raises_rpc_error(-8, "Invalid parameter, weight cannot be greater than", wallet.fundrawtransaction, raw_tx, input_weights=[{"txid": ext_utxo["txid"], "vout": ext_utxo["vout"], "weight": 400001}])
 
         # But funding should work when the solving data is provided
-        funded_tx = wallet.fundrawtransaction(raw_tx, solving_data={"pubkeys": [addr_info['pubkey']], "scripts": [addr_info["embedded"]["scriptPubKey"]]})
+        funded_tx = wallet.fundrawtransaction(raw_tx, solving_data={"pubkeys": [addr_info['pubkey']]})
         signed_tx = wallet.signrawtransactionwithwallet(funded_tx['hex'])
         assert not signed_tx['complete']
         signed_tx = self.nodes[0].signrawtransactionwithwallet(signed_tx['hex'])
@@ -1126,7 +1085,8 @@ class RawTransactionsTest(BitcoinTestFramework):
         # Input's weight is difference between weight of signed and unsigned,
         # and the weight of stuff that didn't change (prevout, sequence, 1 byte of scriptSig)
         input_weight = signed_weight - unsigned_weight + (41 * 4)
-        low_input_weight = input_weight // 2
+        # wpkh input weight is ~272 WU; half of that is below the 165 WU RPC floor.
+        low_input_weight = max(165, input_weight // 2)
         high_input_weight = input_weight * 2
 
         # Funding should also work if the input weight is provided
@@ -1156,6 +1116,25 @@ class RawTransactionsTest(BitcoinTestFramework):
         funded_tx = wallet.fundrawtransaction(raw_tx, input_weights=[{"txid": ext_utxo["txid"], "vout": ext_utxo["vout"], "weight": 65539}], fee_rate=4)
 
         self.nodes[2].unloadwallet("extfund")
+
+        self.log.info("Test funding with external Dilithium 87 inputs")
+        self.nodes[2].createwallet("ext87")
+        w87 = self.nodes[2].get_wallet_rpc("ext87")
+        ext87_addr = self.nodes[0].getnewaddress("", "mldsa87")
+        ext87_desc = self.nodes[0].getaddressinfo(ext87_addr)["desc"]
+        self.nodes[0].sendtoaddress(ext87_addr, 10)
+        self.nodes[0].sendtoaddress(w87.getnewaddress(), 10)
+        self.generate(self.nodes[0], 1)
+        ext87_utxo = self.nodes[0].listunspent(addresses=[ext87_addr])[0]
+        raw87 = w87.createrawtransaction([ext87_utxo], {self.nodes[0].getnewaddress(): 5})
+        # 32-byte witness v0 has a script-shaped weight, so fundraw can size it
+        # without the owner's descriptor. Signing still needs node 0.
+        funded87 = w87.fundrawtransaction(raw87, solving_data={"descriptors": [ext87_desc]})
+        signed87 = w87.signrawtransactionwithwallet(funded87["hex"])
+        assert not signed87["complete"]
+        signed87 = self.nodes[0].signrawtransactionwithwallet(signed87["hex"])
+        assert signed87["complete"]
+        self.nodes[2].unloadwallet("ext87")
 
     def test_add_inputs_default_value(self):
         self.log.info("Test 'add_inputs' default value")

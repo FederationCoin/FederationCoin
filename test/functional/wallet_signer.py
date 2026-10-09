@@ -71,10 +71,7 @@ class WalletSignerTest(BitcoinTestFramework):
         # Create new wallets for an external signer.
         # disable_private_keys and descriptors must be true:
         assert_raises_rpc_error(-4, "Private keys must be disabled when using an external signer", self.nodes[1].createwallet, wallet_name='not_hww', disable_private_keys=False, descriptors=True, external_signer=True)
-        if self.is_bdb_compiled():
-            assert_raises_rpc_error(-4, "Descriptor support must be enabled when using an external signer", self.nodes[1].createwallet, wallet_name='not_hww', disable_private_keys=True, descriptors=False, external_signer=True)
-        else:
-            assert_raises_rpc_error(-4, "Compiled without bdb support (required for legacy wallets)", self.nodes[1].createwallet, wallet_name='not_hww', disable_private_keys=True, descriptors=False, external_signer=True)
+        assert_raises_rpc_error(-4, "Legacy wallets are not supported", self.nodes[1].createwallet, wallet_name='not_hww', disable_private_keys=True, descriptors=False, external_signer=True)
 
         self.nodes[1].createwallet(wallet_name='hww', disable_private_keys=True, descriptors=True, external_signer=True)
         hww = self.nodes[1].get_wallet_rpc('hww')
@@ -104,33 +101,20 @@ class WalletSignerTest(BitcoinTestFramework):
 
         assert_equal(hww.getwalletinfo()["keypoolsize"], 40)
 
-        address1 = hww.getnewaddress(address_type="bech32")
+        address1 = hww.getnewaddress(address_type="secp")
         assert_equal(address1, "gfcnrt1qm90ugl4d48jv8n6e5t9ln6t9zlpm5th6wlt4ts")
         address_info = hww.getaddressinfo(address1)
         assert_equal(address_info['solvable'], True)
         assert_equal(address_info['ismine'], True)
         assert_equal(address_info['hdkeypath'], "m/84h/1h/0h/0/0")
 
-        address2 = hww.getnewaddress(address_type="p2sh-segwit")
-        assert_equal(address2, "2NS21K72mMEaZAZx6KzHtesjQRneUE74PCJ")
-        address_info = hww.getaddressinfo(address2)
-        assert_equal(address_info['solvable'], True)
-        assert_equal(address_info['ismine'], True)
-        assert_equal(address_info['hdkeypath'], "m/49h/1h/0h/0/0")
-
-        address3 = hww.getnewaddress(address_type="legacy")
-        assert_equal(address3, "fZvftzPyGUggb62TnpUNFKWMSznDdLT12N")
-        address_info = hww.getaddressinfo(address3)
-        assert_equal(address_info['solvable'], True)
-        assert_equal(address_info['ismine'], True)
-        assert_equal(address_info['hdkeypath'], "m/44h/1h/0h/0/0")
-
-        assert_raises_rpc_error(-5, "Bech32m / Taproot addresses are not valid on this chain.", hww.getnewaddress, "", "bech32m")
+        assert_raises_rpc_error(-5, "Unknown address type", hww.getnewaddress, "", "p2sh-segwit")
+        assert_raises_rpc_error(-5, "Unknown address type", hww.getnewaddress, "", "legacy")
+        assert_raises_rpc_error(-5, "Unknown address type", hww.getnewaddress, "", "bech32m")
 
         self.log.info('Test walletdisplayaddress')
-        for address in [address1, address2, address3]:
-            result = hww.walletdisplayaddress(address)
-            assert_equal(result, {"address": address})
+        result = hww.walletdisplayaddress(address1)
+        assert_equal(result, {"address": address1})
 
         # Handle error thrown by script
         self.set_mock_result(self.nodes[1], "2")
@@ -219,7 +203,7 @@ class WalletSignerTest(BitcoinTestFramework):
 
         self.log.info('Test sendall using hww1')
 
-        res = hww.sendall(recipients=[{dest:0.5}, hww.getrawchangeaddress()], add_to_wallet=False)
+        res = hww.sendall(recipients=[{dest:0.5}, hww.getrawchangeaddress("secp")], add_to_wallet=False)
         assert res["complete"]
         assert_equal(res["hex"], mock_tx)
         # Broadcast transaction so we can bump the fee
@@ -268,7 +252,7 @@ class WalletSignerTest(BitcoinTestFramework):
         hww = self.nodes[1].get_wallet_rpc('hww_disconnect')
 
         # Try to spend
-        dest = hww.getrawchangeaddress()
+        dest = hww.getrawchangeaddress("secp")
         assert_raises_rpc_error(-25, "External signer not found", hww.send, outputs=[{dest:0.5}])
 
     def test_invalid_signer(self):

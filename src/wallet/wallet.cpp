@@ -2325,17 +2325,29 @@ bool CWallet::SignTransaction(CMutableTransaction& tx) const
 
 bool CWallet::SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, bilingual_str>& input_errors, std::optional<CAmount>* inputs_amount_sum) const
 {
-
-    // Try to sign with all ScriptPubKeyMans
+    // One provider with every descriptor's keys. Signing per-SPKM wiped a
+    // finished Dilithium witness when the next manager ran VerifyScript.
+    FlatSigningProvider keys;
+    bool have_desc{false};
     for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
-        // spk_man->SignTransaction will return true if the transaction is complete,
-        // so we can exit early and return true if that happens
+        if (auto* desc = dynamic_cast<DescriptorScriptPubKeyMan*>(spk_man)) {
+            have_desc = true;
+            for (const auto& coin_pair : coins) {
+                if (auto coin_keys = desc->GetSigningProviderForScript(coin_pair.second.out.scriptPubKey, /*include_private=*/true)) {
+                    keys.Merge(std::move(*coin_keys));
+                }
+            }
+        }
+    }
+    if (have_desc) {
+        return ::SignTransaction(tx, &keys, coins, sighash, input_errors, inputs_amount_sum);
+    }
+
+    for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
         if (spk_man->SignTransaction(tx, coins, sighash, input_errors, inputs_amount_sum)) {
             return true;
         }
     }
-
-    // At this point, one input was not fully signed otherwise we would have exited already
     return false;
 }
 
@@ -3763,13 +3775,11 @@ bool CWallet::Unlock(const CKeyingMaterial& vMasterKeyIn)
 std::set<ScriptPubKeyMan*> CWallet::GetActiveScriptPubKeyMans() const
 {
     std::set<ScriptPubKeyMan*> spk_mans;
-    for (bool internal : {false, true}) {
-        for (OutputType t : OUTPUT_TYPES) {
-            auto spk_man = GetScriptPubKeyMan(t, internal);
-            if (spk_man) {
-                spk_mans.insert(spk_man);
-            }
-        }
+    for (const auto& [_, ext_spkm] : m_external_spk_managers) {
+        if (ext_spkm) spk_mans.insert(ext_spkm);
+    }
+    for (const auto& [_, int_spkm] : m_internal_spk_managers) {
+        if (int_spkm) spk_mans.insert(int_spkm);
     }
     return spk_mans;
 }

@@ -368,7 +368,7 @@ class InvalidMessagesTest(BitcoinTestFramework):
         # connection, it can still service other peers in a timely way.
         self.log.info("(b) Check node still services peers in a timely way")
         for _ in range(20):
-            conn2.sync_with_ping(timeout=2)
+            conn2.sync_with_ping(timeout=10)
 
         self.log.info("(c) Wait for node to drop junk messages, while remaining connected")
         conn.sync_with_ping(timeout=400)

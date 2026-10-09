@@ -16,24 +16,28 @@
 
 #include <assert.h>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 static const std::string OUTPUT_TYPE_STRING_LEGACY = "legacy";
 static const std::string OUTPUT_TYPE_STRING_P2SH_SEGWIT = "p2sh-segwit";
 static const std::string OUTPUT_TYPE_STRING_BECH32 = "bech32";
 static const std::string OUTPUT_TYPE_STRING_BECH32M = "bech32m";
+static const std::string OUTPUT_TYPE_STRING_DILITHIUM87 = "mldsa87";
+static const std::string OUTPUT_TYPE_STRING_DILITHIUM44 = "mldsa44";
+static const std::string OUTPUT_TYPE_STRING_SECP = "secp";
 static const std::string OUTPUT_TYPE_STRING_UNKNOWN = "unknown";
 
 std::optional<OutputType> ParseOutputType(const std::string& type)
 {
-    if (type == OUTPUT_TYPE_STRING_LEGACY) {
-        return OutputType::LEGACY;
-    } else if (type == OUTPUT_TYPE_STRING_P2SH_SEGWIT) {
-        return OutputType::P2SH_SEGWIT;
-    } else if (type == OUTPUT_TYPE_STRING_BECH32) {
-        return OutputType::BECH32;
-    } else if (type == OUTPUT_TYPE_STRING_BECH32M) {
-        return OutputType::BECH32M;
+    if (type == OUTPUT_TYPE_STRING_DILITHIUM87) {
+        return OutputType::DILITHIUM87;
+    }
+    if (type == OUTPUT_TYPE_STRING_DILITHIUM44) {
+        return OutputType::DILITHIUM44;
+    }
+    if (type == OUTPUT_TYPE_STRING_SECP || type == OUTPUT_TYPE_STRING_BECH32) {
+        return OutputType::SECP;
     }
     return std::nullopt;
 }
@@ -43,10 +47,9 @@ bool OutputTypeIsAllowed(OutputType type)
     return OutputTypeIsAllowed(type, Params().GetConsensus());
 }
 
-bool OutputTypeIsAllowed(OutputType type, const Consensus::Params& consensus)
+bool OutputTypeIsAllowed(OutputType type, const Consensus::Params&)
 {
-    if (type != OutputType::BECH32M) return true;
-    return DeploymentEnabled(consensus, Consensus::DEPLOYMENT_TAPROOT);
+    return type == OutputType::DILITHIUM87 || type == OutputType::DILITHIUM44 || type == OutputType::SECP;
 }
 
 const std::string& FormatOutputType(OutputType type)
@@ -56,6 +59,9 @@ const std::string& FormatOutputType(OutputType type)
     case OutputType::P2SH_SEGWIT: return OUTPUT_TYPE_STRING_P2SH_SEGWIT;
     case OutputType::BECH32: return OUTPUT_TYPE_STRING_BECH32;
     case OutputType::BECH32M: return OUTPUT_TYPE_STRING_BECH32M;
+    case OutputType::DILITHIUM87: return OUTPUT_TYPE_STRING_DILITHIUM87;
+    case OutputType::DILITHIUM44: return OUTPUT_TYPE_STRING_DILITHIUM44;
+    case OutputType::SECP: return OUTPUT_TYPE_STRING_SECP;
     case OutputType::UNKNOWN: return OUTPUT_TYPE_STRING_UNKNOWN;
     } // no default case, so the compiler can warn about missing cases
     assert(false);
@@ -76,23 +82,28 @@ CTxDestination GetDestinationForKey(const CPubKey& key, OutputType type)
             return witdest;
         }
     }
+    case OutputType::SECP: {
+        if (!key.IsCompressed()) return PKHash(key);
+        return WitnessV0KeyHash(key);
+    }
+    case OutputType::DILITHIUM87:
+    case OutputType::DILITHIUM44:
     case OutputType::BECH32M:
-    case OutputType::UNKNOWN: {} // This function should never be used with BECH32M or UNKNOWN, so let it assert
+    case OutputType::UNKNOWN:
+        // Dilithium receive is not a secp wrap. Dump/legacy paths that still
+        // pass a CPubKey get compressed P2WPKH.
+        if (!key.IsCompressed()) return PKHash(key);
+        return WitnessV0KeyHash(key);
     } // no default case, so the compiler can warn about missing cases
     assert(false);
 }
 
 std::vector<CTxDestination> GetAllDestinationsForKey(const CPubKey& key)
 {
-    PKHash keyid(key);
-    CTxDestination p2pkh{keyid};
-    if (key.IsCompressed() && g_implicit_segwit) {
-        CTxDestination segwit = WitnessV0KeyHash(keyid);
-        CTxDestination p2sh = ScriptHash(GetScriptForDestination(segwit));
-        return Vector(std::move(p2pkh), std::move(p2sh), std::move(segwit));
-    } else {
-        return Vector(std::move(p2pkh));
+    if (key.IsCompressed()) {
+        return Vector(CTxDestination{WitnessV0KeyHash(key)});
     }
+    return Vector(CTxDestination{PKHash(key)});
 }
 
 CTxDestination AddAndGetDestinationForScript(FlatSigningProvider& keystore, const CScript& script, OutputType type)
@@ -104,34 +115,40 @@ CTxDestination AddAndGetDestinationForScript(FlatSigningProvider& keystore, cons
     case OutputType::LEGACY:
         return ScriptHash(script);
     case OutputType::P2SH_SEGWIT:
-    case OutputType::BECH32: {
+    case OutputType::BECH32:
+    case OutputType::SECP: {
+        // "bech32" parses as SECP. createmultisig still emits P2WSH (not a spend kind).
         CTxDestination witdest = WitnessV0ScriptHash(script);
         CScript witprog = GetScriptForDestination(witdest);
         // Add the redeemscript, so that P2WSH and P2SH-P2WSH outputs are recognized as ours.
         keystore.scripts.emplace(CScriptID(witprog), witprog);
-        if (type == OutputType::BECH32) {
-            return witdest;
-        } else {
+        if (type == OutputType::P2SH_SEGWIT) {
             return ScriptHash(witprog);
         }
+        return witdest;
     }
+    case OutputType::DILITHIUM87:
+    case OutputType::DILITHIUM44:
     case OutputType::BECH32M:
-    case OutputType::UNKNOWN: {} // This function should not be used for BECH32M or UNKNOWN, so let it assert
+    case OutputType::UNKNOWN:
+        break;
     } // no default case, so the compiler can warn about missing cases
-    assert(false);
+    throw std::invalid_argument("AddAndGetDestinationForScript: not a script-wrap output type");
 }
 
 std::optional<OutputType> OutputTypeFromDestination(const CTxDestination& dest) {
+    if (std::holds_alternative<WitnessV0KeyHash>(dest)) {
+        return OutputType::SECP;
+    }
+    if (std::holds_alternative<WitnessV0ScriptHash>(dest) ||
+        std::holds_alternative<WitnessUnknown>(dest)) {
+        return OutputType::DILITHIUM87;
+    }
     if (std::holds_alternative<PKHash>(dest) ||
         std::holds_alternative<ScriptHash>(dest)) {
         return OutputType::LEGACY;
     }
-    if (std::holds_alternative<WitnessV0KeyHash>(dest) ||
-        std::holds_alternative<WitnessV0ScriptHash>(dest)) {
-        return OutputType::BECH32;
-    }
-    if (std::holds_alternative<WitnessV1Taproot>(dest) ||
-        std::holds_alternative<WitnessUnknown>(dest)) {
+    if (std::holds_alternative<WitnessV1Taproot>(dest)) {
         return OutputType::BECH32M;
     }
     return std::nullopt;

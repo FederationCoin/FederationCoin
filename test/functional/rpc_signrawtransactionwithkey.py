@@ -93,6 +93,9 @@ class SignRawTransactionWithKeyTest(BitcoinTestFramework):
         priv, pubkey = generate_keypair(wif=True)
         dest = getnewdestination()[2]
         for address_type in ("legacy", "p2sh-segwit", "bech32"):
+            if address_type in ("legacy", "p2sh-segwit"):
+                assert_raises_rpc_error(-5, "Unknown address type", self.nodes[0].createmultisig, 1, [pubkey.hex()], address_type)
+                continue
             created = self.nodes[0].createmultisig(1, [pubkey.hex()], address_type)
             script = address_to_scriptpubkey(created["address"])
             try:

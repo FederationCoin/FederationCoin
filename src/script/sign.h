@@ -61,6 +61,9 @@ public:
      *  rules, so the two cannot disagree. */
     void SetSighashRules(SighashRules rules) { m_sighash_rules = rules; }
     SighashRules GetSighashRules() const override { return m_sighash_rules; }
+    const CMutableTransaction& GetTransaction() const { return m_txto; }
+    unsigned int GetInputIndex() const { return nIn; }
+    const PrecomputedTransactionData* GetTxData() const { return m_txdata; }
     bool CreateSig(const SigningProvider& provider, std::vector<unsigned char>& vchSig, const CKeyID& keyid, const CScript& scriptCode, SigVersion sigversion) const override;
     bool CreateSchnorrSig(const SigningProvider& provider, std::vector<unsigned char>& sig, const XOnlyPubKey& pubkey, const uint256* leaf_hash, const uint256* merkle_root, SigVersion sigversion) const override;
 };
@@ -108,6 +111,9 @@ struct SignatureData {
     explicit SignatureData(const CScript& script) : scriptSig(script) {}
     void MergeSignatureData(SignatureData sigdata);
 };
+
+/** Consensus v0 spend: empty scriptSig plus secp or Dilithium witness. */
+bool CheckWitnessV0Spend(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness& witness, const CTransaction& tx, unsigned int nIn, const PrecomputedTransactionData& txdata);
 
 /** Produce a script signature using a generic signature creator. */
 bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreator& creator, const CScript& scriptPubKey, SignatureData& sigdata);

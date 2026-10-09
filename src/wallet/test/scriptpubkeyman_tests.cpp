@@ -167,7 +167,7 @@ BOOST_AUTO_TEST_CASE(Descriptor_IsKeyActive)
         wallet.m_keypool_size = 10;
         wallet.SetupDescriptorScriptPubKeyMans();
     }
-    DescriptorScriptPubKeyMan* spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(wallet.GetScriptPubKeyMan(OutputType::BECH32, /*internal=*/false));
+    DescriptorScriptPubKeyMan* spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(wallet.GetScriptPubKeyMan(OutputType::SECP, /*internal=*/false));
 
     // Start off with 10 pre-generated keys, 1 script each
     auto scripts1 = spkm->GetScriptPubKeys();
@@ -179,7 +179,7 @@ BOOST_AUTO_TEST_CASE(Descriptor_IsKeyActive)
     }
 
     // Requesting single key from spkm should not deactivate key
-    auto dest1 = spkm->GetNewDestination(OutputType::BECH32);
+    auto dest1 = spkm->GetNewDestination(OutputType::SECP);
     CScript script = GetScriptForDestination(dest1.value());
     BOOST_CHECK(spkm->IsKeyActive(script));
 

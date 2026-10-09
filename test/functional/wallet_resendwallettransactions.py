@@ -34,15 +34,21 @@ class ResendWalletTransactionsTest(BitcoinTestFramework):
     def run_test(self):
         node = self.nodes[0]  # alias
 
+        secp_mine = node.getnewaddress("", "secp")
+        self.generatetoaddress(node, 101, secp_mine)
+
         peer_first = node.add_p2p_connection(P2PTxInvStore())
 
         self.log.info("Create a new transaction and wait until it's broadcast")
         parent_utxo, indep_utxo = node.listunspent()[:2]
-        addr = node.getnewaddress()
-        txid = node.send(outputs=[{addr: 1}], inputs=[parent_utxo])["txid"]
+        addr = node.getnewaddress("", "secp")
+        txid = node.send(outputs=[{addr: 1}], inputs=[parent_utxo], change_type="secp")["txid"]
 
+        assert txid in node.getrawmempool()
+        raw = node.getrawtransaction(txid, True)
+        announce_ids = {int(txid, 16), int(raw.get("hash", txid), 16)}
         # Can take a few seconds due to transaction trickling
-        peer_first.wait_for_broadcast([txid])
+        peer_first.wait_until(lambda: announce_ids & set(peer_first.tx_invs_received), timeout=60)
 
         # Add a second peer since txs aren't rebroadcast to the same peer (see m_tx_inventory_known_filter)
         peer_second = node.add_p2p_connection(P2PTxInvStore())
@@ -78,7 +84,7 @@ class ResendWalletTransactionsTest(BitcoinTestFramework):
             node.mockscheduler(60)
         # Give some time for trickle to occur
         node.setmocktime(now + 36 * 60 * 60 + 600)
-        peer_second.wait_for_broadcast([txid])
+        peer_second.wait_until(lambda: announce_ids & set(peer_second.tx_invs_received), timeout=60)
 
         self.log.info("Chain of unconfirmed not-in-mempool txs are rebroadcast")
         # This tests that the node broadcasts the parent transaction before the child transaction.

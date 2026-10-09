@@ -463,7 +463,7 @@ class WalletTest(BitcoinTestFramework):
             assert_raises_rpc_error(-5, "Invalid private key encoding", self.nodes[0].importprivkey, "invalid")
 
             # This will raise an exception for importing an address with the PS2H flag
-            temp_address = self.nodes[1].getnewaddress("", "p2sh-segwit")
+            temp_address = self.nodes[1].getnewaddress("", "secp")
             assert_raises_rpc_error(-5, "Cannot use the p2sh flag with an address - use a script instead", self.nodes[0].importaddress, temp_address, "label", False, True)
 
             # This will raise an exception for attempting to dump the private key of an address you do not own
@@ -628,7 +628,7 @@ class WalletTest(BitcoinTestFramework):
         # ==Check that wallet prefers to use coins that don't exceed mempool limits =====
 
         # Get all non-zero utxos together and split into two chains
-        chain_addrs = [self.nodes[0].getnewaddress(), self.nodes[0].getnewaddress()]
+        chain_addrs = [self.nodes[0].getnewaddress("", "secp"), self.nodes[0].getnewaddress("", "secp")]
         self.nodes[0].sendall(recipients=chain_addrs)
         self.generate(self.nodes[0], 1, sync_fun=self.no_op)
 
@@ -672,7 +672,7 @@ class WalletTest(BitcoinTestFramework):
 
         # Test getaddressinfo on an address this node does not own.
         assert_raises_rpc_error(-5, "Invalid or unsupported Base58-encoded address.", self.nodes[0].getaddressinfo, "3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy")
-        addr = self.nodes[1].getnewaddress()
+        addr = self.nodes[1].getnewaddress("", "secp")
         address_info = self.nodes[0].getaddressinfo(addr)
         assert_equal(address_info['address'], addr)
         assert_equal(address_info["scriptPubKey"], self.nodes[1].getaddressinfo(addr)["scriptPubKey"])

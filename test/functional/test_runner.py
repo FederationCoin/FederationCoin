@@ -170,6 +170,12 @@ BASE_SCRIPTS = [
     'p2p_timeouts.py --v1transport',
     'p2p_timeouts.py --v2transport',
     # 'wallet_dump.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
+    'wallet_dump.py --descriptors',
+    'wallet_importmulti.py --descriptors',
+    'wallet_upgradewallet.py --descriptors',
+    'wallet_implicitsegwit.py',
+    'wallet_inactive_hdchains.py --descriptors',
+    'wallet_taproot.py --descriptors',
     'rpc_signer.py',
     'wallet_signer.py --descriptors',
     # 'wallet_importmulti.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
@@ -443,7 +449,7 @@ BASE_SCRIPTS = [
     'feature_dirsymlinks.py',
     'feature_help.py',
     'feature_shutdown.py',
-    # 'wallet_migration.py'  # this chain does not ship a Berkeley DB wallet
+    'wallet_migration.py',
     'p2p_ibd_txrelay.py',
     'p2p_seednode.py',
     # Don't append tests at the end to avoid merge conflicts
@@ -463,9 +469,8 @@ NON_SCRIPTS = [
     "feature_powchange.py",
     "feature_assumeutxo.py",
     "wallet_assumeutxo.py",
-    # Taproot stays parked, so these scripts have no deployment to exercise.
+    # Taproot activation stays parked. wallet_taproot.py is the reject assertion.
     "feature_taproot.py",
-    "wallet_taproot.py",
     # These scripts delay Blake2b past genesis. Genesis is already header v2.
     "feature_unified_sighash.py",
     "feature_reduced_data_temporary_deployment.py",
@@ -480,17 +485,11 @@ NON_SCRIPTS = [
     # The header file is Bitcoin testnet3 up to its first checkpoint.
     "p2p_dos_header_tree.py",
     # This chain does not ship a Berkeley DB wallet. These scripts have no descriptor run.
-    "wallet_dump.py",
-    "wallet_importmulti.py",
     "wallet_pruning.py",
     "wallet_import_rescan.py",
     "wallet_watchonly.py",
     "rpc_rawtransaction.py",
     "wallet_import_with_label.py",
-    "wallet_upgradewallet.py",
-    "wallet_implicitsegwit.py",
-    "wallet_inactive_hdchains.py",
-    "wallet_migration.py",
 ]
 
 def main():

@@ -8,14 +8,20 @@ from test_framework.address import address_to_scriptpubkey
 from test_framework.authproxy import JSONRPCException
 from test_framework.blocktools import add_witness_commitment, create_block, create_coinbase
 from test_framework.messages import COIN, COutPoint, CTransaction, CTxIn, CTxInWitness, CTxOut
-from test_framework.script import CScript, OP_0, OP_TRUE
+from test_framework.script import CScript, OP_0
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal
+from test_framework.util import assert_equal, assert_raises_rpc_error
 from test_framework.wallet import MiniWallet
 from test_framework.wallet_util import generate_keypair
 
 
 class NULLDUMMYTest(BitcoinTestFramework):
+    def add_options(self, parser):
+        self.add_wallet_options(parser)
+
+    def skip_test_if_missing_module(self):
+        self.skip_if_no_wallet()
+
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
@@ -55,20 +61,8 @@ class NULLDUMMYTest(BitcoinTestFramework):
         self.wallet = MiniWallet(node)
         self.generate(self.wallet, 110)
         _, pubkey = generate_keypair()
-        legacy = node.createmultisig(1, [pubkey.hex()], "legacy")
+        assert_raises_rpc_error(-5, "Unknown address type", node.createmultisig, 1, [pubkey.hex()], "legacy")
         witness = node.createmultisig(1, [pubkey.hex()], "bech32")
-
-        self.log.info("P2SH CHECKMULTISIG is refused, dummy zero or not")
-        funded = self.try_fund(address_to_scriptpubkey(legacy["address"]))
-        if funded is not None:
-            self.generate(node, 1)
-            redeem = bytes.fromhex(legacy["redeemScript"])
-            for dummy in (CScript([OP_0, redeem]), CScript([OP_TRUE, redeem])):
-                spend = CTransaction()
-                spend.vin = [CTxIn(COutPoint(int(funded["txid"], 16), funded["sent_vout"]), dummy)]
-                spend.vout = [CTxOut(9 * COIN, self.wallet.get_output_script())]
-                spend.rehash()
-                self.assert_refused(spend)
 
         self.log.info("P2WSH CHECKMULTISIG is refused")
         funded = self.try_fund(address_to_scriptpubkey(witness["address"]))
@@ -83,6 +77,8 @@ class NULLDUMMYTest(BitcoinTestFramework):
             spend.rehash()
             self.assert_refused(spend)
 
+        self.assert_closed_address_types(node)
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     NULLDUMMYTest(__file__).main()

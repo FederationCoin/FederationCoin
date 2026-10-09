@@ -25,6 +25,9 @@ class DisableWalletTest (BitcoinTestFramework):
         assert x['isvalid'] == False
         x = self.nodes[0].validateaddress('fQna6UCypCszqVSDYdkbtmGiv2vAYP9zmo')
         assert x['isvalid'] == True
+        # Cached-chain CI and setup_nodes call generate() with wallet RPCs gone.
+        # Probe that path here so -disablewallet cannot poison AuthServiceProxy.
+        self.generate(self.nodes[0], 1)
 
 
 if __name__ == '__main__':

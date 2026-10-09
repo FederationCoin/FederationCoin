@@ -101,12 +101,9 @@ void ReceiveCoinsDialog::setModel(WalletModel *_model)
             ui->addressType->setItemData(index, tooltip, Qt::ToolTipRole);
             if (model->wallet().getDefaultAddressType() == type) ui->addressType->setCurrentIndex(index);
         };
-        add_address_type(OutputType::LEGACY);
-        add_address_type(OutputType::P2SH_SEGWIT);
-        add_address_type(OutputType::BECH32);
-        if (model->wallet().taprootEnabled()) {
-            add_address_type(OutputType::BECH32M);
-        }
+        add_address_type(OutputType::DILITHIUM87);
+        add_address_type(OutputType::DILITHIUM44);
+        add_address_type(OutputType::SECP);
 
         connect(_model->getOptionsModel(), &OptionsModel::addresstypeChanged, [this](const OutputType type) {
             const int index = ui->addressType->findData((int) type);
@@ -176,6 +173,12 @@ void ReceiveCoinsDialog::on_receiveButton_clicked()
     QString label = ui->reqLabel->text();
     /* Generate new receiving address */
     const OutputType address_type = (OutputType)ui->addressType->currentData().toInt();
+    if (address_type == OutputType::SECP) {
+        const auto ret = QMessageBox::warning(this, windowTitle(),
+            tr("secp is cheap, not quantum-safe. The payment still goes. Create this address?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (ret != QMessageBox::Yes) return;
+    }
     address = model->getAddressTableModel()->addRow(AddressTableModel::Receive, label, "", address_type);
 
     switch(model->getAddressTableModel()->getEditStatus())

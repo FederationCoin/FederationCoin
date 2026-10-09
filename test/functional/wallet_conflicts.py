@@ -42,8 +42,8 @@ class TxConflicts(BitcoinTestFramework):
 
     def test_block_conflicts(self):
         self.log.info("Send tx from which to conflict outputs later")
-        txid_conflict_from_1 = self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress(), Decimal("10"))
-        txid_conflict_from_2 = self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress(), Decimal("10"))
+        txid_conflict_from_1 = self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress("", "secp"), Decimal("10"))
+        txid_conflict_from_2 = self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress("", "secp"), Decimal("10"))
         self.generate(self.nodes[0], 1)
         self.sync_blocks()
 

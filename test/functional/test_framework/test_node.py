@@ -77,7 +77,7 @@ class TestNode():
     To make things easier for the test writer, any unrecognised messages will
     be dispatched to the RPC connection."""
 
-    def __init__(self, i, datadir_path, *, chain, rpchost, timewait, timeout_factor, bitcoind, bitcoin_cli, coverage_dir, cwd, extra_conf=None, extra_args=None, use_cli=False, start_perf=False, use_valgrind=False, version=None, descriptors=False, v2transport=False):
+    def __init__(self, i, datadir_path, *, chain, rpchost, timewait, timeout_factor, bitcoind, bitcoin_cli, coverage_dir, cwd, extra_conf=None, extra_args=None, use_cli=False, start_perf=False, use_valgrind=False, version=None, descriptors=False, v2transport=False, wallet_compiled=True):
         """
         Kwargs:
             start_perf (bool): If True, begin profiling the node with `perf` as soon as
@@ -98,6 +98,7 @@ class TestNode():
         self.coverage_dir = coverage_dir
         self.cwd = cwd
         self.descriptors = descriptors
+        self.wallet_compiled = wallet_compiled
         self.has_explicit_bind = False
         if extra_conf is not None:
             append_config(self.datadir_path, extra_conf)
@@ -367,9 +368,50 @@ class TestNode():
             time.sleep(1.0 / poll_per_s)
         self._raise_assertion_error("Unable to retrieve cookie credentials after {}s".format(self.rpc_timeout))
 
+    def _has_disablewallet(self):
+        for arg in list(self.args or []) + list(self.extra_args or []):
+            if arg == "-disablewallet" or str(arg).startswith("-disablewallet="):
+                return True
+        return False
+
+    def _wallet_rpc_available(self):
+        """True only when wallet RPCs exist. Never probe them to decide."""
+        if not self.wallet_compiled or self.descriptors is None:
+            return False
+        return not self._has_disablewallet()
+
+    def _select_generate_address(self):
+        cached = getattr(self, "_generate_address", None)
+        if isinstance(cached, str):
+            return cached
+        if not self._wallet_rpc_available():
+            return self.get_deterministic_priv_key().address
+        wallets = self.listwallets()
+        if not wallets:
+            return self.get_deterministic_priv_key().address
+        name = "default_wallet" if "default_wallet" in wallets else wallets[0]
+        wrpc = self.get_wallet_rpc(name)
+        labels = wrpc.listlabels()
+        if isinstance(labels, list) and "coinbase" in labels:
+            labeled = wrpc.getaddressesbylabel("coinbase")
+            if isinstance(labeled, dict) and labeled:
+                addr = next(iter(labeled))
+                if isinstance(addr, str):
+                    self._generate_address = addr
+                    return addr
+        try:
+            addr = wrpc.getnewaddress()
+        except JSONRPCException:
+            return self.get_deterministic_priv_key().address
+        if not isinstance(addr, str):
+            return self.get_deterministic_priv_key().address
+        self._generate_address = addr
+        return addr
+
     def generate(self, nblocks, maxtries=1000000, **kwargs):
         self.log.debug("TestNode.generate() dispatches `generate` call to `generatetoaddress`")
-        return self.generatetoaddress(nblocks=nblocks, address=self.get_deterministic_priv_key().address, maxtries=maxtries, **kwargs)
+        address = self._select_generate_address()
+        return self.generatetoaddress(nblocks=nblocks, address=address, maxtries=maxtries, **kwargs)
 
     def generateblock(self, *args, called_by_framework, **kwargs):
         assert called_by_framework, "Direct call of this mining RPC is discouraged. Please use one of the self.generate* methods on the test framework, which sync the nodes to avoid intermittent test issues. You may use sync_fun=self.no_op to disable the sync explicitly."

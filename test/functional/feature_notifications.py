@@ -33,7 +33,6 @@ class NotificationsTest(BitcoinTestFramework):
         self.setup_clean_chain = True
 
     def skip_test_if_missing_module(self):
-        # Heritage: Core walletnotify + descriptor import. Product wallets are Sparrow and mill.
         self.skip_if_no_wallet()
 
     def setup_network(self):
@@ -77,18 +76,18 @@ class NotificationsTest(BitcoinTestFramework):
                 "keypool": True,
                 "internal": True,
             }]
-            # Make the wallets and import the descriptors
-            # Ensures that node 0 and node 1 share the same wallet for the conflicting transaction tests below.
+            # Import the same secp descriptors on both nodes so conflict
+            # notifications share keys. The default wallet may already exist.
             for i, name in enumerate(self.wallet_names):
-                self.nodes[i].createwallet(wallet_name=name, descriptors=self.options.descriptors, blank=True, load_on_startup=True)
-                if self.options.descriptors:
-                    self.nodes[i].importdescriptors(desc_imports)
-                else:
-                    self.nodes[i].sethdseed(True, seed)
+                if name not in self.nodes[i].listwallets():
+                    self.nodes[i].createwallet(wallet_name=name, descriptors=True, blank=True, load_on_startup=True)
+                self.nodes[i].get_wallet_rpc(name).importdescriptors(desc_imports)
 
         self.log.info("test -blocknotify")
         block_count = 10
-        blocks = self.generatetoaddress(self.nodes[1], block_count, self.nodes[1].getnewaddress() if self.is_wallet_compiled() else ADDRESS_BCRT1_UNSPENDABLE)
+        # Mine to the imported secp descriptor so node 0 can rescan the same coins.
+        mine_addr = self.nodes[1].getnewaddress("", "secp") if self.is_wallet_compiled() else ADDRESS_BCRT1_UNSPENDABLE
+        blocks = self.generatetoaddress(self.nodes[1], block_count, mine_addr)
 
         # wait at most 10 seconds for expected number of files before reading the content
         self.wait_until(lambda: len(os.listdir(self.blocknotify_dir)) == block_count, timeout=10)

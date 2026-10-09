@@ -53,6 +53,15 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
         expected = {**expected_filter, **expected_stats}
         self.wait_until(lambda: self.nodes[2].getindexinfo() == expected)
 
+    def assert_fastprune_wrap(self, actual, expected, slop=1):
+        # Dilithium 87 coinbases wrap -fastprune files earlier than secp. extraNonce
+        # CompactSize can move the last height in a file by one block (Win64 2079 vs 2078).
+        lo, hi = expected - slop, expected + slop
+        if not (lo <= actual <= hi):
+            raise AssertionError(
+                f"fastprune wrap height {actual} not in [{lo}, {hi}] (expected {expected} ± {slop})"
+            )
+
     def restart_without_indices(self):
         for i in range(3):
             self.restart_node(i, extra_args=["-fastprune", "-prune=1"])
@@ -146,10 +155,14 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
         self.linear_sync(self.nodes[3])
         self.sync_index(height=2500)
 
+        wrap_heights = []
         for node in self.nodes[:2]:
             with node.assert_debug_log(['Prune: UnlinkPrunedFiles deleted blk/rev (00007)']):
                 pruneheight_new = node.pruneblockchain(2500)
-                assert_equal(pruneheight_new, 2078)
+                # Dilithium wrap for file 00007 is 2078; Win64 native has been 2079.
+                self.assert_fastprune_wrap(pruneheight_new, 2078)
+                wrap_heights.append(pruneheight_new)
+        assert_equal(wrap_heights[0], wrap_heights[1])
 
         self.log.info("ensure that prune locks don't prevent indices from failing in a reorg scenario")
         with self.nodes[0].assert_debug_log(['basic block filter index prune lock moved back to 2480']):

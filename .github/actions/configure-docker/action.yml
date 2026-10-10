@@ -4,13 +4,41 @@ inputs:
   use-warp:
     description: 'Use cirrus cache'
     required: true
+outputs:
+  buildx-image-hit:
+    description: 'Whether the Buildx image tarball was restored'
+    value: ${{ steps.buildx-image.outputs.cache-hit }}
 runs:
   using: 'composite'
   steps:
+    # Each runner is a new VM. buildx-warm saves this tarball; later jobs load it.
+    - name: Restore Buildx image
+      id: buildx-image
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/buildx-buildkit.tar
+        key: buildx-moby-buildkit-${{ runner.os }}-${{ runner.arch }}
+
+    - name: Load Buildx image
+      if: steps.buildx-image.outputs.cache-hit == 'true'
+      continue-on-error: true
+      shell: bash
+      run: docker load -i "${RUNNER_TEMP}/buildx-buildkit.tar"
+
     - name: Set up Docker Buildx
+      id: buildx
+      continue-on-error: true
       uses: docker/setup-buildx-action@v3
       with:
         # Use host network to allow access to cirrus gha cache running on the host
+        driver-opts: |
+          network=host
+
+    # Docker Hub 500 on moby/buildkit is not a suite failure. One retry.
+    - name: Set up Docker Buildx (retry)
+      if: steps.buildx.outcome == 'failure'
+      uses: docker/setup-buildx-action@v3
+      with:
         driver-opts: |
           network=host
 

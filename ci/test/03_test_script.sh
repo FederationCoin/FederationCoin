@@ -67,9 +67,9 @@ EOF
 if [ "$RUN_FUZZ_TESTS" = "true" ]; then
   export DIR_FUZZ_IN=${DIR_QA_ASSETS}/fuzz_corpora/
   if [ ! -d "$DIR_FUZZ_IN" ]; then
-    # ${CI_RETRY_EXE} git clone --depth=1 https://qa-assets.federationcoin.org "${DIR_QA_ASSETS}"
-    # not yet provisioned
-    echo "qa-assets.federationcoin.org is not yet provisioned; not cloning fuzz corpora"
+    # Seed pile until https://qa-assets.federationcoin.org exists.
+    # Bitcoin-era blobs. Fix our targets for our wire; do not skip.
+    ${CI_RETRY_EXE} git clone --depth=1 https://github.com/bitcoin-core/qa-assets "${DIR_QA_ASSETS}"
   fi
   if [ -d "${DIR_QA_ASSETS}/.git" ]; then
     (
@@ -118,8 +118,10 @@ if [ "$DOWNLOAD_PREVIOUS_RELEASES" = "true" ]; then
   echo "bin.federationcoin.org is not yet provisioned; not downloading previous releases"
 fi
 
-# Bench and fuzz binaries are not executed in CI. Fuzz corpora are not hosted.
-BITCOIN_CONFIG_ALL="-DBUILD_BENCH=OFF -DBUILD_FUZZ_BINARY=OFF"
+# Fuzz is a mainnet gate. Compile the harness on every job. Dedicated
+# fuzz envs set BUILD_FOR_FUZZING, which overrides this to ON and drops
+# other targets. Benches stay off unless a job turns them on.
+BITCOIN_CONFIG_ALL="-DBUILD_BENCH=OFF -DBUILD_FUZZ_BINARY=ON"
 if [ -z "$NO_DEPENDS" ]; then
   BITCOIN_CONFIG_ALL="${BITCOIN_CONFIG_ALL} -DCMAKE_TOOLCHAIN_FILE=$DEPENDS_DIR/$HOST/toolchain.cmake"
 fi

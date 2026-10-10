@@ -72,61 +72,6 @@ jobs:
           path: ${{ runner.temp }}/buildx-buildkit.tar
           key: buildx-moby-buildkit-${{ runner.os }}-${{ runner.arch }}
 
-  test-each-commit:
-    name: 'test each commit'
-    # Every other job already tests the pull-request tip. Replaying
-    # ancestors is not a check we run.
-    needs: runners
-    runs-on: ${{ needs.runners.outputs.provider == 'warp' && 'warp-ubuntu-latest-x64-8x' || 'ubuntu-latest' }}
-    if: false
-    timeout-minutes: 360  # Use maximum time, see https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#jobsjob_idtimeout-minutes. Assuming a worst case time of 1 hour per commit, this leads to a --max-count=6 below.
-    env:
-      MAX_COUNT: 6
-    steps:
-      - name: Determine fetch depth
-        run: echo "FETCH_DEPTH=$((${{ github.event.pull_request.commits }} + 2))" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: ${{ env.FETCH_DEPTH }}
-      - name: Determine commit range
-        run: |
-          # Checkout HEAD~ and find the test base commit
-          # Checkout HEAD~ because it would be wasteful to rerun tests on the PR
-          # head commit that are already run by other jobs.
-          git checkout HEAD~
-          # Figure out test base commit by listing ancestors of HEAD, excluding
-          # ancestors of the most recent merge commit, limiting the list to the
-          # newest MAX_COUNT ancestors, ordering it from oldest to newest, and
-          # taking the first one.
-          #
-          # If the branch contains up to MAX_COUNT ancestor commits after the
-          # most recent merge commit, all of those commits will be tested. If it
-          # contains more, only the most recent MAX_COUNT commits will be
-          # tested.
-          #
-          # In the command below, the ^@ suffix is used to refer to all parents
-          # of the merge commit as described in:
-          # https://git-scm.com/docs/git-rev-parse#_other_rev_parent_shorthand_notations
-          # and the ^ prefix is used to exclude these parents and all their
-          # ancestors from the rev-list output as described in:
-          # https://git-scm.com/docs/git-rev-list
-          MERGE_BASE=$(git rev-list -n1 --merges HEAD)
-          EXCLUDE_MERGE_BASE_ANCESTORS=
-          # MERGE_BASE can be empty due to limited fetch-depth
-          if test -n "$MERGE_BASE"; then
-            EXCLUDE_MERGE_BASE_ANCESTORS=^${MERGE_BASE}^@
-          fi
-          echo "TEST_BASE=$(git rev-list -n$((${{ env.MAX_COUNT }} + 1)) --reverse HEAD $EXCLUDE_MERGE_BASE_ANCESTORS | head -1)" >> "$GITHUB_ENV"
-      - run: |
-          sudo apt-get update
-          sudo apt-get install clang ccache build-essential cmake pkgconf python3-zmq libevent-dev libboost-dev libsqlite3-dev systemtap-sdt-dev libminiupnpc-dev libzmq3-dev qtbase5-dev qttools5-dev qttools5-dev-tools qtwayland5 libqrencode-dev librsvg2-bin imagemagick -y
-      - name: Compile and run tests
-        run: |
-          # Run tests on commits after the last merge commit and before the PR head commit
-          # Use clang++, because it is a bit faster and uses less memory than g++
-          git rebase --exec "echo Running test-one-commit on \$( git log -1 ) && CC=clang CXX=clang++ cmake -B build -DWERROR=ON -DWITH_ZMQ=ON -DBUILD_GUI=ON -DBUILD_BENCH=ON -DBUILD_FUZZ_BINARY=ON -DWITH_MINIUPNPC=ON -DWITH_USDT=ON -DCMAKE_CXX_FLAGS='-Wno-error=unused-member-function' && cmake --build build -j $(nproc) && ctest --output-on-failure --stop-on-failure --test-dir build -j $(nproc) && ./build/test/functional/test_runner.py -j $(( $(nproc) * 2 )) --combinedlogslen=99999999" ${{ env.TEST_BASE }}
-
   macos-native-arm64:
     name: ${{ matrix.job-name }}
     # Use any image to support the xcode-select below, but hardcode version to avoid silent upgrades (and breaks).
@@ -138,8 +83,6 @@ jobs:
     # one for the branch push and one for the pull request.
     # This can be avoided by setting SKIP_BRANCH_PUSH=true as a custom env variable
     # in Github repository settings.
-    # macOS fuzz stays out until https://qa-assets.federationcoin.org exists.
-    # matrix is not available in a job-level if, so the fuzz row is omitted.
     if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
 
     timeout-minutes: 120
@@ -151,6 +94,9 @@ jobs:
           - job-type: standard
             file-env: './ci/test/00_setup_env_mac_native.sh'
             job-name: 'macOS 14 native, arm64, no depends, sqlite only, gui'
+          - job-type: fuzz
+            file-env: './ci/test/00_setup_env_mac_native_fuzz.sh'
+            job-name: 'macOS 14 native, arm64, fuzz'
 
     env:
       DANGER_RUN_CI_ON_HOST: 1
@@ -211,7 +157,6 @@ jobs:
     # See: https://github.com/actions/runner-images#available-images.
     runs-on: windows-2022
 
-    # Win64 fuzz stays out until https://qa-assets.federationcoin.org exists.
     if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
 
     env:
@@ -225,6 +170,9 @@ jobs:
           - job-type: standard
             generate-options: '-DBUILD_GUI=OFF -DWITH_MINIUPNPC=ON -DWITH_ZMQ=ON -DBUILD_BENCH=ON -DWERROR=ON'
             job-name: 'Win64 native, VS 2022'
+          - job-type: fuzz
+            generate-options: '-DVCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON -DVCPKG_MANIFEST_FEATURES="sqlite" -DBUILD_GUI=OFF -DBUILD_FOR_FUZZING=ON -DWERROR=ON'
+            job-name: 'Win64 native fuzz, VS 2022'
 
     steps:
       - *CHECKOUT
@@ -303,12 +251,31 @@ jobs:
         shell: cmd
         run: py -3 test\functional\test_runner.py --jobs %NUMBER_OF_PROCESSORS% --ci --quiet --tmpdirprefix=%RUNNER_TEMP% --combinedlogslen=99999999 --timeout-factor=%TEST_RUNNER_TIMEOUT_FACTOR% %TEST_RUNNER_EXTRA%
 
+      # Seed pile until qa-assets.federationcoin.org exists. Bitcoin-era
+      # blobs. Fix our targets for our wire; do not skip.
+      - name: Clone corpora
+        if: matrix.job-type == 'fuzz'
+        run: |
+          git clone --depth=1 https://github.com/bitcoin-core/qa-assets "$env:RUNNER_TEMP\qa-assets"
+          Set-Location "$env:RUNNER_TEMP\qa-assets"
+          Write-Host "Using qa-assets repo from commit ..."
+          git log -1
+
+      - name: Run fuzz tests
+        if: matrix.job-type == 'fuzz'
+        working-directory: build
+        env:
+          BITCOINFUZZ: '${{ github.workspace }}\build\bin\Release\fuzz.exe'
+        shell: cmd
+        run: |
+          py -3 test\fuzz\test_runner.py --par %NUMBER_OF_PROCESSORS% --loglevel DEBUG %RUNNER_TEMP%\qa-assets\fuzz_corpora
+
   ci-matrix:
     name: ${{ matrix.name }}
     needs: [runners, buildx-warm]
     runs-on: ${{ needs.runners.outputs.provider == 'warp' && matrix.warp-runner || matrix.fallback-runner }}
-    # depends-sdks, qa-assets, and previous-release bins are not hosted yet,
-    # so those rows are omitted. matrix is not available in a job-level if.
+    # depends-sdks and previous-release bins are not hosted yet, so
+    # those rows are omitted. Fuzz is on (mainnet gate).
     if: ${{ vars.SKIP_BRANCH_PUSH != 'true' || github.event_name == 'pull_request' }}
     timeout-minutes: ${{ matrix.timeout-minutes }}
 
@@ -318,7 +285,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      # Eight x64 rows queue as 3 / 3 / 2. ARM may take a slot in an early wave.
+      # Nine x64 rows (fuzz included) queue as 3 / 3 / 3. ARM may take a slot in an early wave.
       max-parallel: 3
       matrix:
         include:
@@ -351,6 +318,12 @@ jobs:
             fallback-runner: 'ubuntu-latest'
             timeout-minutes: 120
             file-env: './ci/test/00_setup_env_i686_multiprocess.sh'
+
+          - name: 'fuzzer,address,undefined,integer, no depends'
+            warp-runner: 'warp-ubuntu-latest-x64-16x'
+            fallback-runner: 'ubuntu-latest'
+            timeout-minutes: 240
+            file-env: './ci/test/00_setup_env_native_fuzz.sh'
 
           - name: 'CentOS, depends, gui'
             warp-runner: 'warp-ubuntu-latest-x64-16x'

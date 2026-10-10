@@ -42,8 +42,8 @@
   <text x="450" y="432" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">If someone swapped a payment, it would not match.</text>
 
   <rect x="150" y="450" width="600" height="52" rx="10" fill="#C5D8F0" stroke="#2B5A8A" stroke-width="1.5"/>
-  <text x="450" y="472" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">5. Does the block fit the room?</text>
-  <text x="450" y="492" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Starts at 2.4M. At each coin-halving the room may grow or shrink.</text>
+  <text x="450" y="472" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">5. Does the block fit the max block size?</text>
+  <text x="450" y="492" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Max starts at 2.4M. At each coin-halving it may grow or shrink.</text>
 
   <rect x="150" y="512" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
   <text x="450" y="534" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">6. First payment is the miner reward</text>
@@ -75,27 +75,27 @@
   <rect x="80" y="934" width="740" height="280" rx="10" fill="#FFFFFF" stroke="#1B2838" stroke-width="1.5"/>
   <rect x="80" y="934" width="740" height="40" rx="10" fill="#1B2838"/>
   <rect x="80" y="954" width="740" height="20" fill="#1B2838"/>
-  <text x="450" y="960" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#FFF6E8">The room (how big a block may be)</text>
+  <text x="450" y="960" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#FFF6E8">Max block size</text>
 
   <text x="220" y="1002" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">At the coin-halving (~4.8 years)</text>
-  <text x="620" y="1002" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">What happens to the room</text>
+  <text x="620" y="1002" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">What happens to the max</text>
   <line x1="100" y1="1014" x2="800" y2="1014" stroke="#1B2838" stroke-width="1"/>
 
   <rect x="90" y="1022" width="720" height="40" fill="#FFF6E8"/>
-  <text x="250" y="1048" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">80% of blocks filled the room</text>
-  <text x="620" y="1048" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Grow the room by half</text>
+  <text x="250" y="1048" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">80% of blocks were full</text>
+  <text x="620" y="1048" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Grow the max by half</text>
 
   <rect x="90" y="1062" width="720" height="40" fill="#E4E2DC"/>
   <text x="250" y="1088" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">The stretch was quiet (under 20% full)</text>
-  <text x="620" y="1088" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Cut the room in half (not below 2.4M)</text>
+  <text x="620" y="1088" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Cut the max in half (not below 2.4M)</text>
 
   <rect x="90" y="1102" width="720" height="40" fill="#FFF6E8"/>
   <text x="250" y="1128" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">In between</text>
-  <text x="620" y="1128" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Leave the room as it is</text>
+  <text x="620" y="1128" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Leave the max as it is</text>
 
   <rect x="90" y="1142" width="720" height="40" fill="#E4E2DC"/>
-  <text x="250" y="1168" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">The next room would break the math</text>
-  <text x="620" y="1168" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Do not grow the room</text>
+  <text x="250" y="1168" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">The next max would break the math</text>
+  <text x="620" y="1168" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Do not grow the max</text>
 
   <text x="450" y="1254" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Starts at 2.4M. One look per coin-halving, not every block.</text>
 </svg>

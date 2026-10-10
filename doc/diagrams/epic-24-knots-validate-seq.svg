@@ -42,8 +42,8 @@
   <text x="450" y="432" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">If someone swapped a payment, it would not match.</text>
 
   <rect x="150" y="450" width="600" height="52" rx="10" fill="#C5D8F0" stroke="#2B5A8A" stroke-width="1.5"/>
-  <text x="450" y="472" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">5. Does the block fit the room?</text>
-  <text x="450" y="492" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Always 4M.</text>
+  <text x="450" y="472" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">5. Does the block fit the max block size?</text>
+  <text x="450" y="492" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Max block size is always 4M.</text>
 
   <rect x="150" y="512" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
   <text x="450" y="534" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">6. First payment is the miner reward</text>

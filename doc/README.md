@@ -1,42 +1,46 @@
-Bitcoin Knots
-=============
+FederationCoin
+==============
 
-Setup
----------------------
-Bitcoin Knots is the original Bitcoin client and it builds the backbone of the network. It downloads and, by default, stores the entire history of Bitcoin transactions, which requires several hundred gigabytes or more of disk space. Depending on the speed of your computer and network connection, the synchronization process can take anywhere from a few hours to several days or more.
+## For users
 
-To download Bitcoin Knots, visit [bitcoinknots.org](https://bitcoinknots.org/).
+FederationCoin is a new Blake2b UTXO chain for sending money. Fresh genesis, no inherited coins. Not Bitcoin. Not Knots. Not a CBDC. Experimental. No price promise. Confirmations stay weak until hashrate is expensive.
 
-Running
----------------------
-The following are some helpful notes on how to run Bitcoin Knots on your native platform.
+This tree is the node (`federationcoind`, `federationcoin-qt`, and related tools). **Main is not launched.** The default network is a placeholder. Mine and peer on **`-testnet`** (P2P 35333, RPC 35332, HRP `tgfcn`).
 
-### Unix
+Downloads and the constitution: [federationcoin.org](https://federationcoin.org). Testnet explorer: [mempool.federationcoin.org](https://mempool.federationcoin.org). Source: [github.com/FederationCoin/FederationCoin](https://github.com/FederationCoin/FederationCoin).
+
+### Running
+
+#### Unix
 
 Unpack the files into a directory and run:
 
-- `bin/bitcoin-qt` (GUI) or
-- `bin/bitcoind` (headless)
+- `bin/federationcoin-qt` (GUI) or
+- `bin/federationcoind` (headless)
 
-### Windows
+Add `-testnet` for the public test chain. Config file is `federationcoin.conf`. Datadir is `~/.federationcoin`.
 
-Unpack the files into a directory, and then run bitcoin-qt.exe.
+#### Windows
 
-### macOS
+Unpack the files into a directory, or use the installer, then run `federationcoin-qt.exe`. Use the Start Menu "Federation Coin (testnet)" shortcut, or `federationcoin-qt.exe -testnet`. See [README_windows.txt](README_windows.txt).
 
-Drag Bitcoin Knots to your applications folder, and then run Bitcoin Knots.
+#### macOS
 
-### Need Help?
+Drag Federation Coin to your applications folder, and then run Federation Coin. Pass `-testnet` for the public test chain.
 
-* See the documentation at the [Bitcoin Wiki](https://en.bitcoin.it/wiki/Main_Page)
-for help and more information.
-* Ask for help on [Bitcoin StackExchange](https://bitcoin.stackexchange.com).
-* Ask for help on #bitcoin on Libera Chat. If you don't have an IRC client, you can use [web.libera.chat](https://web.libera.chat/#bitcoin).
-* Ask for help on the [BitcoinTalk](https://bitcointalk.org/) forums, in the [Technical Support board](https://bitcointalk.org/index.php?board=4.0).
+### Need help?
 
-Building
----------------------
-The following are developer notes on how to build Bitcoin Knots on your native platform. They are not complete guides, but include notes on the necessary libraries, compile flags, etc.
+* [federationcoin.org](https://federationcoin.org) — what this chain is, testnet, and how to build
+* [mempool.federationcoin.org](https://mempool.federationcoin.org) — testnet explorer
+* [FederationCoin/FederationCoin](https://github.com/FederationCoin/FederationCoin) — source, issues, and the tree README
+
+## For developers
+
+Based on Bitcoin Knots `v29.4.1.knots20260508` (`8c85b1585d`). Origin is `git@github.com:FederationCoin/FederationCoin.git`. Mainline is `29.x-federationcoin`. GitHub is detached from that fork; **never push** bitcoinknots. The [root README](/README.md) has dummy MAIN vs testnet, units, and Taproot parked.
+
+### Building
+
+These are developer notes on native builds, not complete guides.
 
 - [Dependencies](dependencies.md)
 - [macOS Build Notes](build-osx.md)
@@ -46,14 +50,23 @@ The following are developer notes on how to build Bitcoin Knots on your native p
 - [OpenBSD Build Notes](build-openbsd.md)
 - [NetBSD Build Notes](build-netbsd.md)
 
-Development
----------------------
-The Bitcoin repo's [root README](/README.md) contains relevant information on the development process and automated testing.
+### Branching
+
+Work on a branch off `29.x-federationcoin`. Open a same-repo pull request; a human merges. Do not push straight to mainline. Current work branch: `get-to-mainnet`. Knots pin `8c85b1585d` is unchanged.
+
+### Release
+
+Tags follow `vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD` (optional `.<ext>`). Package may open a **draft** GitHub Release only. See golive notes in the workspace dump. The Knots-era [Release Process](release-process.md) doc is historical; do not treat it as our Package workflow.
+
+### Quality
+
+Code quality checks and metrics will be added over time.
+
+### Development notes
 
 - [Developer Notes](developer-notes.md)
 - [Productivity Notes](productivity.md)
-- [Release Process](release-process.md)
-- [Source Code Documentation (External Link)](https://doxygen.bitcoincore.org/)
+- [Source Code Documentation](https://github.com/FederationCoin/FederationCoin) (generate Doxygen locally; do not use Core hosted docs)
 - [Translation Process](translation_process.md)
 - [Translation Strings Policy](translation_strings_policy.md)
 - [JSON-RPC Interface](JSON-RPC-interface.md)
@@ -64,13 +77,12 @@ The Bitcoin repo's [root README](/README.md) contains relevant information on th
 - [Benchmarking](benchmarking.md)
 - [Internal Design Docs](design/)
 
-### Resources
-* Discuss on the [BitcoinTalk](https://bitcointalk.org/) forums, in the [Development & Technical Discussion board](https://bitcointalk.org/index.php?board=6.0).
-* Discuss project-specific development on #bitcoin-core-dev on Libera Chat. If you don't have an IRC client, you can use [web.libera.chat](https://web.libera.chat/#bitcoin-core-dev).
+The filename [bitcoin-conf.md](bitcoin-conf.md) is leftover; the node reads `federationcoin.conf`.
 
 ### Miscellaneous
+
 - [Assets Attribution](assets-attribution.md)
-- [bitcoin.conf Configuration File](bitcoin-conf.md)
+- [bitcoin.conf Configuration File](bitcoin-conf.md) (file name is leftover; use `federationcoin.conf`)
 - [CJDNS Support](cjdns.md)
 - [Files](files.md)
 - [Fuzz-testing](fuzzing.md)

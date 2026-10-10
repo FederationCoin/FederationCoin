@@ -6,6 +6,7 @@
 #define BITCOIN_CONSENSUS_TX_VERIFY_H
 
 #include <consensus/amount.h>
+#include <script/script.h>
 
 #include <stdint.h>
 #include <vector>
@@ -42,12 +43,35 @@ public:
 };
 
 namespace Consensus {
+struct Params;
+
 /**
  * Check whether all outputs of this transaction satisfy size limits.
  * Regular outputs must be <= MAX_OUTPUT_SCRIPT_SIZE (34 bytes).
  * OP_RETURN outputs must be <= MAX_OUTPUT_DATA_SIZE (83 bytes).
  */
 bool CheckOutputSizes(const CTransaction& tx, TxValidationState& state);
+
+/** True when script is exactly the 38-byte segwit witness commitment. */
+bool IsWitnessCommitmentScript(const CScript& script);
+
+/** Reject every OP_RETURN. Used for transactions that are not the coinbase. */
+bool RejectUserDataCarrier(const CTransaction& tx, TxValidationState& state);
+
+/** Reject every OP_RETURN except the witness commitment. Used for the coinbase. */
+bool RejectCoinbaseDataCarrier(const CTransaction& tx, TxValidationState& state);
+
+/** Every block keeps only the bytes mining needs. */
+bool MiningCoinbaseScriptSigFits(size_t script_sig_size);
+
+/** The 32-byte witness nonce carries no message. */
+bool WitnessNonceIsZero(const std::vector<unsigned char>& nonce);
+
+/**
+ * Reject witness v1+ outputs while Taproot is parked (nStartTime NEVER_ACTIVE).
+ * Not context-free: test fixtures re-enable Taproot via -vbparams.
+ */
+bool CheckTaprootDisabledOutputs(const CTransaction& tx, const Params& params, TxValidationState& state);
 
 /**
  * Check whether all inputs of this transaction are valid (no double spends and amounts)

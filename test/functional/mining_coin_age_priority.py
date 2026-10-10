@@ -4,7 +4,7 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 #
 
-from test_framework.blocktools import create_block
+from test_framework.blocktools import add_witness_commitment, create_block
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
 
@@ -21,6 +21,7 @@ def find_unspent(node, txid, amount):
 
 def solve_template_hex(tmpl, txlist):
     block = create_block(tmpl=tmpl, txlist=txlist)
+    add_witness_commitment(block)
     block.solve()
     b = block.serialize()
     x = b2a_hex(b).decode('ascii')
@@ -60,7 +61,7 @@ class PriorityTest(BitcoinTestFramework):
     def assert_prio(self, txid, starting, current):
         node = self.nodes[1]
 
-        tmpl = node.getblocktemplate({'rules':('segwit',)})
+        tmpl = node.getblocktemplate({'rules': ('segwit', 'blake2b')})
         tmplentry = None
         for tx in tmpl['transactions']:
             if tx['txid'] == txid:
@@ -87,7 +88,8 @@ class PriorityTest(BitcoinTestFramework):
         self.generate(node, 50)
         self.generate(miner, 101)
 
-        fee = Decimal('0.0001')
+        # Dilithium 87 inputs are large; 0.0001 BTC is below min relay.
+        fee = Decimal('0.02')
         amt = Decimal('11')
 
         txid_a = node.sendtoaddress(node.getnewaddress(), amt)
@@ -103,7 +105,7 @@ class PriorityTest(BitcoinTestFramework):
         self.testmsg('priority increases correctly when that input is mined')
 
         # Mine only the sendtoaddress transaction
-        tmpl = node.getblocktemplate({'rules':('segwit',)})
+        tmpl = node.getblocktemplate({'rules': ('segwit', 'blake2b')})
         rawblock = solve_template_hex(tmpl, [node.getrawtransaction(txid_a)])
         assert_equal(node.submitblock(rawblock), None)
         self.sync_all()

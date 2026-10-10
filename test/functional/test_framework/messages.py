@@ -33,6 +33,10 @@ from test_framework.util import assert_equal
 
 MAX_LOCATOR_SZ = 101
 MAX_BLOCK_WEIGHT = 4000000
+# Floor of the flex cap. Live consensus weight is the current flex cap
+# (starts at this floor; may grow). Heritage BIP141 4M is not the rule.
+REDUCED_DATA_MAX_BLOCK_WEIGHT = 2400000
+MAX_FLEX_BLOCK_WEIGHT = 87841638446235
 DEFAULT_BLOCK_RESERVED_WEIGHT = 8000
 MINIMUM_BLOCK_RESERVED_WEIGHT = 2000
 MAX_BLOOM_FILTER_SIZE = 36000
@@ -45,7 +49,7 @@ MAX_BIP125_RBF_SEQUENCE = 0xfffffffd  # Sequence number that is rbf-opt-in (BIP 
 MAX_SEQUENCE_NONFINAL = 0xfffffffe  # Sequence number that is csv-opt-out (BIP 68)
 SEQUENCE_FINAL = 0xffffffff  # Sequence number that disables nLockTime if set for every input of a tx
 
-MAX_PROTOCOL_MESSAGE_LENGTH = 4000000  # Maximum length of incoming protocol messages
+MAX_PROTOCOL_MESSAGE_LENGTH = 32 * 1000 * 1000  # P2P/disk buffer. Consensus weight is the live flex cap.
 MAX_HEADERS_RESULTS = 2000  # Number of headers sent in one getheaders result
 MAX_INV_SIZE = 50000  # Maximum number of entries in an 'inv' protocol message
 
@@ -82,9 +86,9 @@ MAX_OP_RETURN_RELAY = 83
 DEFAULT_MEMPOOL_EXPIRY_HOURS = 336  # hours
 
 MAGIC_BYTES = {
-    "mainnet": b"\xf9\xbe\xb4\xd9",   # mainnet
-    "testnet3": b"\x0b\x11\x09\x07",  # testnet3
-    "regtest": b"\xfa\xbf\xb5\xda",   # regtest
+    "mainnet": b"\x00\x00\x00\x00",   # dummy main, not launched
+    "testnet3": b"\xfc\xe3\x1e\xc3",  # testnet
+    "regtest": b"\xfc\xe7\x1e\xc7",   # regtest
     "signet": b"\x0a\x03\xcf\x40",    # signet
 }
 
@@ -982,6 +986,8 @@ class CBlock(CBlockHeader):
         return True
 
     def solve(self):
+        if self.m_header_v2:
+            self.m_txcount = len(self.vtx)
         self.rehash()
         target = uint256_from_compact(self.nBits)
         while self.sha256 > target:

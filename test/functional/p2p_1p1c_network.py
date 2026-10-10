@@ -55,10 +55,22 @@ class PackageRelayTest(BitcoinTestFramework):
 
         # Store mempoolminfee for dynamic feerate calculation
         self.mempoolminfee = self.nodes[0].getmempoolinfo()['mempoolminfee']
-        self.log.info(f"mempoolminfee after fill_mempool: {self.mempoolminfee} BTC/kvB ({self.mempoolminfee * 100000:.4f} sat/vB)")
+        self.log.info(f"mempoolminfee after fill_mempool: {self.mempoolminfee} COIN/kvB ({self.mempoolminfee * 100000:.4f} token/vB)")
 
     def create_basic_1p1c(self, wallet):
         low_fee_parent = wallet.create_self_transfer(fee_rate=Decimal(DEFAULT_MIN_RELAY_TX_FEE) / COIN, confirmed_only=True)
+        tx = low_fee_parent["tx"]
+        short = 3 * tx.get_vsize() - int(low_fee_parent["fee"] * COIN)
+        if short > 0:
+            tx.vout[0].nValue -= short
+            wallet.resign(tx)
+            low_fee_parent["fee"] += Decimal(short) / COIN
+            low_fee_parent["txid"] = tx.rehash()
+            low_fee_parent["wtxid"] = tx.getwtxid()
+            low_fee_parent["hex"] = tx.serialize().hex()
+            low_fee_parent["new_utxo"]["value"] = Decimal(tx.vout[0].nValue) / COIN
+            low_fee_parent["new_utxo"]["txid"] = low_fee_parent["txid"]
+            low_fee_parent["new_utxo"]["wtxid"] = low_fee_parent["wtxid"]
         high_fee_child = wallet.create_self_transfer(utxo_to_spend=low_fee_parent["new_utxo"], fee_rate=999*Decimal(DEFAULT_MIN_RELAY_TX_FEE)/ COIN)
         package_hex_basic = [low_fee_parent["hex"], high_fee_child["hex"]]
         return package_hex_basic, low_fee_parent["tx"], high_fee_child["tx"]
@@ -72,9 +84,8 @@ class PackageRelayTest(BitcoinTestFramework):
             num_outputs=2,
         )
 
-        # Target 1sat/vB so the number of satoshis is equal to the vsize.
-        # Round up. The goal is to be between min relay feerate and mempool min feerate.
-        fee_2outs = ceil(low_fee_parent_2outs_tester["tx"].get_vsize() / 2)
+        # Pay 3 tokens per vbyte, which is still under the raised mempool minimum.
+        fee_2outs = ceil(3 * low_fee_parent_2outs_tester["tx"].get_vsize() / 2)
 
         low_fee_parent_2outs = wallet.create_self_transfer_multi(
             utxos_to_spend=[utxo_for_2outs],
@@ -95,7 +106,7 @@ class PackageRelayTest(BitcoinTestFramework):
         parent1_feerate = self.mempoolminfee * 2
         parent2_feerate = self.mempoolminfee * 4
 
-        self.log.info(f"Creating 2p1c package with parent1={parent1_feerate} BTC/kvB, parent2={parent2_feerate} BTC/kvB")
+        self.log.info(f"Creating 2p1c package with parent1={parent1_feerate} COIN/kvB, parent2={parent2_feerate} COIN/kvB")
 
         parent1 = wallet.create_self_transfer(fee_rate=parent1_feerate, confirmed_only=True)
         parent2 = wallet.create_self_transfer(fee_rate=parent2_feerate, confirmed_only=True)
@@ -109,8 +120,8 @@ class PackageRelayTest(BitcoinTestFramework):
         # 1: Basic 1-parent-1-child package, parent 1sat/vB, child 999sat/vB
         package_hex_1, parent_1, child_1 = self.create_basic_1p1c(self.wallet)
 
-        # 2: same as 1, parent's txid is the same as its wtxid.
-        package_hex_2, parent_2, child_2 = self.create_basic_1p1c(self.wallet_nonsegwit)
+        # 2: same as 1. A no-witness parent is not a spend on this chain.
+        package_hex_2, parent_2, child_2 = self.create_basic_1p1c(self.wallet)
 
         # 3: 2-parent-1-child package. Both parents are above mempool min feerate. No package submission happens.
         # We require packages to be child-with-unconfirmed-parents and only allow 1-parent-1-child packages.

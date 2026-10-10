@@ -79,7 +79,10 @@ def decode_psbt(b64psbt):
     return from_binary(CBlock, psbt.g.map[PSBT_SIGNET_BLOCK]), ser_string(scriptSig) + scriptWitness
 
 def finish_block(block, signet_solution, grind_cmd):
-    block.vtx[0].vout[-1].scriptPubKey += CScriptOp.encode_op_pushdata(SIGNET_HEADER + signet_solution)
+    # OP_TRUE needs no solution. Appending one makes the witness commitment
+    # longer than 38 bytes, which is rejected as bad-txns-datacarrier.
+    if signet_solution != b"\x00\x00":
+        block.vtx[0].vout[-1].scriptPubKey += CScriptOp.encode_op_pushdata(SIGNET_HEADER + signet_solution)
     block.vtx[0].rehash()
     block.hashMerkleRoot = block.calc_merkle_root()
     if grind_cmd is None:
@@ -108,7 +111,10 @@ def generate_psbt(tmpl, reward_spk, *, blocktime=None, poolid=None):
     cbtx.rehash()
 
     block = CBlock()
-    block.nVersion = tmpl["version"]
+    # Header v2 is required from genesis. The template version carries the flag.
+    block.m_header_v2 = True
+    block.nVersion = tmpl["version"] & 0x7fffffff
+    block.m_height = tmpl["height"]
     block.hashPrevBlock = int(tmpl["previousblockhash"], 16)
     block.nTime = tmpl["curtime"] if blocktime is None else blocktime
     if block.nTime < tmpl["mintime"]:
@@ -116,6 +122,7 @@ def generate_psbt(tmpl, reward_spk, *, blocktime=None, poolid=None):
     block.nBits = int(tmpl["bits"], 16)
     block.nNonce = 0
     block.vtx = [cbtx] + [tx_from_hex(t["data"]) for t in tmpl["transactions"]]
+    block.m_txcount = len(block.vtx)
 
     witnonce = 0
     witroot = block.calc_witness_merkle_root()
@@ -306,7 +313,7 @@ class Generate:
         self.action_time = max(self.action_time, self.mine_time - 6900)
 
     def gbt(self, bcli, bestblockhash, now):
-        tmpl = json.loads(bcli("getblocktemplate", '{"rules":["signet","segwit"]}'))
+        tmpl = json.loads(bcli("getblocktemplate", '{"rules":["signet","segwit","blake2b"]}'))
         if tmpl["previousblockhash"] != bestblockhash:
             logging.warning("GBT based off unexpected block (%s not %s), retrying", tmpl["previousblockhash"], bci["bestblockhash"])
             time.sleep(1)

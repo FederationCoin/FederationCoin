@@ -2325,17 +2325,29 @@ bool CWallet::SignTransaction(CMutableTransaction& tx) const
 
 bool CWallet::SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, bilingual_str>& input_errors, std::optional<CAmount>* inputs_amount_sum) const
 {
-
-    // Try to sign with all ScriptPubKeyMans
+    // One provider with every descriptor's keys. Signing per-SPKM wiped a
+    // finished Dilithium witness when the next manager ran VerifyScript.
+    FlatSigningProvider keys;
+    bool have_desc{false};
     for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
-        // spk_man->SignTransaction will return true if the transaction is complete,
-        // so we can exit early and return true if that happens
+        if (auto* desc = dynamic_cast<DescriptorScriptPubKeyMan*>(spk_man)) {
+            have_desc = true;
+            for (const auto& coin_pair : coins) {
+                if (auto coin_keys = desc->GetSigningProviderForScript(coin_pair.second.out.scriptPubKey, /*include_private=*/true)) {
+                    keys.Merge(std::move(*coin_keys));
+                }
+            }
+        }
+    }
+    if (have_desc) {
+        return ::SignTransaction(tx, &keys, coins, sighash, input_errors, inputs_amount_sum);
+    }
+
+    for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
         if (spk_man->SignTransaction(tx, coins, sighash, input_errors, inputs_amount_sum)) {
             return true;
         }
     }
-
-    // At this point, one input was not fully signed otherwise we would have exited already
     return false;
 }
 
@@ -2368,7 +2380,38 @@ std::optional<PSBTError> CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bo
         }
     }
 
-    const PrecomputedTransactionData txdata = PrecomputePSBTData(psbtx);
+    // Unified sighash commits to every spent output. A co-signer's parent
+    // transaction is often absent from this wallet, and writing that output
+    // into the PSBT would claim the updater knows an input it does not own.
+    // The message still has to be built from it, or the signature made here
+    // stops verifying once the co-signer adds the output.
+    std::vector<CTxOut> spent_outputs(psbtx.tx->vin.size());
+    std::vector<unsigned char> have_output(psbtx.tx->vin.size(), 0);
+    std::map<COutPoint, Coin> chain_coins;
+    for (unsigned int i = 0; i < psbtx.tx->vin.size(); ++i) {
+        if (psbtx.GetInputUTXO(spent_outputs[i], i)) {
+            have_output[i] = 1;
+        } else if (HaveChain()) {
+            chain_coins.emplace(psbtx.tx->vin[i].prevout, Coin{});
+        }
+    }
+    if (!chain_coins.empty()) {
+        chain().findCoins(chain_coins);
+        for (unsigned int i = 0; i < psbtx.tx->vin.size(); ++i) {
+            if (have_output[i]) continue;
+            const auto found{chain_coins.find(psbtx.tx->vin[i].prevout)};
+            if (found == chain_coins.end() || found->second.IsSpent()) continue;
+            spent_outputs[i] = found->second.out;
+            have_output[i] = 1;
+        }
+    }
+    const bool have_all_spent_outputs{std::find(have_output.begin(), have_output.end(), 0) == have_output.end()};
+    PrecomputedTransactionData txdata;
+    if (have_all_spent_outputs) {
+        txdata.Init(*psbtx.tx, std::move(spent_outputs), /*force=*/true);
+    } else {
+        txdata.Init(*psbtx.tx, {}, /*force=*/true);
+    }
 
     // Fill in information from ScriptPubKeyMans
     for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
@@ -2738,6 +2781,9 @@ bool CWallet::TopUpKeyPool(unsigned int kpSize)
 util::Result<CTxDestination> CWallet::GetNewDestination(const OutputType type, const std::string label)
 {
     LOCK(cs_wallet);
+    if (!OutputTypeIsAllowed(type)) {
+        return util::Error{Untranslated("Bech32m / Taproot addresses are not valid on this chain.")};
+    }
     auto spk_man = GetScriptPubKeyMan(type, /*internal=*/false);
     if (!spk_man) {
         return util::Error{strprintf(_("Error: No %s addresses available."), FormatOutputType(type))};
@@ -2754,6 +2800,9 @@ util::Result<CTxDestination> CWallet::GetNewDestination(const OutputType type, c
 util::Result<CTxDestination> CWallet::GetNewChangeDestination(const OutputType type)
 {
     LOCK(cs_wallet);
+    if (!OutputTypeIsAllowed(type)) {
+        return util::Error{Untranslated("Bech32m / Taproot addresses are not valid on this chain.")};
+    }
 
     ReserveDestination reservedest(this, type);
     auto op_dest = reservedest.GetReservedDestination(true);
@@ -3277,6 +3326,10 @@ std::shared_ptr<CWallet> CWallet::Create(WalletContext& context, const std::stri
             error = strprintf(_("Unknown address type '%s'"), args.GetArg("-addresstype", ""));
             return nullptr;
         }
+        if (!OutputTypeIsAllowed(*parsed)) {
+            error = Untranslated("Bech32m / Taproot addresses are not valid on this chain.");
+            return nullptr;
+        }
         walletInstance->m_default_address_type = parsed.value();
     }
 
@@ -3284,6 +3337,10 @@ std::shared_ptr<CWallet> CWallet::Create(WalletContext& context, const std::stri
         std::optional<OutputType> parsed = ParseOutputType(args.GetArg("-changetype", ""));
         if (!parsed) {
             error = strprintf(_("Unknown change type '%s'"), args.GetArg("-changetype", ""));
+            return nullptr;
+        }
+        if (!OutputTypeIsAllowed(*parsed)) {
+            error = Untranslated("Bech32m / Taproot addresses are not valid on this chain.");
             return nullptr;
         }
         walletInstance->m_default_change_type = parsed.value();
@@ -3444,7 +3501,7 @@ bool CWallet::AttachChain(const std::shared_ptr<CWallet>& walletInstance, interf
             // Wallet is assumed to be from another chain, if genesis block in the active
             // chain differs from the genesis block known to the wallet.
             if (chain.getBlockHash(0) != locator.vHave.back()) {
-                error = Untranslated("Wallet files should not be reused across chains. Restart bitcoind with -walletcrosschain to override.");
+                error = Untranslated("Wallet files should not be reused across chains. Restart federationcoind with -walletcrosschain to override.");
                 return false;
             }
         }
@@ -3718,13 +3775,11 @@ bool CWallet::Unlock(const CKeyingMaterial& vMasterKeyIn)
 std::set<ScriptPubKeyMan*> CWallet::GetActiveScriptPubKeyMans() const
 {
     std::set<ScriptPubKeyMan*> spk_mans;
-    for (bool internal : {false, true}) {
-        for (OutputType t : OUTPUT_TYPES) {
-            auto spk_man = GetScriptPubKeyMan(t, internal);
-            if (spk_man) {
-                spk_mans.insert(spk_man);
-            }
-        }
+    for (const auto& [_, ext_spkm] : m_external_spk_managers) {
+        if (ext_spkm) spk_mans.insert(ext_spkm);
+    }
+    for (const auto& [_, int_spkm] : m_internal_spk_managers) {
+        if (int_spkm) spk_mans.insert(int_spkm);
     }
     return spk_mans;
 }
@@ -3948,6 +4003,7 @@ void CWallet::SetupDescriptorScriptPubKeyMans(WalletBatch& batch, const CExtKey&
     AssertLockHeld(cs_wallet);
     for (bool internal : {false, true}) {
         for (OutputType t : OUTPUT_TYPES) {
+            if (!OutputTypeIsAllowed(t)) continue;
             SetupDescriptorScriptPubKeyMan(batch, master_key, t, internal);
         }
     }

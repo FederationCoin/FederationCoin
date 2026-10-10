@@ -41,15 +41,11 @@ from itertools import product
 import time
 
 from test_framework.blocktools import (
+    add_witness_commitment,
     create_block,
     create_coinbase,
 )
 from test_framework.p2p import P2PDataStore
-from test_framework.script import (
-    CScript,
-    OP_CHECKSEQUENCEVERIFY,
-    OP_DROP,
-)
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
@@ -57,11 +53,10 @@ from test_framework.util import (
 )
 from test_framework.wallet import (
     MiniWallet,
-    MiniWalletMode,
 )
 
-TESTING_TX_COUNT = 83  # Number of testing transactions: 1 BIP113 tx, 16 BIP68 txs, 66 BIP112 txs (see comments above)
-COINBASE_BLOCK_COUNT = TESTING_TX_COUNT  # Number of coinbase blocks we need to generate as inputs for our txs
+TESTING_TX_COUNT = 17  # 1 BIP113 tx + 16 BIP68 txs. OP_CSV scriptSig is not a spend.
+COINBASE_BLOCK_COUNT = TESTING_TX_COUNT
 BASE_RELATIVE_LOCKTIME = 10
 SEQ_DISABLE_FLAG = 1 << 31
 SEQ_RANDOM_HIGH_BIT = 1 << 25
@@ -107,22 +102,6 @@ class BIP68_112_113Test(BitcoinTestFramework):
         tx = self.miniwallet.create_self_transfer(utxo_to_spend=utxo)['tx']
         return tx
 
-    def create_bip112special(self, input, txversion):
-        tx = self.create_self_transfer_from_utxo(input)
-        tx.version = txversion
-        self.miniwallet.sign_tx(tx)
-        tx.vin[0].scriptSig = CScript([-1, OP_CHECKSEQUENCEVERIFY, OP_DROP] + list(CScript(tx.vin[0].scriptSig)))
-        tx.rehash()
-        return tx
-
-    def create_bip112emptystack(self, input, txversion):
-        tx = self.create_self_transfer_from_utxo(input)
-        tx.version = txversion
-        self.miniwallet.sign_tx(tx)
-        tx.vin[0].scriptSig = CScript([OP_CHECKSEQUENCEVERIFY] + list(CScript(tx.vin[0].scriptSig)))
-        tx.rehash()
-        return tx
-
     def send_generic_input_tx(self, coinbases):
         input_txid = self.nodes[0].getblock(coinbases.pop(), 2)['tx'][0]['txid']
         utxo_to_spend = self.miniwallet.get_utxo(txid=input_txid)
@@ -142,27 +121,6 @@ class BIP68_112_113Test(BitcoinTestFramework):
 
         return txs
 
-    def create_bip112txs(self, bip112inputs, varyOP_CSV, txversion, locktime_delta=0):
-        """Returns a list of bip68 transactions with different bits set."""
-        txs = []
-        assert len(bip112inputs) >= 16
-        for i, (sdf, srhb, stf, srlb) in enumerate(product(*[[True, False]] * 4)):
-            locktime = relative_locktime(sdf, srhb, stf, srlb)
-            tx = self.create_self_transfer_from_utxo(bip112inputs[i])
-            if varyOP_CSV:  # if varying OP_CSV, nSequence is fixed
-                tx.vin[0].nSequence = BASE_RELATIVE_LOCKTIME + locktime_delta
-            else:  # vary nSequence instead, OP_CSV is fixed
-                tx.vin[0].nSequence = locktime + locktime_delta
-            tx.version = txversion
-            self.miniwallet.sign_tx(tx)
-            if varyOP_CSV:
-                tx.vin[0].scriptSig = CScript([locktime, OP_CHECKSEQUENCEVERIFY, OP_DROP] + list(CScript(tx.vin[0].scriptSig)))
-            else:
-                tx.vin[0].scriptSig = CScript([BASE_RELATIVE_LOCKTIME, OP_CHECKSEQUENCEVERIFY, OP_DROP] + list(CScript(tx.vin[0].scriptSig)))
-            tx.rehash()
-            txs.append({'tx': tx, 'sdf': sdf, 'stf': stf})
-        return txs
-
     def generate_blocks(self, number):
         test_blocks = []
         for _ in range(number):
@@ -174,7 +132,9 @@ class BIP68_112_113Test(BitcoinTestFramework):
         return test_blocks
 
     def create_test_block(self, txs):
-        block = create_block(self.tip, create_coinbase(self.tipheight + 1), self.last_block_time + 600, txlist=txs)
+        block = create_block(self.tip, create_coinbase(self.tipheight + 1), self.last_block_time + 600, txlist=txs, height=self.tipheight + 1)
+        if txs:
+            add_witness_commitment(block)
         block.solve()
         return block
 
@@ -186,7 +146,7 @@ class BIP68_112_113Test(BitcoinTestFramework):
 
     def run_test(self):
         self.helper_peer = self.nodes[0].add_p2p_connection(P2PDataStore())
-        self.miniwallet = MiniWallet(self.nodes[0], mode=MiniWalletMode.RAW_P2PK)
+        self.miniwallet = MiniWallet(self.nodes[0])
 
         self.log.info("Generate blocks in the past for coinbase outputs.")
         long_past_time = int(time.time()) - 600 * 1000  # enough to build up to 1000 blocks 10 minutes apart without worrying about getting into the future
@@ -207,33 +167,10 @@ class BIP68_112_113Test(BitcoinTestFramework):
         #
         # Put inputs for all tests in the chain at height 431 (tip now = 430) (time increases by 600s per block)
         # Note we reuse inputs for v1 and v2 txs so must test these separately
-        # 16 normal inputs
+        # 16 BIP68 inputs and 1 BIP113 input
         bip68inputs = []
         for _ in range(16):
             bip68inputs.append(self.send_generic_input_tx(self.coinbase_blocks))
-
-        # 2 sets of 16 inputs with 10 OP_CSV OP_DROP (actually will be prepended to spending scriptSig)
-        bip112basicinputs = []
-        for _ in range(2):
-            inputs = []
-            for _ in range(16):
-                inputs.append(self.send_generic_input_tx(self.coinbase_blocks))
-            bip112basicinputs.append(inputs)
-
-        # 2 sets of 16 varied inputs with (relative_lock_time) OP_CSV OP_DROP (actually will be prepended to spending scriptSig)
-        bip112diverseinputs = []
-        for _ in range(2):
-            inputs = []
-            for _ in range(16):
-                inputs.append(self.send_generic_input_tx(self.coinbase_blocks))
-            bip112diverseinputs.append(inputs)
-
-        # 1 special input with -1 OP_CSV OP_DROP (actually will be prepended to spending scriptSig)
-        bip112specialinput = self.send_generic_input_tx(self.coinbase_blocks)
-        # 1 special input with (empty stack) OP_CSV (actually will be prepended to spending scriptSig)
-        bip112emptystackinput = self.send_generic_input_tx(self.coinbase_blocks)
-
-        # 1 normal input
         bip113input = self.send_generic_input_tx(self.coinbase_blocks)
 
         self.nodes[0].setmocktime(self.last_block_time + 600)
@@ -265,66 +202,27 @@ class BIP68_112_113Test(BitcoinTestFramework):
         bip68txs_v1 = self.create_bip68txs(bip68inputs, 1)
         bip68txs_v2 = self.create_bip68txs(bip68inputs, 2)
 
-        # For BIP112 test:
-        # 16 relative sequence locktimes of 10 against 10 OP_CSV OP_DROP inputs
-        bip112txs_vary_nSequence_v1 = self.create_bip112txs(bip112basicinputs[0], False, 1)
-        bip112txs_vary_nSequence_v2 = self.create_bip112txs(bip112basicinputs[0], False, 2)
-        # 16 relative sequence locktimes of 9 against 10 OP_CSV OP_DROP inputs
-        bip112txs_vary_nSequence_9_v1 = self.create_bip112txs(bip112basicinputs[1], False, 1, -1)
-        bip112txs_vary_nSequence_9_v2 = self.create_bip112txs(bip112basicinputs[1], False, 2, -1)
-        # sequence lock time of 10 against 16 (relative_lock_time) OP_CSV OP_DROP inputs
-        bip112txs_vary_OP_CSV_v1 = self.create_bip112txs(bip112diverseinputs[0], True, 1)
-        bip112txs_vary_OP_CSV_v2 = self.create_bip112txs(bip112diverseinputs[0], True, 2)
-        # sequence lock time of 9 against 16 (relative_lock_time) OP_CSV OP_DROP inputs
-        bip112txs_vary_OP_CSV_9_v1 = self.create_bip112txs(bip112diverseinputs[1], True, 1, -1)
-        bip112txs_vary_OP_CSV_9_v2 = self.create_bip112txs(bip112diverseinputs[1], True, 2, -1)
-        # -1 OP_CSV OP_DROP input
-        bip112tx_special_v1 = self.create_bip112special(bip112specialinput, 1)
-        bip112tx_special_v2 = self.create_bip112special(bip112specialinput, 2)
-        # (empty stack) OP_CSV input
-        bip112tx_emptystack_v1 = self.create_bip112emptystack(bip112emptystackinput, 1)
-        bip112tx_emptystack_v2 = self.create_bip112emptystack(bip112emptystackinput, 2)
-
         self.log.info("TESTING")
 
         self.log.info("Pre-Soft Fork Tests. All txs should pass.")
         self.log.info("Test version 1 txs")
 
         success_txs = []
-        # BIP113 tx, -1 CSV tx and empty stack CSV tx should succeed
+        # nLockTime / BIP68 still apply to ML-DSA-44 spends. OP_CSV in scriptSig does not.
         bip113tx_v1.nLockTime = self.last_block_time - 600 * 5  # = MTP of prior block (not <) but < time put on current block
         self.miniwallet.sign_tx(bip113tx_v1)
         success_txs.append(bip113tx_v1)
-        success_txs.append(bip112tx_special_v1)
-        success_txs.append(bip112tx_emptystack_v1)
-        # add BIP 68 txs
         success_txs.extend(all_rlt_txs(bip68txs_v1))
-        # add BIP 112 with seq=10 txs
-        success_txs.extend(all_rlt_txs(bip112txs_vary_nSequence_v1))
-        success_txs.extend(all_rlt_txs(bip112txs_vary_OP_CSV_v1))
-        # try BIP 112 with seq=9 txs
-        success_txs.extend(all_rlt_txs(bip112txs_vary_nSequence_9_v1))
-        success_txs.extend(all_rlt_txs(bip112txs_vary_OP_CSV_9_v1))
         self.send_blocks([self.create_test_block(success_txs)])
         self.nodes[0].invalidateblock(self.nodes[0].getbestblockhash())
 
         self.log.info("Test version 2 txs")
 
         success_txs = []
-        # BIP113 tx, -1 CSV tx and empty stack CSV tx should succeed
         bip113tx_v2.nLockTime = self.last_block_time - 600 * 5  # = MTP of prior block (not <) but < time put on current block
         self.miniwallet.sign_tx(bip113tx_v2)
         success_txs.append(bip113tx_v2)
-        success_txs.append(bip112tx_special_v2)
-        success_txs.append(bip112tx_emptystack_v2)
-        # add BIP 68 txs
         success_txs.extend(all_rlt_txs(bip68txs_v2))
-        # add BIP 112 with seq=10 txs
-        success_txs.extend(all_rlt_txs(bip112txs_vary_nSequence_v2))
-        success_txs.extend(all_rlt_txs(bip112txs_vary_OP_CSV_v2))
-        # try BIP 112 with seq=9 txs
-        success_txs.extend(all_rlt_txs(bip112txs_vary_nSequence_9_v2))
-        success_txs.extend(all_rlt_txs(bip112txs_vary_OP_CSV_9_v2))
         self.send_blocks([self.create_test_block(success_txs)])
         self.nodes[0].invalidateblock(self.nodes[0].getbestblockhash())
 
@@ -402,82 +300,7 @@ class BIP68_112_113Test(BitcoinTestFramework):
         self.send_blocks([self.create_test_block(bip68success_txs)])
         self.nodes[0].invalidateblock(self.nodes[0].getbestblockhash())
 
-        self.log.info("BIP 112 tests")
-        self.log.info("Test version 1 txs")
-
-        # -1 OP_CSV tx and (empty stack) OP_CSV tx should fail
-        self.send_blocks([self.create_test_block([bip112tx_special_v1])], success=False,
-                         reject_reason='mandatory-script-verify-flag-failed (Negative locktime)')
-        self.send_blocks([self.create_test_block([bip112tx_emptystack_v1])], success=False,
-                         reject_reason='mandatory-script-verify-flag-failed (Operation not valid with the current stack size)')
-        # If SEQUENCE_LOCKTIME_DISABLE_FLAG is set in argument to OP_CSV, version 1 txs should still pass
-
-        success_txs = [tx['tx'] for tx in bip112txs_vary_OP_CSV_v1 if tx['sdf']]
-        success_txs += [tx['tx'] for tx in bip112txs_vary_OP_CSV_9_v1 if tx['sdf']]
-        self.send_blocks([self.create_test_block(success_txs)])
-        self.nodes[0].invalidateblock(self.nodes[0].getbestblockhash())
-
-        # If SEQUENCE_LOCKTIME_DISABLE_FLAG is unset in argument to OP_CSV, version 1 txs should now fail
-        fail_txs = all_rlt_txs(bip112txs_vary_nSequence_v1)
-        fail_txs += all_rlt_txs(bip112txs_vary_nSequence_9_v1)
-        fail_txs += [tx['tx'] for tx in bip112txs_vary_OP_CSV_v1 if not tx['sdf']]
-        fail_txs += [tx['tx'] for tx in bip112txs_vary_OP_CSV_9_v1 if not tx['sdf']]
-        for tx in fail_txs:
-            self.send_blocks([self.create_test_block([tx])], success=False,
-                             reject_reason='mandatory-script-verify-flag-failed (Locktime requirement not satisfied)')
-
-        self.log.info("Test version 2 txs")
-
-        # -1 OP_CSV tx and (empty stack) OP_CSV tx should fail
-        self.send_blocks([self.create_test_block([bip112tx_special_v2])], success=False,
-                         reject_reason='mandatory-script-verify-flag-failed (Negative locktime)')
-        self.send_blocks([self.create_test_block([bip112tx_emptystack_v2])], success=False,
-                         reject_reason='mandatory-script-verify-flag-failed (Operation not valid with the current stack size)')
-
-        # If SEQUENCE_LOCKTIME_DISABLE_FLAG is set in argument to OP_CSV, version 2 txs should pass (all sequence locks are met)
-        success_txs = [tx['tx'] for tx in bip112txs_vary_OP_CSV_v2 if tx['sdf']]
-        success_txs += [tx['tx'] for tx in bip112txs_vary_OP_CSV_9_v2 if tx['sdf']]
-
-        self.send_blocks([self.create_test_block(success_txs)])
-        self.nodes[0].invalidateblock(self.nodes[0].getbestblockhash())
-
-        # SEQUENCE_LOCKTIME_DISABLE_FLAG is unset in argument to OP_CSV for all remaining txs ##
-
-        # All txs with nSequence 9 should fail either due to earlier mismatch or failing the CSV check
-        fail_txs = all_rlt_txs(bip112txs_vary_nSequence_9_v2)
-        fail_txs += [tx['tx'] for tx in bip112txs_vary_OP_CSV_9_v2 if not tx['sdf']]
-        for tx in fail_txs:
-            self.send_blocks([self.create_test_block([tx])], success=False,
-                             reject_reason='mandatory-script-verify-flag-failed (Locktime requirement not satisfied)')
-
-        # If SEQUENCE_LOCKTIME_DISABLE_FLAG is set in nSequence, tx should fail
-        fail_txs = [tx['tx'] for tx in bip112txs_vary_nSequence_v2 if tx['sdf']]
-        for tx in fail_txs:
-            self.send_blocks([self.create_test_block([tx])], success=False,
-                             reject_reason='mandatory-script-verify-flag-failed (Locktime requirement not satisfied)')
-
-        # If sequencelock types mismatch, tx should fail
-        fail_txs = [tx['tx'] for tx in bip112txs_vary_nSequence_v2 if not tx['sdf'] and tx['stf']]
-        fail_txs += [tx['tx'] for tx in bip112txs_vary_OP_CSV_v2 if not tx['sdf'] and tx['stf']]
-        for tx in fail_txs:
-            self.send_blocks([self.create_test_block([tx])], success=False,
-                             reject_reason='mandatory-script-verify-flag-failed (Locktime requirement not satisfied)')
-
-        # Remaining txs should pass, just test masking works properly
-        success_txs = [tx['tx'] for tx in bip112txs_vary_nSequence_v2 if not tx['sdf'] and not tx['stf']]
-        success_txs += [tx['tx'] for tx in bip112txs_vary_OP_CSV_v2 if not tx['sdf'] and not tx['stf']]
-        self.send_blocks([self.create_test_block(success_txs)])
-        self.nodes[0].invalidateblock(self.nodes[0].getbestblockhash())
-
-        # Additional test, of checking that comparison of two time types works properly
-        time_txs = []
-        for tx in [tx['tx'] for tx in bip112txs_vary_OP_CSV_v2 if not tx['sdf'] and tx['stf']]:
-            tx.vin[0].nSequence = BASE_RELATIVE_LOCKTIME | SEQ_TYPE_FLAG
-            self.miniwallet.sign_tx(tx)
-            time_txs.append(tx)
-
-        self.send_blocks([self.create_test_block(time_txs)])
-        self.nodes[0].invalidateblock(self.nodes[0].getbestblockhash())
+        self.log.info("OP_CSV scriptSig is not a spend; BIP68 nSequence covers relative locks")
 
 
 if __name__ == '__main__':

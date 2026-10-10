@@ -4,6 +4,7 @@
 
 #include <common/bloom.h>
 
+#include <base58.h>
 #include <clientversion.h>
 #include <common/system.h>
 #include <key.h>
@@ -83,7 +84,12 @@ BOOST_AUTO_TEST_CASE(bloom_create_insert_serialize_with_tweak)
 BOOST_AUTO_TEST_CASE(bloom_create_insert_key)
 {
     std::string strSecret = std::string("5Kg1gnAjaLfKiwhhPpGS3QfRg2m6awQvaj98JCZBZQ5SuS2F15C");
-    CKey key = DecodeSecret(strSecret);
+    CKey key;
+    std::vector<unsigned char> wif_data;
+    BOOST_REQUIRE(DecodeBase58Check(strSecret, wif_data, 34));
+    BOOST_REQUIRE(wif_data.size() == 33 || (wif_data.size() == 34 && wif_data.back() == 1));
+    key.Set(wif_data.begin() + 1, wif_data.begin() + 33, wif_data.size() == 34);
+    BOOST_REQUIRE(key.IsValid());
     CPubKey pubkey = key.GetPubKey();
     std::vector<unsigned char> vchPubKey(pubkey.begin(), pubkey.end());
 

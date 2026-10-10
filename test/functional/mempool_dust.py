@@ -46,17 +46,24 @@ class DustRelayFeeTest(BitcoinTestFramework):
                          output_script: CScript, type_desc: str) -> None:
         # determine dust threshold (see `GetDustThreshold`)
         if output_script[0] == OP_RETURN:
-            dust_threshold = 0
-        else:
-            tx_size = len(CTxOut(nValue=0, scriptPubKey=output_script).serialize())
-            tx_size += 67 if output_script.IsWitnessProgram() else 148
-            dust_threshold = int(get_fee(tx_size, dust_relay_fee) * COIN)
+            self.log.info(f"-> Test {type_desc} output (rejected)")
+            tx = self.wallet.create_self_transfer()["tx"]
+            tx.vout.append(CTxOut(nValue=0, scriptPubKey=output_script))
+            res = node.testmempoolaccept([tx.serialize().hex()])[0]
+            assert_equal(res['allowed'], False)
+            assert_equal(res['reject-reason'], 'bad-txns-datacarrier')
+            return
+
+        tx_size = len(CTxOut(nValue=0, scriptPubKey=output_script).serialize())
+        tx_size += 67 if output_script.IsWitnessProgram() else 148
+        dust_threshold = int(get_fee(tx_size, dust_relay_fee) * COIN)
         self.log.info(f"-> Test {type_desc} output (size {len(output_script)}, limit {dust_threshold})")
 
         # amount right on the dust threshold should pass
         tx = self.wallet.create_self_transfer()["tx"]
         tx.vout.append(CTxOut(nValue=dust_threshold, scriptPubKey=output_script))
         tx.vout[0].nValue -= dust_threshold  # keep total output value constant
+        self.wallet.resign(tx)
         tx_good_hex = tx.serialize().hex()
         res = node.testmempoolaccept([tx_good_hex])[0]
         assert_equal(res['allowed'], True)
@@ -64,6 +71,7 @@ class DustRelayFeeTest(BitcoinTestFramework):
         # amount just below the dust threshold should fail
         if dust_threshold > 0:
             tx.vout[1].nValue -= 1
+            self.wallet.resign(tx)
             res = node.testmempoolaccept([tx.serialize().hex()])[0]
             assert_equal(res['allowed'], False)
             assert_equal(res['reject-reason'], 'dust')
@@ -114,16 +122,25 @@ class DustRelayFeeTest(BitcoinTestFramework):
             (key_to_p2wpkh_script(pubkey), "P2WPKH", 22),
             (script_to_p2wsh_script(CScript([OP_TRUE])), "P2WSH", 34),
             (script_to_p2sh_script(CScript([OP_TRUE])), "P2SH", 23),
-            (output_key_to_p2tr_script(pubkey[1:]), "P2TR", 34),
         ]
 
         for script, name, expected_size in passing_scripts:
             assert_equal(len(script), expected_size)
             tx = self.wallet.create_self_transfer()["tx"]
             tx.vout.append(CTxOut(nValue=1000, scriptPubKey=script))
+            self.wallet.resign(tx)
             res = node.testmempoolaccept([tx.serialize().hex()])[0]
             assert_equal(res['allowed'], True)
             self.log.info(f"   ✓ {name} ({expected_size} bytes) accepted")
+
+        self.log.info("-> Testing P2TR (34 bytes) - witness v1 is rejected")
+        p2tr_script = output_key_to_p2tr_script(pubkey[1:])
+        assert_equal(len(p2tr_script), 34)
+        tx = self.wallet.create_self_transfer()["tx"]
+        tx.vout.append(CTxOut(nValue=1000, scriptPubKey=p2tr_script))
+        res = node.testmempoolaccept([tx.serialize().hex()])[0]
+        assert_equal(res['allowed'], False)
+        assert 'taproot' in res['reject-reason'].lower(), res['reject-reason']
 
         # Test Case 2: P2PK with compressed pubkey (35 bytes) should be rejected
         self.log.info("-> Testing P2PK compressed (35 bytes) - should be rejected")
@@ -161,6 +178,7 @@ class DustRelayFeeTest(BitcoinTestFramework):
         assert_equal(len(script_34), 34)
         tx = self.wallet.create_self_transfer()["tx"]
         tx.vout.append(CTxOut(nValue=1000, scriptPubKey=script_34))
+        self.wallet.resign(tx)
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
         assert_equal(res['allowed'], True)
         self.log.info("   ✓ Exactly 34 bytes accepted (boundary)")
@@ -181,7 +199,6 @@ class DustRelayFeeTest(BitcoinTestFramework):
         self.test_output_size_limit()
 
         # prepare output scripts of each standard type
-        _, uncompressed_pubkey = generate_keypair(compressed=False)
         _, pubkey = generate_keypair(compressed=True)
 
         output_scripts = (
@@ -189,12 +206,20 @@ class DustRelayFeeTest(BitcoinTestFramework):
             (script_to_p2sh_script(CScript([OP_TRUE])),        "P2SH"),
             (key_to_p2wpkh_script(pubkey),                     "P2WPKH"),
             (script_to_p2wsh_script(CScript([OP_TRUE])),       "P2WSH"),
-            (output_key_to_p2tr_script(pubkey[1:]),            "P2TR"),
-            # witness programs for segwitv2+ can be between 2 and 40 bytes
-            (program_to_witness_script(2,  b'\x66' * 2),       "P2?? (future witness version 2)"),
-            (program_to_witness_script(16, b'\x77' * 32),      "P2?? (future witness version 16)"),
             (CScript([OP_RETURN, b'superimportanthash']),      "null data (OP_RETURN)"),
         )
+        rejected_scripts = (
+            (output_key_to_p2tr_script(pubkey[1:]),            "P2TR"),
+            (program_to_witness_script(2,  b'\x66' * 2),       "future witness version 2"),
+            (program_to_witness_script(16, b'\x77' * 32),      "future witness version 16"),
+        )
+        for output_script, description in rejected_scripts:
+            tx = self.wallet.create_self_transfer()["tx"]
+            tx.vout.append(CTxOut(nValue=100000, scriptPubKey=output_script))
+            res = self.nodes[0].testmempoolaccept([tx.serialize().hex()])[0]
+            assert_equal(res['allowed'], False)
+            assert 'taproot' in res['reject-reason'].lower() or 'witness' in res['reject-reason'].lower(), res['reject-reason']
+            self.log.info(f"-> {description} rejected: {res['reject-reason']}")
 
         # test default (no parameter), disabled (=0) and a bunch of arbitrary dust fee rates [sat/kvB]
         for dustfee_sat_kvb in (DUST_RELAY_TX_FEE, 0, 1, 66, 500, 1337, 12345, 21212, 333333):

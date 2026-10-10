@@ -50,7 +50,7 @@ BITCOIND_PROC_WAIT_TIMEOUT = 60
 NUM_XOR_BYTES = 8
 # The null blocks key (all 0s)
 NULL_BLK_XOR_KEY = bytes([0] * NUM_XOR_BYTES)
-BITCOIN_PID_FILENAME_DEFAULT = "bitcoind.pid"
+BITCOIN_PID_FILENAME_DEFAULT = "federationcoind.pid"
 
 
 class FailedToStartError(Exception):
@@ -77,7 +77,7 @@ class TestNode():
     To make things easier for the test writer, any unrecognised messages will
     be dispatched to the RPC connection."""
 
-    def __init__(self, i, datadir_path, *, chain, rpchost, timewait, timeout_factor, bitcoind, bitcoin_cli, coverage_dir, cwd, extra_conf=None, extra_args=None, use_cli=False, start_perf=False, use_valgrind=False, version=None, descriptors=False, v2transport=False):
+    def __init__(self, i, datadir_path, *, chain, rpchost, timewait, timeout_factor, bitcoind, bitcoin_cli, coverage_dir, cwd, extra_conf=None, extra_args=None, use_cli=False, start_perf=False, use_valgrind=False, version=None, descriptors=False, v2transport=False, wallet_compiled=True):
         """
         Kwargs:
             start_perf (bool): If True, begin profiling the node with `perf` as soon as
@@ -87,7 +87,7 @@ class TestNode():
         self.index = i
         self.p2p_conn_index = 1
         self.datadir_path = datadir_path
-        self.bitcoinconf = self.datadir_path / "bitcoin.conf"
+        self.bitcoinconf = self.datadir_path / "federationcoin.conf"
         self.stdout_dir = self.datadir_path / "stdout"
         self.stderr_dir = self.datadir_path / "stderr"
         self.chain = chain
@@ -98,6 +98,7 @@ class TestNode():
         self.coverage_dir = coverage_dir
         self.cwd = cwd
         self.descriptors = descriptors
+        self.wallet_compiled = wallet_compiled
         self.has_explicit_bind = False
         if extra_conf is not None:
             append_config(self.datadir_path, extra_conf)
@@ -108,7 +109,7 @@ class TestNode():
         # Note that common args are set in the config file (see initialize_datadir)
         self.extra_args = extra_args
         self.version = version
-        # Configuration for logging is set as command-line args rather than in the bitcoin.conf file.
+        # Configuration for logging is set as command-line args rather than in the federationcoin.conf file.
         # This means that starting a bitcoind using the temp dir to debug a failed test won't
         # spam debug.log.
         self.args = [
@@ -184,18 +185,18 @@ class TestNode():
     AddressKeyPair = collections.namedtuple('AddressKeyPair', ['address', 'key'])
     PRIV_KEYS = [
             # address , privkey
-            AddressKeyPair('mjTkW3DjgyZck4KbiRusZsqTgaYTxdSz6z', 'cVpF924EspNh8KjYsfhgY96mmxvT6DgdWiTYMtMjuM74hJaU5psW'),
-            AddressKeyPair('msX6jQXvxiNhx3Q62PKeLPrhrqZQdSimTg', 'cUxsWyKyZ9MAQTaAhUQWJmBbSvHMwSmuv59KgxQV7oZQU3PXN3KE'),
-            AddressKeyPair('mnonCMyH9TmAsSj3M59DsbH8H63U3RKoFP', 'cTrh7dkEAeJd6b3MRX9bZK8eRmNqVCMH3LSUkE3dSFDyzjU38QxK'),
-            AddressKeyPair('mqJupas8Dt2uestQDvV2NH3RU8uZh2dqQR', 'cVuKKa7gbehEQvVq717hYcbE9Dqmq7KEBKqWgWrYBa2CKKrhtRim'),
-            AddressKeyPair('msYac7Rvd5ywm6pEmkjyxhbCDKqWsVeYws', 'cQDCBuKcjanpXDpCqacNSjYfxeQj8G6CAtH1Dsk3cXyqLNC4RPuh'),
-            AddressKeyPair('n2rnuUnwLgXqf9kk2kjvVm8R5BZK1yxQBi', 'cQakmfPSLSqKHyMFGwAqKHgWUiofJCagVGhiB4KCainaeCSxeyYq'),
-            AddressKeyPair('myzuPxRwsf3vvGzEuzPfK9Nf2RfwauwYe6', 'cQMpDLJwA8DBe9NcQbdoSb1BhmFxVjWD5gRyrLZCtpuF9Zi3a9RK'),
-            AddressKeyPair('mumwTaMtbxEPUswmLBBN3vM9oGRtGBrys8', 'cSXmRKXVcoouhNNVpcNKFfxsTsToY5pvB9DVsFksF1ENunTzRKsy'),
-            AddressKeyPair('mpV7aGShMkJCZgbW7F6iZgrvuPHjZjH9qg', 'cSoXt6tm3pqy43UMabY6eUTmR3eSUYFtB2iNQDGgb3VUnRsQys2k'),
-            AddressKeyPair('mq4fBNdckGtvY2mijd9am7DRsbRB4KjUkf', 'cN55daf1HotwBAgAKWVgDcoppmUNDtQSfb7XLutTLeAgVc3u8hik'),
-            AddressKeyPair('mpFAHDjX7KregM3rVotdXzQmkbwtbQEnZ6', 'cT7qK7g1wkYEMvKowd2ZrX1E5f6JQ7TM246UfqbCiyF7kZhorpX3'),
-            AddressKeyPair('mzRe8QZMfGi58KyWCse2exxEFry2sfF2Y7', 'cPiRWE8KMjTRxH1MWkPerhfoHFn5iHPWVK5aPqjW8NxmdwenFinJ'),
+            AddressKeyPair('fJ46kJT8L69bf86DKiamosUscWRNe6Xzoc', 'a8Y9zSHr5MiVY3XG2TPPoMayo1i1jXLzueVTQcpE3h3gC1R2vHAd'),
+            AddressKeyPair('fS7SyfmKbpxgs7AhdfzYaPW7nmSKHRHaRh', 'a7gnNPZakggxpBMsrG6DZyfoTy4vakSHK1BEjgryG9W1xk7N5q8N'),
+            AddressKeyPair('fMQ8SdCfnaM9nWVexMp87avYD1vNjUPPuc', 'a6aby3yqNBeRWJq4aJqJpXcrSpAQ8W1eSGUPnxW7abAbVSJZxLDS'),
+            AddressKeyPair('fPuG4r6WrzctZwf1qD9vcGgqQ4nUEDLgyr', 'a8dEAzMHoC32peHYFnoQoq5SAGdLUQybaFsRjFK2Kuxop2iHMfhX'),
+            AddressKeyPair('fS8vrNfKGCZvgAarP3QtChEc9FiRZdfNNE', 'a2w73KZDw88cvwbuzNJ5hx2syhCHmZkZZpJvGcCXksvSq52HuAFz'),
+            AddressKeyPair('fbT99k2Kyo7paDXMe3Qpjkmq17SDh7E4ra', 'a3Jfd5d3XzB7hh8xRirYaWAiVmbDwWF3tCjdDnmgj4jC8uH9WppH'),
+            AddressKeyPair('fYbFeDfLWmduqLkrXH4ZZ924xMYrBAJFYX', 'a35j4kYYMfYz3sAKZPKWhoVPip3X93AaUcTtu51h3AqreGX4Lh3Q'),
+            AddressKeyPair('fUNHhqbHF4pNPwiNwTrGHuzZjCJnrhMWvc', 'a5FgGjm6pM9i76ACyQ42WtT5UvFNBPVHa5FQuzDMPMAzQVMY1q9M'),
+            AddressKeyPair('fP5TpXg5zrtBUkN7iXmcogWLqKAeFsd5Ky', 'a5XSjX8NFNBmTmG4jPDougwyS6S17qvFZxkHSwjAjPS6H8nbRpPJ'),
+            AddressKeyPair('fPf1Rds1PPUuT6YLLupV16rqoXJ5cdZCPR', 'ZznzUztcVMEjatTsUJBPUqJ2qpFvsC4p4X9SPeLwUz7HzJqi7Lx8'),
+            AddressKeyPair('fNqWXUxukSSdbQpU76ZXmz4BgXpoGpHhJD', 'a5qkAXud9Ht2me7X6QiH7jVS6hss3R7iQz8Pia3gsKBjFGXLSTwj'),
+            AddressKeyPair('fZ1zNfnkJPJ43Pk7pAJvtxbeBnqwRG4CSy', 'a2SLMeMvZGoEMzo4fY5N7vA1JJZeMb3stF7VSaBzGiuP8eWXaRTA'),
     ]
 
     def get_deterministic_priv_key(self):
@@ -237,7 +238,7 @@ class TestNode():
         # If listening and no -bind is given, then bitcoind would bind P2P ports on
         # 0.0.0.0:P and 127.0.0.1:P+1 (for incoming Tor connections), where P is
         # a unique port chosen by the test framework and configured as port=P in
-        # bitcoin.conf. To avoid collisions, change it to 127.0.0.1:tor_port().
+        # federationcoin.conf. To avoid collisions, change it to 127.0.0.1:tor_port().
         will_listen = all(e != "-nolisten" and e != "-listen=0" for e in extra_args)
         has_explicit_bind = self.has_explicit_bind or any(e.startswith("-bind=") for e in extra_args)
         if will_listen and not has_explicit_bind:
@@ -367,9 +368,50 @@ class TestNode():
             time.sleep(1.0 / poll_per_s)
         self._raise_assertion_error("Unable to retrieve cookie credentials after {}s".format(self.rpc_timeout))
 
+    def _has_disablewallet(self):
+        for arg in list(self.args or []) + list(self.extra_args or []):
+            if arg == "-disablewallet" or str(arg).startswith("-disablewallet="):
+                return True
+        return False
+
+    def _wallet_rpc_available(self):
+        """True only when wallet RPCs exist. Never probe them to decide."""
+        if not self.wallet_compiled or self.descriptors is None:
+            return False
+        return not self._has_disablewallet()
+
+    def _select_generate_address(self):
+        cached = getattr(self, "_generate_address", None)
+        if isinstance(cached, str):
+            return cached
+        if not self._wallet_rpc_available():
+            return self.get_deterministic_priv_key().address
+        wallets = self.listwallets()
+        if not wallets:
+            return self.get_deterministic_priv_key().address
+        name = "default_wallet" if "default_wallet" in wallets else wallets[0]
+        wrpc = self.get_wallet_rpc(name)
+        labels = wrpc.listlabels()
+        if isinstance(labels, list) and "coinbase" in labels:
+            labeled = wrpc.getaddressesbylabel("coinbase")
+            if isinstance(labeled, dict) and labeled:
+                addr = next(iter(labeled))
+                if isinstance(addr, str):
+                    self._generate_address = addr
+                    return addr
+        try:
+            addr = wrpc.getnewaddress()
+        except JSONRPCException:
+            return self.get_deterministic_priv_key().address
+        if not isinstance(addr, str):
+            return self.get_deterministic_priv_key().address
+        self._generate_address = addr
+        return addr
+
     def generate(self, nblocks, maxtries=1000000, **kwargs):
         self.log.debug("TestNode.generate() dispatches `generate` call to `generatetoaddress`")
-        return self.generatetoaddress(nblocks=nblocks, address=self.get_deterministic_priv_key().address, maxtries=maxtries, **kwargs)
+        address = self._select_generate_address()
+        return self.generatetoaddress(nblocks=nblocks, address=address, maxtries=maxtries, **kwargs)
 
     def generateblock(self, *args, called_by_framework, **kwargs):
         assert called_by_framework, "Direct call of this mining RPC is discouraged. Please use one of the self.generate* methods on the test framework, which sync the nodes to avoid intermittent test issues. You may use sync_fun=self.no_op to disable the sync explicitly."

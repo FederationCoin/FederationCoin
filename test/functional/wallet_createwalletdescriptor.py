@@ -18,6 +18,7 @@ class WalletCreateDescriptorTest(BitcoinTestFramework):
         self.add_wallet_options(parser, descriptors=True, legacy=False)
 
     def set_test_params(self):
+        self.keep_epic21_address_types = True
         self.setup_clean_chain = True
         self.num_nodes = 1
 
@@ -39,41 +40,41 @@ class WalletCreateDescriptorTest(BitcoinTestFramework):
         xprv = xpub_info[0]["xprv"]
         expected_descs = []
         for desc in def_wallet.listdescriptors()["descriptors"]:
-            if desc["desc"].startswith("wpkh("):
+            if desc["desc"].startswith("wpkh(") and "/84h/" in desc["desc"]:
                 expected_descs.append(desc["desc"])
 
-        assert_raises_rpc_error(-5, "Unable to determine which HD key to use from active descriptors. Please specify with 'hdkey'", wallet.createwalletdescriptor, "bech32")
-        assert_raises_rpc_error(-5, f"Private key for {xpub} is not known", wallet.createwalletdescriptor, type="bech32", hdkey=xpub)
+        assert_raises_rpc_error(-5, "Unable to determine which HD key to use from active descriptors. Please specify with 'hdkey'", wallet.createwalletdescriptor, "secp")
+        assert_raises_rpc_error(-5, f"Private key for {xpub} is not known", wallet.createwalletdescriptor, type="secp", hdkey=xpub)
+        assert_raises_rpc_error(-5, "Unknown address type", wallet.createwalletdescriptor, type="legacy")
 
         self.log.info("Test createwalletdescriptor after importing active descriptor to blank wallet")
-        # Import one active descriptor
         assert_equal(wallet.importdescriptors([{"desc": descsum_create(f"pkh({xprv}/44h/2h/0h/0/0/*)"), "timestamp": "now", "active": True}])[0]["success"], True)
         assert_equal(len(wallet.listdescriptors()["descriptors"]), 1)
         assert_equal(len(wallet.gethdkeys()), 1)
 
-        new_descs = wallet.createwalletdescriptor("bech32")["descs"]
+        new_descs = wallet.createwalletdescriptor("secp")["descs"]
         assert_equal(len(new_descs), 2)
         assert_equal(len(wallet.gethdkeys()), 1)
         assert_equal(new_descs, expected_descs)
 
         self.log.info("Test descriptor creation options")
         old_descs = set([(d["desc"], d["active"], d["internal"]) for d in wallet.listdescriptors(private=True)["descriptors"]])
-        wallet.createwalletdescriptor(type="bech32m", internal=False)
+        wallet.createwalletdescriptor(type="mldsa87", internal=False)
         curr_descs = set([(d["desc"], d["active"], d["internal"]) for d in wallet.listdescriptors(private=True)["descriptors"]])
         new_descs = list(curr_descs - old_descs)
         assert_equal(len(new_descs), 1)
         assert_equal(len(wallet.gethdkeys()), 1)
-        assert_equal(new_descs[0][0], descsum_create(f"tr({xprv}/86h/1h/0h/0/*)"))
+        assert_equal(new_descs[0][0], descsum_create(f"mldsa87({xprv}/87h/1h/0h/0/*)"))
         assert_equal(new_descs[0][1], True)
         assert_equal(new_descs[0][2], False)
 
         old_descs = curr_descs
-        wallet.createwalletdescriptor(type="bech32m", internal=True)
+        wallet.createwalletdescriptor(type="mldsa87", internal=True)
         curr_descs = set([(d["desc"], d["active"], d["internal"]) for d in wallet.listdescriptors(private=True)["descriptors"]])
         new_descs = list(curr_descs - old_descs)
         assert_equal(len(new_descs), 1)
         assert_equal(len(wallet.gethdkeys()), 1)
-        assert_equal(new_descs[0][0], descsum_create(f"tr({xprv}/86h/1h/0h/1/*)"))
+        assert_equal(new_descs[0][0], descsum_create(f"mldsa87({xprv}/87h/1h/0h/1/*)"))
         assert_equal(new_descs[0][1], True)
         assert_equal(new_descs[0][2], True)
 
@@ -92,12 +93,11 @@ class WalletCreateDescriptorTest(BitcoinTestFramework):
         assert_equal(wallet.importdescriptors([{"desc": descsum_create(f"wpkh({xprv}/0/0/*)"), "timestamp": "now", "active": True}])[0]["success"], True)
         assert_equal(len(wallet.gethdkeys()), 2)
 
-        assert_raises_rpc_error(-5, "Unable to determine which HD key to use from active descriptors. Please specify with 'hdkey'", wallet.createwalletdescriptor, "bech32")
-        assert_raises_rpc_error(-4, "Descriptor already exists", wallet.createwalletdescriptor, type="bech32m", hdkey=wallet_xpub)
-        assert_raises_rpc_error(-5, "Unable to parse HD key. Please provide a valid xpub", wallet.createwalletdescriptor, type="bech32m", hdkey=xprv)
+        assert_raises_rpc_error(-5, "Unable to determine which HD key to use from active descriptors. Please specify with 'hdkey'", wallet.createwalletdescriptor, "secp")
+        assert_raises_rpc_error(-4, "Descriptor already exists", wallet.createwalletdescriptor, type="mldsa87", hdkey=wallet_xpub)
+        assert_raises_rpc_error(-5, "Unable to parse HD key. Please provide a valid xpub", wallet.createwalletdescriptor, type="mldsa44", hdkey=xprv)
 
-        # Able to replace tr() descriptor with other hd key
-        wallet.createwalletdescriptor(type="bech32m", hdkey=xpub)
+        wallet.createwalletdescriptor(type="mldsa44", hdkey=xpub)
 
     def test_encrypted(self):
         self.log.info("Test createwalletdescriptor with encrypted wallets")
@@ -112,11 +112,10 @@ class WalletCreateDescriptorTest(BitcoinTestFramework):
             assert_equal(wallet.importdescriptors([{"desc": descsum_create(f"wpkh({xprv}/0/0/*)"), "timestamp": "now", "active": True}])[0]["success"], True)
         assert_equal(len(wallet.gethdkeys()), 1)
 
-        assert_raises_rpc_error(-13, "Error: Please enter the wallet passphrase with walletpassphrase first.", wallet.createwalletdescriptor, type="bech32m")
+        assert_raises_rpc_error(-13, "Error: Please enter the wallet passphrase with walletpassphrase first.", wallet.createwalletdescriptor, type="mldsa87")
 
         with WalletUnlock(wallet, "pass"):
-            wallet.createwalletdescriptor(type="bech32m")
-
+            wallet.createwalletdescriptor(type="mldsa87")
 
 
 if __name__ == '__main__':

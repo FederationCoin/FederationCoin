@@ -3,8 +3,10 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 //
 #include <boost/test/unit_test.hpp>
+#include <algorithm>
 #include <core_memusage.h>
 #include <kernel/disconnected_transactions.h>
+#include <primitives/transaction.h>
 #include <test/util/setup_common.h>
 
 BOOST_FIXTURE_TEST_SUITE(disconnected_transactions, TestChain100Setup)
@@ -12,14 +14,8 @@ BOOST_FIXTURE_TEST_SUITE(disconnected_transactions, TestChain100Setup)
 //! Tests that DisconnectedBlockTransactions limits its own memory properly
 BOOST_AUTO_TEST_CASE(disconnectpool_memory_limits)
 {
-    // Use the coinbase transactions from TestChain100Setup. It doesn't matter whether these
-    // transactions would realistically be in a block together, they just need distinct txids and
-    // uniform size for this test to work.
     std::vector<CTransactionRef> block_vtx(m_coinbase_txns);
     BOOST_CHECK_EQUAL(block_vtx.size(), 100);
-
-    // Roughly estimate sizes to sanity check that DisconnectedBlockTransactions::DynamicMemoryUsage
-    // is within an expected range.
 
     // Overhead for the hashmap depends on number of buckets
     std::unordered_map<uint256, CTransaction*, SaltedTxidHasher> temp_map;
@@ -28,9 +24,20 @@ BOOST_AUTO_TEST_CASE(disconnectpool_memory_limits)
     temp_map.reserve(100);
     const size_t MAP_100{memusage::DynamicUsage(temp_map)};
 
-    const size_t TX_USAGE{RecursiveDynamicUsage(block_vtx.front())};
-    for (const auto& tx : block_vtx)
-        BOOST_CHECK_EQUAL(RecursiveDynamicUsage(tx), TX_USAGE);
+    // Headline + BIP34 height encoding make coinbase sizes vary. Use max usage
+    // for the 100-tx overestimate; pick two equal-size txs for the 1-slot cap.
+    size_t max_tx_usage{0};
+    CTransactionRef equal_a, equal_b;
+    for (size_t i = 0; i < block_vtx.size(); ++i) {
+        const size_t u{RecursiveDynamicUsage(block_vtx[i])};
+        max_tx_usage = std::max(max_tx_usage, u);
+        if (!equal_a && i + 1 < block_vtx.size() && u == RecursiveDynamicUsage(block_vtx[i + 1])) {
+            equal_a = block_vtx[i];
+            equal_b = block_vtx[i + 1];
+        }
+    }
+    BOOST_REQUIRE(equal_a && equal_b);
+    const size_t TX_USAGE{RecursiveDynamicUsage(equal_a)};
 
     // Our overall formula is unordered map overhead + usage per entry.
     // Implementations may vary, but we're trying to guess the usage of data structures.
@@ -47,14 +54,14 @@ BOOST_AUTO_TEST_CASE(disconnectpool_memory_limits)
         DisconnectedBlockTransactions disconnectpool{MAP_1 + ENTRY_USAGE_ESTIMATE};
         // Add just 2 (and not all 100) transactions to keep the unordered map's hashtable overhead
         // to a minimum and avoid all (instead of all but 1) transactions getting evicted.
-        std::vector<CTransactionRef> two_txns({block_vtx.at(0), block_vtx.at(1)});
+        std::vector<CTransactionRef> two_txns({equal_a, equal_b});
         auto evicted_txns{disconnectpool.AddTransactionsFromBlock(two_txns)};
         BOOST_CHECK(disconnectpool.DynamicMemoryUsage() <= MAP_1 + ENTRY_USAGE_ESTIMATE);
 
         // Only 1 transaction can be kept
         BOOST_CHECK_EQUAL(1, evicted_txns.size());
         // Transactions are added from back to front and eviction is FIFO.
-        BOOST_CHECK_EQUAL(block_vtx.at(1), evicted_txns.front());
+        BOOST_CHECK_EQUAL(equal_b, evicted_txns.front());
 
         disconnectpool.clear();
     }
@@ -63,7 +70,12 @@ BOOST_AUTO_TEST_CASE(disconnectpool_memory_limits)
     // Record usage so we can check size limiting in the next test.
     size_t usage_full{0};
     {
-        const size_t USAGE_100_OVERESTIMATE{MAP_100 + ENTRY_USAGE_ESTIMATE * 100};
+        const size_t ENTRY_USAGE_MAX{
+            max_tx_usage
+            + memusage::MallocUsage((2 * sizeof(void*)) + sizeof(decltype(block_vtx)::value_type))
+            + memusage::MallocUsage(sizeof(void*) + sizeof(decltype(temp_map)::key_type)
+                                    + sizeof(decltype(temp_map)::value_type))};
+        const size_t USAGE_100_OVERESTIMATE{MAP_100 + ENTRY_USAGE_MAX * 100};
         DisconnectedBlockTransactions disconnectpool{USAGE_100_OVERESTIMATE};
         auto evicted_txns{disconnectpool.AddTransactionsFromBlock(block_vtx)};
         BOOST_CHECK_EQUAL(evicted_txns.size(), 0);

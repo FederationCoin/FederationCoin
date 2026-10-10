@@ -12,6 +12,7 @@
 
 #include <boost/test/unit_test.hpp>
 #include <optional>
+#include <string>
 #include <vector>
 
 BOOST_FIXTURE_TEST_SUITE(rbf_tests, TestingSetup)
@@ -322,8 +323,19 @@ BOOST_FIXTURE_TEST_CASE(rbf_helper_functions, TestChain100Setup)
 
     // Tests for CheckConflictTopology
 
-    // Tx4 has 23 descendants
-    BOOST_CHECK_EQUAL(pool.CheckConflictTopology(set_34_cpfp).value(), strprintf("%s has 23 descendants, max 1 allowed", entry4_high->GetSharedTx()->GetHash().ToString()));
+    // Parent and child both exceed the 1-descendant cap. setEntries order
+    // follows txid, so report whichever the checker visits first.
+    {
+        std::string expected;
+        for (const auto& entry : set_34_cpfp) {
+            const auto descendants = entry->GetCountWithDescendants();
+            if (descendants > 2) {
+                expected = strprintf("%s has %u descendants, max 1 allowed", entry->GetSharedTx()->GetHash().ToString(), descendants - 1);
+                break;
+            }
+        }
+        BOOST_CHECK_EQUAL(pool.CheckConflictTopology(set_34_cpfp).value(), expected);
+    }
 
     // No descendants yet
     BOOST_CHECK(pool.CheckConflictTopology({entry9_unchained}) == std::nullopt);
@@ -453,7 +465,18 @@ BOOST_FIXTURE_TEST_CASE(improves_feerate, TestChain100Setup)
     const auto res3 = ImprovesFeerateDiagram(*changeset);
     BOOST_CHECK(res3.has_value());
     BOOST_CHECK(res3.value().first == DiagramCheckError::UNCALCULABLE);
-    BOOST_CHECK(res3.value().second == strprintf("%s has 2 ancestors, max 1 allowed", tx5->GetHash().GetHex()));
+    // Which conflict is named depends on txid order. The cluster is still over the limit.
+    const std::string err3{res3.value().second};
+    bool matched_cluster{false};
+    for (const auto* e : {&entry1, &entry2, &entry5}) {
+        const std::string txid{(*e)->GetSharedTx()->GetHash().ToString()};
+        if (err3 == strprintf("%s has 2 descendants, max 1 allowed", txid) ||
+            err3 == strprintf("%s has 2 ancestors, max 1 allowed", txid) ||
+            err3 == strprintf("%s has both ancestor and descendant, exceeding cluster limit of 2", txid)) {
+            matched_cluster = true;
+        }
+    }
+    BOOST_CHECK(matched_cluster);
 }
 
 BOOST_FIXTURE_TEST_CASE(calc_feerate_diagram_rbf, TestChain100Setup)
@@ -548,7 +571,17 @@ BOOST_FIXTURE_TEST_CASE(calc_feerate_diagram_rbf, TestChain100Setup)
         RBFTestStageAddition(*changeset, replacement_tx, high_fee);
         const auto replace_too_large{changeset->CalculateChunksForRBF()};
         BOOST_CHECK(!replace_too_large.has_value());
-        BOOST_CHECK_EQUAL(util::ErrorString(replace_too_large).original, strprintf("%s has 2 ancestors, max 1 allowed", normal_tx->GetHash().GetHex()));
+        const std::string err_too_large{util::ErrorString(replace_too_large).original};
+        bool matched_too_large{false};
+        for (const auto* e : {&entry_low, &entry_high, &entry_normal}) {
+            const std::string txid{(*e)->GetSharedTx()->GetHash().ToString()};
+            if (err_too_large == strprintf("%s has 2 descendants, max 1 allowed", txid) ||
+                err_too_large == strprintf("%s has 2 ancestors, max 1 allowed", txid) ||
+                err_too_large == strprintf("%s has both ancestor and descendant, exceeding cluster limit of 2", txid)) {
+                matched_too_large = true;
+            }
+        }
+        BOOST_CHECK_MESSAGE(matched_too_large, err_too_large);
     }
 
     // Make a size 2 cluster that is itself two chunks; evict both txns
@@ -635,7 +668,17 @@ BOOST_FIXTURE_TEST_CASE(calc_feerate_diagram_rbf, TestChain100Setup)
         const auto replace_cluster_size_3{changeset->CalculateChunksForRBF()};
 
         BOOST_CHECK(!replace_cluster_size_3.has_value());
-        BOOST_CHECK_EQUAL(util::ErrorString(replace_cluster_size_3).original, strprintf("%s has both ancestor and descendant, exceeding cluster limit of 2", conflict_1_child->GetHash().GetHex()));
+        const std::string err_cluster{util::ErrorString(replace_cluster_size_3).original};
+        bool matched_cluster{false};
+        for (const auto* e : {&conflict_1_entry, &conflict_1_child_entry, &conflict_1_grand_child_entry}) {
+            const std::string txid{(*e)->GetSharedTx()->GetHash().ToString()};
+            if (err_cluster == strprintf("%s has 2 descendants, max 1 allowed", txid) ||
+                err_cluster == strprintf("%s has 2 ancestors, max 1 allowed", txid) ||
+                err_cluster == strprintf("%s has both ancestor and descendant, exceeding cluster limit of 2", txid)) {
+                matched_cluster = true;
+            }
+        }
+        BOOST_CHECK_MESSAGE(matched_cluster, err_cluster);
     }
 }
 

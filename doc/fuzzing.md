@@ -84,12 +84,12 @@ $ FUZZ=address_deserialize_v2 build_fuzz/bin/fuzz -runs=1 fuzz_corpora/address_d
 
 ## Fuzzing corpora
 
-The project's collection of seed corpora is found in the [`bitcoin-core/qa-assets`](https://github.com/bitcoin-core/qa-assets) repo.
+The project's collection of seed corpora is found in the [`FederationCoin/qa-assets`](https://github.com/FederationCoin/qa-assets) repo.
 
-To fuzz `process_message` using the [`bitcoin-core/qa-assets`](https://github.com/bitcoin-core/qa-assets) seed corpus:
+To fuzz `process_message` using the [`FederationCoin/qa-assets`](https://github.com/FederationCoin/qa-assets) seed corpus:
 
 ```sh
-$ git clone https://github.com/bitcoin-core/qa-assets
+$ git clone https://github.com/FederationCoin/qa-assets
 $ FUZZ=process_message build_fuzz/bin/fuzz qa-assets/fuzz_corpora/process_message/
 INFO: Seed: 1346407872
 INFO: Loaded 1 modules   (424174 inline 8-bit counters): 424174 [0x55d8a9004ab8, 0x55d8a906c3a6),
@@ -121,7 +121,7 @@ will limit the ability to find new coverage. A good approach is to perform
 occasional long runs without the additional bug-detectors
 (`--preset=libfuzzer-nosan`) and then merge new inputs into a corpus as described in
 the qa-assets repo
-(https://github.com/bitcoin-core/qa-assets/blob/main/.github/PULL_REQUEST_TEMPLATE.md).
+(https://github.com/FederationCoin/qa-assets).
 Patience is useful; even with improved throughput, libFuzzer may need days and
 10s of millions of executions to reach deep/hard targets.
 
@@ -139,9 +139,9 @@ Patience is useful; even with improved throughput, libFuzzer may need days and
 
 ## Submit improved coverage
 
-If you find coverage increasing inputs when fuzzing you are highly encouraged to submit them for inclusion in the [`bitcoin-core/qa-assets`](https://github.com/bitcoin-core/qa-assets) repo.
+If you find coverage increasing inputs when fuzzing you are highly encouraged to submit them for inclusion in the [`FederationCoin/qa-assets`](https://github.com/FederationCoin/qa-assets) repo.
 
-Every single pull request submitted against the Bitcoin Core repo is automatically tested against all inputs in the [`bitcoin-core/qa-assets`](https://github.com/bitcoin-core/qa-assets) repo. Contributing new coverage increasing inputs is an easy way to help make Bitcoin Core more robust.
+FederationCoin pull requests run the fuzz gate against that copy. Contributing new coverage increasing inputs is an easy way to help make the node more robust. Do not open those PRs on bitcoin-core/qa-assets.
 
 ## macOS hints for libFuzzer
 

@@ -7,8 +7,12 @@
 #include <chain.h>
 #include <key.h>
 #include <key_io.h>
+#include <outputtype.h>
+#include <script/descriptor.h>
 #include <streams.h>
+#include <test/util/chain_encoding.h>
 #include <test/util/setup_common.h>
+#include <stdexcept>
 #include <validationinterface.h>
 #include <wallet/context.h>
 #include <wallet/wallet.h>
@@ -23,7 +27,7 @@ std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, CChain& cc
     {
         LOCK2(wallet->cs_wallet, ::cs_main);
         wallet->SetLastBlockProcessed(cchain.Height(), cchain.Tip()->GetBlockHash());
-        wallet->m_default_address_type = OutputType::BECH32M;
+        wallet->m_default_address_type = OutputType::DILITHIUM87;
     }
     {
         LOCK(wallet->cs_wallet);
@@ -33,19 +37,96 @@ std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, CChain& cc
         FlatSigningProvider provider;
         std::string error;
         auto descs = Parse("combo(" + EncodeSecret(key) + ")", provider, error, /* require_checksum=*/ false);
-        assert(descs.size() == 1);
+        if (descs.size() != 1) {
+            throw std::runtime_error("Parse combo descriptor failed: " + error);
+        }
         auto& desc = descs.at(0);
         WalletDescriptor w_desc(std::move(desc), 0, 0, 1, 1);
-        if (!wallet->AddWalletDescriptor(w_desc, provider, "", false)) assert(false);
+        if (!wallet->AddWalletDescriptor(w_desc, provider, "", false)) {
+            throw std::runtime_error("AddWalletDescriptor failed");
+        }
     }
     WalletRescanReserver reserver(*wallet);
     reserver.reserve();
     CWallet::ScanResult result = wallet->ScanForWalletTransactions(cchain.Genesis()->GetBlockHash(), /*start_height=*/0, /*max_height=*/{}, reserver, /*fUpdate=*/false, /*save_progress=*/false);
-    assert(result.status == CWallet::ScanResult::SUCCESS);
-    assert(result.last_scanned_block == cchain.Tip()->GetBlockHash());
-    assert(*result.last_scanned_height == cchain.Height());
-    assert(result.last_failed_block.IsNull());
+    if (result.status != CWallet::ScanResult::SUCCESS) {
+        throw std::runtime_error("ScanForWalletTransactions failed");
+    }
+    if (result.last_scanned_block != cchain.Tip()->GetBlockHash()) {
+        throw std::runtime_error("ScanForWalletTransactions tip mismatch");
+    }
+    if (*result.last_scanned_height != cchain.Height()) {
+        throw std::runtime_error("ScanForWalletTransactions height mismatch");
+    }
+    if (!result.last_failed_block.IsNull()) {
+        throw std::runtime_error("ScanForWalletTransactions reported a failed block");
+    }
     return wallet;
+}
+
+std::unique_ptr<CWallet> CreateProductWallet(interfaces::Chain& chain)
+{
+    auto wallet = std::make_unique<CWallet>(&chain, "", CreateMockableWalletDatabase());
+    if (wallet->LoadWallet() != DBErrors::LOAD_OK) {
+        throw std::runtime_error("CreateProductWallet: LoadWallet failed");
+    }
+    LOCK(wallet->cs_wallet);
+    wallet->SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+    wallet->SetupDescriptorScriptPubKeyMans();
+    wallet->m_default_address_type = OutputType::DILITHIUM87;
+    return wallet;
+}
+
+CTxDestination ProductReceiveDest(CWallet& wallet, OutputType type)
+{
+    LOCK(wallet.cs_wallet);
+    return *Assert(wallet.GetNewDestination(type, ""));
+}
+
+void SyncProductWallet(CWallet& wallet, CChain& cchain)
+{
+    {
+        LOCK2(wallet.cs_wallet, ::cs_main);
+        wallet.SetLastBlockProcessed(cchain.Height(), cchain.Tip()->GetBlockHash());
+    }
+    WalletRescanReserver reserver(wallet);
+    reserver.reserve();
+    CWallet::ScanResult result = wallet.ScanForWalletTransactions(cchain.Genesis()->GetBlockHash(), /*start_height=*/0, /*max_height=*/{}, reserver, /*fUpdate=*/false, /*save_progress=*/false);
+    if (result.status != CWallet::ScanResult::SUCCESS) {
+        throw std::runtime_error("SyncProductWallet: ScanForWalletTransactions failed");
+    }
+}
+
+std::string GetProductDescriptor(CWallet& wallet, OutputType type)
+{
+    LOCK(wallet.cs_wallet);
+    auto* spkm = wallet.GetScriptPubKeyMan(type, /*internal=*/false);
+    auto* desc_spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(spkm);
+    if (!desc_spkm) {
+        throw std::runtime_error("GetProductDescriptor: missing ScriptPubKeyMan");
+    }
+    std::string out;
+    LOCK(desc_spkm->cs_desc_man);
+    if (!desc_spkm->GetDescriptorString(out, /*priv=*/true)) {
+        throw std::runtime_error("GetProductDescriptor: GetDescriptorString failed");
+    }
+    return out;
+}
+
+void ImportProductDescriptor(CWallet& wallet, const std::string& desc_str)
+{
+    LOCK(wallet.cs_wallet);
+    wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+    FlatSigningProvider provider;
+    std::string error;
+    auto descs = Parse(desc_str, provider, error, /* require_checksum=*/ false);
+    if (descs.size() != 1) {
+        throw std::runtime_error("ImportProductDescriptor: Parse failed: " + error);
+    }
+    WalletDescriptor w_desc(std::move(descs.at(0)), 0, 0, 1, 1);
+    if (!wallet.AddWalletDescriptor(w_desc, provider, "", false)) {
+        throw std::runtime_error("ImportProductDescriptor: AddWalletDescriptor failed");
+    }
 }
 
 std::shared_ptr<CWallet> TestLoadWallet(std::unique_ptr<WalletDatabase> database, WalletContext& context, uint64_t create_flags)
@@ -86,8 +167,7 @@ std::unique_ptr<WalletDatabase> DuplicateMockDatabase(WalletDatabase& database)
 
 std::string getnewaddress(CWallet& w)
 {
-    constexpr auto output_type = OutputType::BECH32;
-    return EncodeDestination(getNewDestination(w, output_type));
+    return EncodeDestination(getNewDestination(w, OutputType::DILITHIUM87));
 }
 
 CTxDestination getNewDestination(CWallet& w, OutputType output_type)
@@ -200,8 +280,10 @@ wallet::ScriptPubKeyMan* CreateDescriptor(CWallet& keystore, const std::string& 
 
     FlatSigningProvider keys;
     std::string error;
-    auto parsed_descs = Parse(desc_str, keys, error, false);
-    Assert(success == (!parsed_descs.empty()));
+    auto parsed_descs = Parse(RecodeDescriptorForActiveChain(desc_str), keys, error, false);
+    if (success != !parsed_descs.empty()) {
+        throw std::runtime_error("CreateDescriptor parse mismatch: " + error);
+    }
     if (!success) return nullptr;
     auto& desc = parsed_descs.at(0);
 

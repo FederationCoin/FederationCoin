@@ -90,6 +90,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 else()
   set(bitcoin_svg "res/src/bitcoin.svg")
 endif()
+set(SEAL_PNG "${CMAKE_CURRENT_SOURCE_DIR}/res/src/federation-seal.png")
+# Keep in sync with src/qt/networkstyle.cpp OverlayTestnetTriangle:
+# navy #001F5C, right-angle triangle, 45% of edge, min 7px.
+set(TESTNET_TRIANGLE_PCT 45)
+set(TESTNET_TRIANGLE_MIN 7)
+set(TESTNET_NAVY "#001F5C")
 
 set(ICON_SPECS ${ICO_SPECS} ${ICNS_SPECS} ${EXTRA_ICON_SPECS})
 list(REMOVE_DUPLICATES ICON_SPECS)
@@ -99,7 +105,7 @@ foreach(size IN LISTS ICON_SPECS)
   add_custom_command(
     OUTPUT ${png}
     COMMAND "${RSVG_CONVERT}" -f png -d ${size} -p ${size} --output "${png}" "${CMAKE_CURRENT_SOURCE_DIR}/${bitcoin_svg}"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${bitcoin_svg}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${bitcoin_svg}" "${SEAL_PNG}"
     COMMENT "Generating ${png} from ${bitcoin_svg}"
     VERBATIM
   )
@@ -141,14 +147,77 @@ add_custom_command(
   VERBATIM
 )
 set(testnet_ico "${ICON_PATH}/bitcoin_testnet.ico")
+set(TESTNET_ICO_SRC_FILES)
+foreach(size IN LISTS ICO_SPECS)
+  set(src_png "${ICON_PATH}/bitcoin${size}.png")
+  set(tn_png "${ICON_PATH}/bitcoin${size}_testnet.png")
+  math(EXPR t "${size} * ${TESTNET_TRIANGLE_PCT} / 100")
+  if(t LESS TESTNET_TRIANGLE_MIN)
+    set(t ${TESTNET_TRIANGLE_MIN})
+  endif()
+  math(EXPR x1 "${size} - 1")
+  math(EXPR y1 "${size} - 1")
+  math(EXPR y2 "${size} - 1 - ${t}")
+  math(EXPR x3 "${size} - 1 - ${t}")
+  add_custom_command(
+    OUTPUT ${tn_png}
+    COMMAND "${IMAGEMAGICK_CONVERT}" "${src_png}" -fill "${TESTNET_NAVY}" -draw "polygon ${x1},${y1} ${x1},${y2} ${x3},${y1}" "${tn_png}"
+    DEPENDS ${src_png}
+    COMMENT "Generating ${tn_png} with testnet badge"
+    VERBATIM
+  )
+  list(APPEND TESTNET_ICO_SRC_FILES "${tn_png}")
+endforeach()
+set(testnet_gif "${ICON_PATH}/bitcoin32_testnetd8.gif")
 add_custom_command(
-  OUTPUT "${testnet_ico}"
-  COMMAND "${IMAGEMAGICK_CONVERT}" ${bitcoin_ico} -modulate 100,100,138.9 -colorspace HSL -channel G -evaluate subtract "11.76%" +channel -colorspace sRGB "${testnet_ico}"
-  DEPENDS ${bitcoin_ico}
-  COMMENT "Generating ${testnet_ico} from ${bitcoin_ico}"
+  OUTPUT "${testnet_gif}"
+  COMMAND "${IMAGEMAGICK_CONVERT}" "${ICON_PATH}/bitcoin32_testnet.png" -colors 256 -channel A -threshold 50% "${testnet_gif}"
+  DEPENDS "${ICON_PATH}/bitcoin32_testnet.png"
+  COMMENT "Generating ${testnet_gif} from testnet PNG"
   VERBATIM
 )
-add_custom_target(generate_ico DEPENDS "${bitcoin_ico}" "${testnet_ico}")
+list(PREPEND TESTNET_ICO_SRC_FILES "${testnet_gif}")
+add_custom_command(
+  OUTPUT "${testnet_ico}"
+  COMMAND "${IMAGEMAGICK_CONVERT}" ${TESTNET_ICO_SRC_FILES} "${testnet_ico}"
+  DEPENDS ${TESTNET_ICO_SRC_FILES}
+  COMMENT "Generating ${testnet_ico} from badged images"
+  VERBATIM
+)
+# Signet PE icon: same hue/sat as networkstyle.cpp SIGNET (35, 15).
+# ImageMagick -modulate brightness,saturation,hue: 100 is identity.
+# hue 119 ≈ +35°; saturation 94 ≈ Qt sat minus 15/255.
+set(signet_ico "${ICON_PATH}/bitcoin_signet.ico")
+set(SIGNET_ICO_SRC_FILES)
+foreach(size IN LISTS ICO_SPECS)
+  set(src_png "${ICON_PATH}/bitcoin${size}.png")
+  set(sg_png "${ICON_PATH}/bitcoin${size}_signet.png")
+  add_custom_command(
+    OUTPUT ${sg_png}
+    COMMAND "${IMAGEMAGICK_CONVERT}" "${src_png}" -modulate 100,94,119 "${sg_png}"
+    DEPENDS ${src_png}
+    COMMENT "Generating ${sg_png} with signet hue"
+    VERBATIM
+  )
+  list(APPEND SIGNET_ICO_SRC_FILES "${sg_png}")
+endforeach()
+set(signet_gif "${ICON_PATH}/bitcoin32_signetd8.gif")
+add_custom_command(
+  OUTPUT "${signet_gif}"
+  COMMAND "${IMAGEMAGICK_CONVERT}" "${ICON_PATH}/bitcoin32_signet.png" -colors 256 -channel A -threshold 50% "${signet_gif}"
+  DEPENDS "${ICON_PATH}/bitcoin32_signet.png"
+  COMMENT "Generating ${signet_gif} from signet PNG"
+  VERBATIM
+)
+list(PREPEND SIGNET_ICO_SRC_FILES "${signet_gif}")
+add_custom_command(
+  OUTPUT "${signet_ico}"
+  COMMAND "${IMAGEMAGICK_CONVERT}" ${SIGNET_ICO_SRC_FILES} "${signet_ico}"
+  DEPENDS ${SIGNET_ICO_SRC_FILES}
+  COMMENT "Generating ${signet_ico} from hue-shifted images"
+  VERBATIM
+)
+add_custom_target(generate_ico DEPENDS "${bitcoin_ico}" "${testnet_ico}" "${signet_ico}")
 
 set(logo_svg "res/src/bitcoinknots-logo.svg")
 set(png "${ICON_PATH}/bitcoinknots-logo.png")
@@ -156,7 +225,7 @@ set(size 960)
 add_custom_command(
   OUTPUT ${png}
   COMMAND "${RSVG_CONVERT}" -f png -d ${size} -p ${size} --output "${png}" "${CMAKE_CURRENT_SOURCE_DIR}/${logo_svg}"
-  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${logo_svg}"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${logo_svg}" "${SEAL_PNG}"
   COMMENT "Generating ${png} from ${logo_svg}"
   VERBATIM
 )
@@ -172,11 +241,11 @@ add_custom_command(
 )
 set(nsis_header_input "res/src/nsis-header.svg")
 set(nsis_header_bmp "${ICON_PATH}/nsis-header.bmp")
-set(ABS_FONT_DIR ${CMAKE_CURRENT_BINARY_DIR}/res/fonts)
 add_custom_command(
   OUTPUT "${nsis_header_bmp}"
-  COMMAND echo <fontconfig><dir>${ABS_FONT_DIR}</dir></fontconfig> > res/fonts/fonts.conf && FONTCONFIG_PATH=${ABS_FONT_DIR} ${RSVG_CONVERT} -f png -d 57 -p 57 ${CMAKE_CURRENT_SOURCE_DIR}/${nsis_header_input} | ${IMAGEMAGICK_CONVERT} - -background white -alpha remove BMP3:${nsis_header_bmp}
-  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${nsis_header_input}" "${FONT_PATH}"
+  COMMAND "${RSVG_CONVERT}" -f png -d 57 -p 57 --output "${ICON_PATH}/nsis-header.png" "${CMAKE_CURRENT_SOURCE_DIR}/${nsis_header_input}"
+  COMMAND "${IMAGEMAGICK_CONVERT}" "${ICON_PATH}/nsis-header.png" -background white -alpha remove -gravity West -extent 150x57 -strip BMP3:${nsis_header_bmp}
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${nsis_header_input}" "${SEAL_PNG}"
   COMMENT "Generating ${nsis_header_bmp} from ${nsis_header_input}"
   VERBATIM
 )
@@ -249,8 +318,6 @@ add_library(bitcoinqt STATIC EXCLUDE_FROM_ALL
   rpcconsole.h
   splashscreen.cpp
   splashscreen.h
-  tonalutils.cpp
-  tonalutils.h
   trafficgraphwidget.cpp
   trafficgraphwidget.h
   utilitydialog.cpp
@@ -400,30 +467,30 @@ if(qt_lib_type STREQUAL "STATIC_LIBRARY")
   )
 endif()
 
-add_executable(bitcoin-qt
+add_executable(federationcoin-qt
   main.cpp
-  ../init/bitcoin-qt.cpp
+  ../init/federationcoin-qt.cpp
 )
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-  add_dependencies(bitcoin-qt generate_ico)
+  add_dependencies(federationcoin-qt generate_ico)
 endif()
 
 if(WIN32)
   configure_file(${CMAKE_CURRENT_SOURCE_DIR}/res/bitcoin-qt-res.rc ${CMAKE_CURRENT_BINARY_DIR}/res/bitcoin-qt-res.rc USE_SOURCE_PERMISSIONS @ONLY)
-  add_windows_resources(bitcoin-qt ${CMAKE_CURRENT_BINARY_DIR}/res/bitcoin-qt-res.rc)
+  add_windows_resources(federationcoin-qt ${CMAKE_CURRENT_BINARY_DIR}/res/bitcoin-qt-res.rc)
 endif()
 
-target_link_libraries(bitcoin-qt
+target_link_libraries(federationcoin-qt
   core_interface
   bitcoinqt
   bitcoin_node
 )
 
-import_plugins(bitcoin-qt)
-install_binary_component(bitcoin-qt HAS_MANPAGE)
+import_plugins(federationcoin-qt)
+install_binary_component(federationcoin-qt HAS_MANPAGE)
 if(WIN32)
-  set_target_properties(bitcoin-qt PROPERTIES WIN32_EXECUTABLE TRUE)
+  set_target_properties(federationcoin-qt PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
 if(WITH_MULTIPROCESS)

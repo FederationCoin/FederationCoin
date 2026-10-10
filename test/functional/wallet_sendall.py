@@ -289,7 +289,7 @@ class SendallTest(BitcoinTestFramework):
     @cleanup
     def sendall_fails_on_low_fee(self):
         self.log.info("Test sendall fails if the transaction fee is lower than the minimum fee rate setting")
-        assert_raises_rpc_error(-8, "Fee rate (0.999 sat/vB) is lower than the minimum fee rate setting (1.000 sat/vB)",
+        assert_raises_rpc_error(-8, "Fee rate (0.999 token/vB) is lower than the minimum fee rate setting (3.000 token/vB)",
         self.wallet.sendall, recipients=[self.recipient], fee_rate=0.999)
 
     @cleanup
@@ -480,10 +480,10 @@ class SendallTest(BitcoinTestFramework):
                 recipients=[self.remainder_target])
 
     def run_test(self):
-        self.nodes[0].createwallet("activewallet")
-        self.wallet = self.nodes[0].get_wallet_rpc("activewallet")
         self.def_wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
         self.generate(self.nodes[0], 101)
+        self.nodes[0].createwallet("activewallet")
+        self.wallet = self.nodes[0].get_wallet_rpc("activewallet")
         self.recipient = self.def_wallet.getnewaddress() # payee for a specific amount
         self.remainder_target = self.def_wallet.getnewaddress() # address that receives everything left after payments and fees
         self.split_target = self.def_wallet.getnewaddress() # 2nd target when splitting rest

@@ -30,6 +30,7 @@ struct CCheckpointData {
     MapCheckpoints mapCheckpoints;
 
     int GetHeight() const {
+        if (mapCheckpoints.empty()) return 0;
         const auto& final_checkpoint = mapCheckpoints.rbegin();
         return final_checkpoint->first /* height */;
     }
@@ -135,6 +136,12 @@ public:
         return FindFirst(m_assumeutxo_data, [&](const auto& d) { return d.blockhash == blockhash; });
     }
 
+    /** Test process only. Does not change the snapshots a node ships. */
+    void AddAssumeutxoForTest(AssumeutxoData data)
+    {
+        m_assumeutxo_data.push_back(std::move(data));
+    }
+
     const ChainTxData& TxData() const { return chainTxData; }
 
     /**
@@ -143,7 +150,7 @@ public:
     struct SigNetOptions {
         std::optional<std::vector<uint8_t>> challenge{};
         std::optional<std::vector<std::string>> seeds{};
-        int64_t pow_target_spacing{10 * 60};
+        int64_t pow_target_spacing{12 * 60};
     };
 
     /**
@@ -166,11 +173,6 @@ public:
         std::unordered_map<Consensus::BuriedDeployment, int> activation_heights{};
         bool fastprune{false};
         bool enforce_bip94{false};
-        //! If set, RDTS rules apply to blocks from the blake2b activation
-        //! height until the parent block's median-time-past reaches this
-        //! value (see -rdtsexpiry). Requires a blake2b activation height.
-        std::optional<int64_t> rdts_expiry_time{};
-        std::optional<std::vector<unsigned char>> blake2b_headline{};
     };
 
     static std::unique_ptr<const CChainParams> RegTest(const RegTestOptions& options);
@@ -202,5 +204,8 @@ protected:
 };
 
 std::optional<ChainType> GetNetworkForMagic(const MessageStartChars& pchMessageStart);
+
+/** Dummy MAIN is not live; AppInit warns when this is true. */
+inline bool DummyMainNeedsWarning(ChainType chain) { return chain == ChainType::MAIN; }
 
 #endif // BITCOIN_KERNEL_CHAINPARAMS_H

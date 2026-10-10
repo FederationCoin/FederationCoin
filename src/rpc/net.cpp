@@ -1094,6 +1094,7 @@ static RPCHelpMan sendmsgtopeer()
             {"peer_id", RPCArg::Type::NUM, RPCArg::Optional::NO, "The peer to send the message to."},
             {"msg_type", RPCArg::Type::STR, RPCArg::Optional::NO, strprintf("The message type (maximum length %i)", CMessageHeader::MESSAGE_TYPE_SIZE)},
             {"msg", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The serialized message body to send, in hex, without a message header"},
+            {"msg_size", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "If set, zero-fill the body to this length before sending. Used to test oversized P2P frames without a 32MB HTTP hex payload."},
         },
         RPCResult{RPCResult::Type::OBJ, "", "", std::vector<RPCResult>{}},
         RPCExamples{
@@ -1115,6 +1116,16 @@ static RPCHelpMan sendmsgtopeer()
             CSerializedNetMsg msg_ser;
             msg_ser.data = msg.value();
             msg_ser.m_type = msg_type;
+            if (!request.params[3].isNull()) {
+                const int64_t msg_size{request.params[3].getInt<int64_t>()};
+                if (msg_size < 0 || static_cast<uint64_t>(msg_size) > 64 * 1000 * 1000) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Error: msg_size out of range");
+                }
+                if (static_cast<uint64_t>(msg_size) < msg_ser.data.size()) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Error: msg_size smaller than msg");
+                }
+                msg_ser.data.resize(static_cast<size_t>(msg_size));
+            }
 
             bool success = connman.ForNode(peer_id, [&](CNode* node) {
                 connman.PushMessage(node, std::move(msg_ser));

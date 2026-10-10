@@ -1,80 +1,121 @@
-Bitcoin Knots
-=============
+FederationCoin
+==============
 
-https://bitcoinknots.org
+https://federationcoin.org
 
-For an immediately usable, binary version of the Bitcoin Knots software, see
-the website.
+FederationCoin is a new Blake2b UTXO chain for sending money. Fresh genesis,
+no inherited coins. Not Bitcoin. Not Knots. Not a CBDC. Confirmations stay
+weak until hashrate is expensive. Experimental. No price promise.
 
-What is Bitcoin Knots?
-----------------------
+## For users
 
-Bitcoin Knots connects to the Bitcoin peer-to-peer network to download and fully
-validate blocks and transactions. It also includes a wallet and graphical user
-interface, which can be optionally built.
+This repository is the node: **`federationcoind`**, plus `federationcoin-cli`,
+`federationcoin-qt`, and related tools.
 
-Further information about Bitcoin Knots is available in the [doc folder](/doc).
+**Main is not launched.** Default `federationcoind` (no flags) uses
+placeholder genesis, magic (`00000000`), and ports (P2P **4095**, RPC
+**4094**). The node prints a startup warning on default main. Those values
+will be replaced at announcement. Do not mine default main as if it were
+the product chain.
 
-License
--------
+**Testnet is the public net.** `federationcoind -testnet` (P2P **35333**,
+RPC **35332**, HRP `tgfcn`). Explorer:
+[mempool.federationcoin.org](https://mempool.federationcoin.org).
 
-Bitcoin Knots is released under the terms of the MIT license. See [COPYING](COPYING) for more
-information or see https://opensource.org/licenses/MIT.
+Testnet DNS seed **name** (compiled `vSeeds`):
+`seed.testnet.federationcoin.org`. Core looks that up for bootstrap
+IPs; it also queries `x10000009.seed.testnet.federationcoin.org`.
+Today both names alias to the P2P NLB in front of two always-on
+`federationcoind` nodes. That is not `bitcoin-seeder`.
+`addnode seed.testnet.federationcoin.org:35333` is backup. Dummy
+MAIN has no seeds.
 
-Development Process
--------------------
+Laptop outbound-only:
 
-Development generally takes place as part of [Bitcoin Core](https://github.com/bitcoin/bitcoin), and is merged into
-Knots for each release.
+    ./build/bin/federationcoind -testnet \
+      -datadir=/tmp/fc-laptop-testnet \
+      -listen=0 \
+      -dnsseed=1 \
+      -addnode=seed.testnet.federationcoin.org:35333
 
-Even if your pull request to Core is closed, or if your feature is not
-suitable for Core (eg, because it builds on a feature not supported in Core;
-relies on centralised services; etc), it may still be eligible for inclusion
-in Bitcoin Knots. In this case, a pull request may be opened on the
-[Knots GitHub](https://github.com/bitcoinknots/bitcoin) for review and consideration.
-When accepted, you are expected to maintain the submitted branch in your own
-repository, and it will be automatically merged into new releases of Knots.
+Default datadir is `~/.federationcoin` (Windows:
+`%LOCALAPPDATA%\FederationCoin`). Config file is `federationcoin.conf`.
 
-Developer IRC can be found on Freenode at #bitcoin-dev.
+The atomic unit is the **token**. **1 COIN = 100 million tokens**
+(`COIN` in consensus). `MAX_MONEY` uses a 21 000 000 COIN
+multiplier. COIN is not a ticker. Overlay token/asset protocols
+(`-rejecttokens`) are unrelated to this native unit.
 
-Testing
--------
+Taproot is **parked** on every network (`nStartTime = NEVER_ACTIVE`). Witness
+v1 spends **hard-fail** (not anyone-can-spend). Bech32m / `gfcn1p…` addresses
+are not valid destinations while it is parked. This is not a post-quantum
+script rewrite; tapscript code stays in the tree.
 
-Testing and code review is the bottleneck for development; we get more pull
-requests than we can review and test on short notice. Please be patient and help out by testing
-other people's pull requests, and remember this is a security-critical project where any mistake might cost people
-lots of money.
+A Bitcoin or Knots node on 8333 is a different chain and must not appear as a
+peer.
 
-### Automated Testing
+Two local **testnet** nodes, generate, send (until DNS seeds exist):
 
-Developers are strongly encouraged to write [unit tests](src/test/README.md) for new code, and to
-submit new unit tests for old code. Unit tests can be compiled and run
-(assuming they weren't disabled during the generation of the build system) with: `ctest`. Further details on running
-and extending unit tests can be found in [/src/test/README.md](/src/test/README.md).
+    ./build/bin/federationcoind -testnet -datadir=/tmp/fc-a -port=35333 -rpcport=35332 -daemon
+    ./build/bin/federationcoind -testnet -datadir=/tmp/fc-b -port=35335 -rpcport=35334 -daemon
+    ./build/bin/federationcoin-cli -testnet -datadir=/tmp/fc-a addnode 127.0.0.1:35335 add
+    ./build/bin/federationcoin-cli -testnet -datadir=/tmp/fc-a createwallet default
+    ./build/bin/federationcoin-cli -testnet -datadir=/tmp/fc-b -rpcport=35334 createwallet default
+    ADDR=$(./build/bin/federationcoin-cli -testnet -datadir=/tmp/fc-a getnewaddress)
+    ./build/bin/federationcoin-cli -testnet -datadir=/tmp/fc-a generatetoaddress 101 "$ADDR"
+    PAY=$(./build/bin/federationcoin-cli -testnet -datadir=/tmp/fc-b -rpcport=35334 getnewaddress)
+    ./build/bin/federationcoin-cli -testnet -datadir=/tmp/fc-a -named sendtoaddress address="$PAY" amount=1 fee_rate=1
+    ./build/bin/federationcoin-cli -testnet -datadir=/tmp/fc-a generatetoaddress 1 "$ADDR"
 
-There are also [regression and integration tests](/test), written
-in Python.
-These tests can be run (if the [test dependencies](/test) are installed) with: `build/test/functional/test_runner.py`
-(assuming `build` is your build directory).
+Regtest (instant blocks, local only):
 
-The CI (Continuous Integration) systems make sure that every pull request is built for Windows, Linux, and macOS,
-and that unit/sanity tests are run automatically.
+    ./build/bin/federationcoind -regtest -datadir=/tmp/fc-rt -daemon
 
-### Manual Quality Assurance (QA) Testing
+Released under the MIT license. See [COPYING](COPYING).
 
-Changes should be tested by somebody other than the developer who wrote the
-code. This is especially important for large or high-risk changes. It is useful
-to add a test plan to the pull request description if testing the changes is
-not straightforward.
+## For developers
 
-Translations
-------------
+Based on Bitcoin Knots `v29.4.1.knots20260508` (`8c85b1585d`); that parent is
+pinned. Do not merge later Knots unless we re-open the pin. Origin is
+`git@github.com:FederationCoin/FederationCoin.git`. Mainline is
+`29.x-federationcoin`. GitHub is detached from that fork; **never push**
+`upstream` (`bitcoinknots/bitcoin`).
 
-Changes to translations as well as new translations can be submitted to
-[Bitcoin Core's Transifex page](https://explore.transifex.com/bitcoin/bitcoin/).
+Peer handshake uses `/Sumer:29.x/` (not Satoshi, not the product name).
+Copyright headers and historical Bitcoin/Knots comments are left in place
+on purpose.
 
-Translations are periodically pulled from Transifex and merged into the git repository. See the
-[translation process](doc/translation_process.md) for details on how this works.
+### Clone and build
 
-**Important**: We do not accept translation changes as GitHub pull requests because the next
-pull from Transifex would automatically overwrite them again.
+Use CMake (see [doc/build-unix.md](doc/build-unix.md) for dependencies). From
+the source tree:
+
+    cmake -B build -DBUILD_GUI=OFF
+    cmake --build build -j$(nproc)
+
+Binaries land in `build/bin/` (`federationcoind`, `federationcoin-cli`).
+
+Platform notes: [doc/README.md](doc/README.md).
+
+### Branching
+
+Work on a branch off `29.x-federationcoin`. Open a same-repo pull request; a
+human merges. Do not push straight to mainline. Current work branch for this
+tree: `get-to-mainnet`. Knots pin `8c85b1585d` stays the ancestor gate.
+
+### Release
+
+`CLIENT_VERSION` in [CMakeLists.txt](CMakeLists.txt) is independent of git
+tags. Tags (human, on origin mainline, before Package):
+
+    vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD
+    vMAJOR.MINOR.PATCH.federationcoinYYYYMMDD.<ext>
+
+Example: `v29.5.0.federationcoin20260913` or `.rc1`. The binary string may
+still end with `.federation0`; that is not the git tag. Package may open a
+**draft** GitHub Release only. No public Docker. Unsigned macOS and Windows.
+Process: [golive notes](https://github.com/ldelarua/workspace-FederationCoin/blob/master/docs/golive-notes.md).
+
+### Quality
+
+Code quality checks and metrics will be added over time.

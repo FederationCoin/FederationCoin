@@ -55,7 +55,7 @@ class VersionBitsWarningTest(BitcoinTestFramework):
         tip = int(tip, 16)
 
         for _ in range(numblocks):
-            block = create_block(tip, create_coinbase(height + 1), block_time, version=version)
+            block = create_block(tip, create_coinbase(height + 1), block_time, version=version, height=height + 1)
             block.solve()
             peer.send_message(msg_block(block))
             block_time += 1

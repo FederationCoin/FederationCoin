@@ -262,9 +262,14 @@ void AllocateFileRange(FILE* file, unsigned int offset, unsigned int length)
                 return;
             }
             memset(&buf[rlen], 0, now - rlen);
-            if (0 != fseek(file, -rlen, SEEK_CUR)) {
-                return;
-            }
+        }
+        // fread advanced the position. Step back so the write replaces those
+        // bytes instead of shifting them later in the file. A full read used
+        // to skip this, which duplicated each chunk and corrupted blk*.dat
+        // when preallocation overlapped existing blocks (macOS has no
+        // posix_fallocate, so reindex after a missing block index hit this).
+        if (rlen > 0 && 0 != fseek(file, -static_cast<long>(rlen), SEEK_CUR)) {
+            return;
         }
         fwrite(buf, 1, now, file); // allowed to fail; this function is advisory anyway
         length -= now;

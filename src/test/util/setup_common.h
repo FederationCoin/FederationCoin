@@ -9,6 +9,7 @@
 #include <common/pcp.h>
 #include <kernel/caches.h>
 #include <kernel/context.h>
+#include <consensus/mldsa_spend.h>
 #include <key.h>
 #include <node/caches.h>
 #include <node/context.h> // IWYU pragma: export
@@ -164,6 +165,9 @@ struct TestChain100Setup : public TestingSetup {
     //! Mine a series of new blocks on the active chain.
     void mineBlocks(int num_blocks);
 
+    /** Witness v0 program for coinbase_mldsa. The only spendable coinbase lock. */
+    CScript MldsaScriptPubKey() const;
+
     /**
     * Create a transaction, optionally setting the fee based on the feerate.
     * Note: The feerate may not be met exactly depending on whether the signatures can have different sizes.
@@ -246,6 +250,7 @@ struct TestChain100Setup : public TestingSetup {
 
     std::vector<CTransactionRef> m_coinbase_txns; // For convenience, coinbase transactions
     CKey coinbaseKey; // private/public key needed to spend coinbase transactions
+    Consensus::MlDsa44Keypair coinbase_mldsa;
 };
 
 /**

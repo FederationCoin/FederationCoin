@@ -14,7 +14,9 @@ from test_framework.wallet_util import get_generate_key
 
 
 KEYPOOL_SIZE = 100   # smaller than default size to speed-up test
-NUM_DESCRIPTORS = 9  # number of descriptors (8 default ranged ones + 1 fixed non-ranged one)
+NUM_DESCRIPTORS = 7  # 6 ranged descriptors (no taproot) plus 1 fixed non-ranged one
+# Dilithium watch-only descriptors cannot derive scripts from xpub; send only to secp + the fixed wpkh.
+NUM_SCANNED_DESCRIPTORS = 3
 NUM_BLOCKS = 6       # number of blocks to mine
 
 
@@ -52,8 +54,10 @@ class WalletFastRescanTest(BitcoinTestFramework):
         self.log.info("Create txs sending to end range address of each descriptor, triggering top-ups")
         for i in range(NUM_BLOCKS):
             self.log.info(f"Block {i+1}/{NUM_BLOCKS}")
-            for desc_info in w.listdescriptors()['descriptors']:
+            for desc_info in w.listdescriptors(True)['descriptors']:
                 if 'range' in desc_info:
+                    if not desc_info['desc'].startswith('wpkh'):
+                        continue
                     start_range, end_range = desc_info['range']
                     addr = w.deriveaddresses(desc_info['desc'], [end_range, end_range])[0]
                     spk = address_to_scriptpubkey(addr)
@@ -90,10 +94,10 @@ class WalletFastRescanTest(BitcoinTestFramework):
         txids_slow_nonactive = self.get_wallet_txids(node, 'rescan_slow_nonactive')
 
         self.log.info("Verify that all rescans found the same txs in slow and fast variants")
-        assert_equal(len(txids_slow), NUM_DESCRIPTORS * NUM_BLOCKS)
-        assert_equal(len(txids_fast), NUM_DESCRIPTORS * NUM_BLOCKS)
-        assert_equal(len(txids_slow_nonactive), NUM_DESCRIPTORS * NUM_BLOCKS)
-        assert_equal(len(txids_fast_nonactive), NUM_DESCRIPTORS * NUM_BLOCKS)
+        assert_equal(len(txids_slow), NUM_SCANNED_DESCRIPTORS * NUM_BLOCKS)
+        assert_equal(len(txids_fast), NUM_SCANNED_DESCRIPTORS * NUM_BLOCKS)
+        assert_equal(len(txids_slow_nonactive), NUM_SCANNED_DESCRIPTORS * NUM_BLOCKS)
+        assert_equal(len(txids_fast_nonactive), NUM_SCANNED_DESCRIPTORS * NUM_BLOCKS)
         assert_equal(sorted(txids_slow), sorted(txids_fast))
         assert_equal(sorted(txids_slow_nonactive), sorted(txids_fast_nonactive))
 

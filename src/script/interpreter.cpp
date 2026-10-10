@@ -2141,7 +2141,12 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
         }
     } else if (witversion == 1 && program.size() == WITNESS_V1_TAPROOT_SIZE && !is_p2sh) {
         // BIP341 Taproot: 32-byte non-P2SH witness v1 program (which encodes a P2C-tweaked pubkey)
-        if (!(flags & SCRIPT_VERIFY_TAPROOT)) return set_success(serror);
+        // FederationCoin parks Taproot (NEVER_ACTIVE). Bitcoin Core returns
+        // success here so unknown witness v1 is anyone-can-spend before a
+        // soft fork activates. That is a theft hole on this chain: v1 spends
+        // hard-fail until SCRIPT_VERIFY_TAPROOT is on. Do not delete the
+        // tapscript interpreter below.
+        if (!(flags & SCRIPT_VERIFY_TAPROOT)) return set_error(serror, SCRIPT_ERR_TAPROOT_DISABLED);
         if (stack.size() == 0) return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
         if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == ANNEX_TAG) {
             // Drop annex (this is non-standard; see IsWitnessStandard)

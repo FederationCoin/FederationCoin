@@ -10,14 +10,8 @@ import sys
 import time
 
 from test_framework.blocktools import DIFF_1_N_BITS
-from test_framework.key import ECKey
-from test_framework.script_util import key_to_p2wpkh_script
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
-from test_framework.wallet_util import bytes_to_wif
-
-
-CHALLENGE_PRIVATE_KEY = (42).to_bytes(32, 'big')
 
 
 class SignetMinerTest(BitcoinTestFramework):
@@ -29,12 +23,9 @@ class SignetMinerTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 1
 
-        # generate and specify signet challenge (simple p2wpkh script)
-        privkey = ECKey()
-        privkey.set(CHALLENGE_PRIVATE_KEY, True)
-        pubkey = privkey.get_pubkey().get_bytes()
-        challenge = key_to_p2wpkh_script(pubkey)
-        self.extra_args = [[f'-signetchallenge={challenge.hex()}']]
+        # OP_TRUE. A p2wpkh solution does not fit in an 83-byte OP_RETURN
+        # once it is appended to the witness commitment.
+        self.extra_args = [['-signetchallenge=51']]
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_cli()
@@ -43,8 +34,6 @@ class SignetMinerTest(BitcoinTestFramework):
 
     def run_test(self):
         node = self.nodes[0]
-        # import private key needed for signing block
-        node.importprivkey(bytes_to_wif(CHALLENGE_PRIVATE_KEY))
 
         # generate block with signet miner tool
         base_dir = self.config["environment"]["SRCDIR"]

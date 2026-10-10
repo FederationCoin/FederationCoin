@@ -6,6 +6,7 @@
 
 #include <base58.h>
 #include <bech32.h>
+#include <deploymentstatus.h>
 #include <script/interpreter.h>
 #include <script/solver.h>
 #include <tinyformat.h>
@@ -146,6 +147,10 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
         }
         if (version != 0 && dec.encoding != bech32::Encoding::BECH32M) {
             error_str = "Version 1+ witness address must use Bech32m checksum";
+            return CNoDestination();
+        }
+        if (version != 0 && !DeploymentEnabled(params.GetConsensus(), Consensus::DEPLOYMENT_TAPROOT)) {
+            error_str = "Bech32m / Taproot addresses are not valid on this chain.";
             return CNoDestination();
         }
         // The rest of the symbols are converted witness program bytes.

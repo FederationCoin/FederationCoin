@@ -4,9 +4,6 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 export LC_ALL=C
-if [ -z "$OSSLSIGNCODE" ]; then
-  OSSLSIGNCODE=osslsigncode
-fi
 
 if [ "$#" -ne 1 ]; then
   echo "usage: $0 <path to key>"
@@ -14,33 +11,33 @@ if [ "$#" -ne 1 ]; then
   exit 1
 fi
 
-OUT=signature-win.tar.gz
-SRCDIR=unsigned
-WORKDIR=./.tmp
-OUTDIR="${WORKDIR}/out"
-OUTSUBDIR="${OUTDIR}/win"
-TIMESERVER=http://timestamp.comodoca.com
-CERTFILE="win-codesign.cert"
+# Microsoft Authenticode: not yet provisioned. Unsigned only.
+# TIMESERVER=https://timestamp.federationcoin.org
+# TIMESERVER=http://timestamp.comodoca.com
+# secrets not yet hosted
 
-stty -echo
-printf "Enter the passphrase for %s: " "$1"
-read cs_key_pass
-printf "\n"
-stty echo
+echo "unsigned only: Microsoft Authenticode not yet provisioned"
+echo "timestamp.federationcoin.org secrets not yet hosted"
+exit 1
 
-
-mkdir -p "${OUTSUBDIR}"
-find ${SRCDIR} -wholename "*.exe" -type f -exec realpath --relative-to=. {} \; | while read -r bin
-do
-    echo Signing "${bin}"
-    bin_base="$(realpath --relative-to=${SRCDIR} "${bin}")"
-    mkdir -p "$(dirname ${WORKDIR}/"${bin_base}")"
-    "${OSSLSIGNCODE}" sign -certs "${CERTFILE}" -t "${TIMESERVER}" -h sha256 -in "${bin}" -out "${WORKDIR}/${bin_base}" -key "$1" -pass "${cs_key_pass}"
-    mkdir -p "$(dirname ${OUTSUBDIR}/"${bin_base}")"
-    "${OSSLSIGNCODE}" extract-signature -pem -in "${WORKDIR}/${bin_base}" -out "${OUTSUBDIR}/${bin_base}.pem" && rm "${WORKDIR}/${bin_base}"
-done
-
-rm -f "${OUT}"
-tar -C "${OUTDIR}" -czf "${OUT}" .
-rm -rf "${WORKDIR}"
-echo "Created ${OUT}"
+# stty -echo
+# printf "Enter the passphrase for %s: " "$1"
+# read cs_key_pass
+# printf "\n"
+# stty echo
+#
+# mkdir -p "${OUTSUBDIR}"
+# find ${SRCDIR} -wholename "*.exe" -type f -exec realpath --relative-to=. {} \; | while read -r bin
+# do
+#     echo Signing "${bin}"
+#     bin_base="$(realpath --relative-to=${SRCDIR} "${bin}")"
+#     mkdir -p "$(dirname ${WORKDIR}/"${bin_base}")"
+#     "${OSSLSIGNCODE}" sign -certs "${CERTFILE}" -t "${TIMESERVER}" -h sha256 -in "${bin}" -out "${WORKDIR}/${bin_base}" -key "$1" -pass "${cs_key_pass}"
+#     mkdir -p "$(dirname ${OUTSUBDIR}/"${bin_base}")"
+#     "${OSSLSIGNCODE}" extract-signature -pem -in "${WORKDIR}/${bin_base}" -out "${OUTSUBDIR}/${bin_base}.pem" && rm "${WORKDIR}/${bin_base}"
+# done
+#
+# rm -f "${OUT}"
+# tar -C "${OUTDIR}" -czf "${OUT}" .
+# rm -rf "${WORKDIR}"
+# echo "Created ${OUT}"

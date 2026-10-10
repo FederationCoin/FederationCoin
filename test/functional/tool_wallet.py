@@ -63,8 +63,8 @@ class ToolWalletTest(BitcoinTestFramework):
 
     def assert_tool_output(self, output, *args, stderr=''):
         p = self.bitcoin_wallet_process(*args)
-        stdout, stderr = p.communicate()
-        assert_equal(stderr, stderr)
+        stdout, err = p.communicate()
+        assert_equal(err, stderr)
         assert_equal(stdout, output)
         assert_equal(p.poll(), 0)
 
@@ -84,7 +84,7 @@ class ToolWalletTest(BitcoinTestFramework):
     def get_expected_info_output(self, name="", transactions=0, keypool=2, address=0, imported_privs=0):
         wallet_name = self.default_wallet_name if name == "" else name
         if self.options.descriptors:
-            output_types = 4  # p2pkh, p2sh, segwit, bech32m
+            output_types = 3  # p2pkh, p2sh, segwit. Taproot stays parked, so there is no bech32m descriptor.
             return textwrap.dedent('''\
                 Wallet info
                 ===========
@@ -96,7 +96,7 @@ class ToolWalletTest(BitcoinTestFramework):
                 Keypool Size: %d
                 Transactions: %d
                 Address Book: %d
-            ''' % (wallet_name, keypool * output_types, transactions, imported_privs * 3 + address))
+            ''' % (wallet_name, keypool * output_types, transactions, imported_privs + address))
         else:
             output_types = 3  # p2pkh, p2sh, segwit. Legacy wallets do not support bech32m.
             return textwrap.dedent('''\
@@ -312,8 +312,8 @@ class ToolWalletTest(BitcoinTestFramework):
             assert_equal(1000, out['keypoolsize_hd_internal'])
             assert_equal(True, 'hdseedid' in out)
         else:
-            assert_equal(4000, out['keypoolsize'])
-            assert_equal(4000, out['keypoolsize_hd_internal'])
+            assert_equal(3000, out['keypoolsize'])
+            assert_equal(3000, out['keypoolsize_hd_internal'])
 
         self.log_wallet_timestamp_comparison(timestamp_before, timestamp_after)
         assert_equal(timestamp_before, timestamp_after)
@@ -491,7 +491,7 @@ class ToolWalletTest(BitcoinTestFramework):
             Descriptors: {"yes" if self.options.descriptors else "no"}
             Encrypted: no
             HD (hd seed available): yes
-            Keypool Size: {"8" if self.options.descriptors else "1"}
+            Keypool Size: {"6" if self.options.descriptors else "1"}
             Transactions: 4
             Address Book: 4
         ''')
@@ -532,7 +532,7 @@ class ToolWalletTest(BitcoinTestFramework):
         def_wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
         outputs = {}
         for i in range(500):
-            outputs[wallet.getnewaddress(address_type="p2sh-segwit")] = 0.01
+            outputs[wallet.getnewaddress(address_type="secp")] = 0.01
         def_wallet.sendmany(amounts=outputs)
         self.generate(self.nodes[0], 1)
         send_res = wallet.sendall([def_wallet.getnewaddress()])

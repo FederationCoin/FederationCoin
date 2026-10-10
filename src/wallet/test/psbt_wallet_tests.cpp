@@ -4,6 +4,7 @@
 
 #include <key_io.h>
 #include <node/types.h>
+#include <test/util/chain_encoding.h>
 #include <util/bip32.h>
 #include <util/strencodings.h>
 #include <wallet/wallet.h>
@@ -23,8 +24,8 @@ static void import_descriptor(CWallet& wallet, const std::string& descriptor)
     AssertLockHeld(wallet.cs_wallet);
     FlatSigningProvider provider;
     std::string error;
-    auto descs = Parse(descriptor, provider, error, /* require_checksum=*/ false);
-    assert(descs.size() == 1);
+    auto descs = Parse(RecodeDescriptorForActiveChain(descriptor), provider, error, /* require_checksum=*/ false);
+    BOOST_REQUIRE_MESSAGE(descs.size() == 1, error);
     auto& desc = descs.at(0);
     WalletDescriptor w_desc(std::move(desc), 0, 0, 10, 0);
     wallet.AddWalletDescriptor(w_desc, provider, "", false);

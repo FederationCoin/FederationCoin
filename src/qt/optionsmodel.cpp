@@ -9,7 +9,6 @@
 #include <qt/bitcoinunits.h>
 #include <qt/guiconstants.h>
 #include <qt/guiutil.h>
-#include <qt/tonalutils.h>
 
 #include <chainparams.h>
 #include <common/args.h>
@@ -200,21 +199,33 @@ static const QLatin1String fontchoice_str_best_system{"best_system"};
 static const QString fontchoice_str_custom_prefix{QStringLiteral("custom, ")};
 
 static const std::map<OutputType, std::pair<const char*, const char*>> UntranslatedOutputTypeDescriptions{
+    {OutputType::DILITHIUM87, {
+        QT_TRANSLATE_NOOP("Output type name", "Dilithium 87"),
+        QT_TRANSLATE_NOOP("Output type description", "Default receive. Quantum-safe single-key."),
+    }},
+    {OutputType::DILITHIUM44, {
+        QT_TRANSLATE_NOOP("Output type name", "Dilithium 44"),
+        QT_TRANSLATE_NOOP("Output type description", "Middle size. Quantum-safe single-key."),
+    }},
+    {OutputType::SECP, {
+        QT_TRANSLATE_NOOP("Output type name", "secp"),
+        QT_TRANSLATE_NOOP("Output type description", "Cheap, not quantum-safe. The payment still goes."),
+    }},
     {OutputType::LEGACY, {
         QT_TRANSLATE_NOOP("Output type name", "Base58 (Legacy)"),
-        QT_TRANSLATE_NOOP("Output type description", "Widest compatibility and best for health of the Bitcoin network, but may result in higher fees later. Recommended."),
+        QT_TRANSLATE_NOOP("Output type description", "Not a FederationCoin receive type."),
     }},
     {OutputType::P2SH_SEGWIT, {
         QT_TRANSLATE_NOOP("Output type name", "Base58 (P2SH Segwit)"),
-        QT_TRANSLATE_NOOP("Output type description", "Compatible with most older wallets, and may result in lower fees than Legacy."),
+        QT_TRANSLATE_NOOP("Output type description", "Not a FederationCoin receive type."),
     }},
     {OutputType::BECH32, {
-        QT_TRANSLATE_NOOP("Output type name", "Native Segwit (Bech32)"),
-        QT_TRANSLATE_NOOP("Output type description", "Lower fees than Base58, but some old wallets don't support it."),
+        QT_TRANSLATE_NOOP("Output type name", "secp"),
+        QT_TRANSLATE_NOOP("Output type description", "Cheap, not quantum-safe. The payment still goes."),
     }},
     {OutputType::BECH32M, {
         QT_TRANSLATE_NOOP("Output type name", "Taproot (Bech32m)"),
-        QT_TRANSLATE_NOOP("Output type description", "Lowest fees, but wallet support is still limited."),
+        QT_TRANSLATE_NOOP("Output type description", "Not a FederationCoin receive type."),
     }},
 };
 
@@ -327,26 +338,24 @@ bool OptionsModel::Init(bilingual_str& error)
 
     // Display
     if (!settings.contains("DisplayBitcoinUnit")) {
-        auto init_unit = BitcoinUnit::BTC;
-        if (settings.contains("nDisplayUnit")) {
-            // Migrate to new setting
-            init_unit = BitcoinUnits::FromSetting(settings.value("nDisplayUnit").toString(), init_unit);
-        }
-        settings.setValue("DisplayBitcoinUnit", QVariant::fromValue(init_unit));
+        settings.setValue("DisplayBitcoinUnit", QVariant::fromValue(BitcoinUnit::COIN));
     }
 
     constexpr auto unit_set_to_variant = [](BitcoinUnit& out, const QVariant& unit_variant){
         if (unit_variant.isNull()) return false;
+        // This branch previously saved Q_ENUM name "SEC" for the atomic unit.
+        if (unit_variant.toString() == QLatin1String("SEC")) {
+            out = BitcoinUnit::TOKEN;
+            return true;
+        }
         if (!unit_variant.canConvert<BitcoinUnit>()) return false;
         const auto unit = unit_variant.value<BitcoinUnit>();
         if (!BitcoinUnits::availableUnits().contains(unit)) return false;
         out = unit;
         return true;
     };
-    if (!unit_set_to_variant(m_display_bitcoin_unit, settings.value("DisplayBitcoinUnitKnots"))) {
-        if (!unit_set_to_variant(m_display_bitcoin_unit, settings.value("DisplayBitcoinUnit"))) {
-            m_display_bitcoin_unit = BitcoinUnit::BTC;
-        }
+    if (!unit_set_to_variant(m_display_bitcoin_unit, settings.value("DisplayBitcoinUnit"))) {
+        m_display_bitcoin_unit = BitcoinUnit::COIN;
     }
 
     if (!settings.contains("bDisplayAddresses"))
@@ -435,8 +444,7 @@ bool OptionsModel::Init(bilingual_str& error)
             m_font_money = FontChoiceAbstract::BestSystemFont;
         }
     }
-    m_font_money_supports_tonal = TonalUtils::font_supports_tonal(getFontForMoney(BitcoinUnit::BTC));
-    Q_EMIT fontForMoneyChanged(getFontForMoney(BitcoinUnit::BTC));
+    Q_EMIT fontForMoneyChanged(getFontForMoney(BitcoinUnit::COIN));
 
     if (settings.contains("FontForQRCodes")) {
         m_font_qrcodes = FontChoiceFromString(settings.value("FontForQRCodes").toString());
@@ -810,11 +818,8 @@ QFont OptionsModel::getFontForChoice(const FontChoice& fc)
     return f;
 }
 
-QFont OptionsModel::getFontForMoney(const BitcoinUnit unit) const
+QFont OptionsModel::getFontForMoney(const BitcoinUnit) const
 {
-    if (BitcoinUnits::numsys(unit) == BitcoinUnits::Unit::TBC && !m_font_money_supports_tonal) {
-        return getFontForChoice(FontChoiceAbstract::EmbeddedFont);
-    }
     return getFontForChoice(m_font_money);
 }
 
@@ -998,8 +1003,7 @@ bool OptionsModel::setOption(OptionID option, const QVariant& value, const std::
         if (m_font_money == new_font) break;
         settings.setValue("FontForMoney", FontChoiceToString(new_font));
         m_font_money = new_font;
-        m_font_money_supports_tonal = TonalUtils::font_supports_tonal(getFontForMoney(BitcoinUnit::BTC));
-        Q_EMIT fontForMoneyChanged(getFontForMoney(BitcoinUnit::BTC));
+        Q_EMIT fontForMoneyChanged(getFontForMoney(BitcoinUnit::COIN));
         break;
     }
     case FontForQRCodes:
@@ -1509,21 +1513,7 @@ void OptionsModel::setDisplayUnit(const QVariant& new_unit)
     if (new_unit.isNull() || new_unit.value<BitcoinUnit>() == m_display_bitcoin_unit) return;
     m_display_bitcoin_unit = new_unit.value<BitcoinUnit>();
     QSettings settings;
-    if (BitcoinUnits::numsys(m_display_bitcoin_unit) == BitcoinUnit::BTC) {
-        settings.setValue("DisplayBitcoinUnit", QVariant::fromValue(m_display_bitcoin_unit));
-        settings.remove("DisplayBitcoinUnitKnots");
-    } else {
-        settings.setValue("DisplayBitcoinUnitKnots", QVariant::fromValue(m_display_bitcoin_unit));
-    }
-    {
-        // For older versions:
-        auto setting_val = BitcoinUnits::ToSetting(m_display_bitcoin_unit);
-        if (const QString* setting_str = std::get_if<QString>(&setting_val)) {
-            settings.setValue("nDisplayUnit", *setting_str);
-        } else {
-            settings.setValue("nDisplayUnit", std::get<qint8>(setting_val));
-        }
-    }
+    settings.setValue("DisplayBitcoinUnit", QVariant::fromValue(m_display_bitcoin_unit));
     Q_EMIT displayUnitChanged(m_display_bitcoin_unit);
 }
 

@@ -654,8 +654,8 @@ BOOST_FIXTURE_TEST_CASE(versionbits_active_duration, BasicTestingSetup)
 
     {
         ArgsManager args;
-        // start=0, timeout=never, min_height=0, max_height=INT_MAX (disabled), active_duration=144
-        args.ForceSetArg("-vbparams", "testdummy:0:999999999999:0:2147483647:144");
+        // start=0, timeout=never, min_height=0, max_height=INT_MAX (disabled), active_duration=120
+        args.ForceSetArg("-vbparams", "testdummy:0:999999999999:0:2147483647:120");
         const auto chainParams = CreateChainParams(args, ChainType::REGTEST);
         const auto& deployment = chainParams->GetConsensus().vDeployments[Consensus::DEPLOYMENT_TESTDUMMY];
 
@@ -663,21 +663,21 @@ BOOST_FIXTURE_TEST_CASE(versionbits_active_duration, BasicTestingSetup)
         BOOST_CHECK_EQUAL(deployment.nTimeout, 999999999999);
         BOOST_CHECK_EQUAL(deployment.min_activation_height, 0);
         BOOST_CHECK_EQUAL(deployment.max_activation_height, std::numeric_limits<int>::max());
-        BOOST_CHECK_EQUAL(deployment.active_duration, 144);
+        BOOST_CHECK_EQUAL(deployment.active_duration, 120);
     }
 
     {
         ArgsManager args;
         // Test with max_activation_height set
-        // start=0, timeout=NO_TIMEOUT, min_height=288, max_height=432, active_duration=1008 (144*7)
+        // start=0, timeout=NO_TIMEOUT, min_height=288, max_height=432, active_duration=840 (120*7)
         // NO_TIMEOUT = INT64_MAX = 9223372036854775807
-        args.ForceSetArg("-vbparams", "testdummy:0:9223372036854775807:288:432:1008");
+        args.ForceSetArg("-vbparams", "testdummy:0:9223372036854775807:288:432:840");
         const auto chainParams = CreateChainParams(args, ChainType::REGTEST);
         const auto& deployment = chainParams->GetConsensus().vDeployments[Consensus::DEPLOYMENT_TESTDUMMY];
 
         BOOST_CHECK_EQUAL(deployment.min_activation_height, 288);
         BOOST_CHECK_EQUAL(deployment.max_activation_height, 432);
-        BOOST_CHECK_EQUAL(deployment.active_duration, 1008);
+        BOOST_CHECK_EQUAL(deployment.active_duration, 840);
     }
 
     {
@@ -712,13 +712,13 @@ BOOST_FIXTURE_TEST_CASE(versionbits_max_activation_height_parsing, BasicTestingS
         ArgsManager args;
         // Test combined: max_activation_height + active_duration (RDTS)
         // NO_TIMEOUT = INT64_MAX = 9223372036854775807
-        args.ForceSetArg("-vbparams", "testdummy:0:9223372036854775807:288:576:144");
+        args.ForceSetArg("-vbparams", "testdummy:0:9223372036854775807:288:576:120");
         const auto chainParams = CreateChainParams(args, ChainType::REGTEST);
         const auto& deployment = chainParams->GetConsensus().vDeployments[Consensus::DEPLOYMENT_TESTDUMMY];
 
         BOOST_CHECK_EQUAL(deployment.min_activation_height, 288);
         BOOST_CHECK_EQUAL(deployment.max_activation_height, 576);
-        BOOST_CHECK_EQUAL(deployment.active_duration, 144);
+        BOOST_CHECK_EQUAL(deployment.active_duration, 120);
     }
 }
 
@@ -1077,15 +1077,15 @@ BOOST_AUTO_TEST_CASE(versionbits_no_signaling_after_expired)
     // After EXPIRED, the bit should not be set.
 
     ArgsManager args;
-    // testdummy: start=0, timeout=never, min_height=0, max_height=INT_MAX, active_duration=144
-    args.ForceSetArg("-vbparams", "testdummy:0:9223372036854775807:0:2147483647:144");
+    // testdummy: start=0, timeout=never, min_height=0, max_height=INT_MAX, active_duration=120
+    args.ForceSetArg("-vbparams", "testdummy:0:9223372036854775807:0:2147483647:120");
     const auto chainParams = CreateChainParams(args, ChainType::REGTEST);
     const auto& params = chainParams->GetConsensus();
 
     VersionBitsCache vbcache;
     const auto dep = Consensus::DEPLOYMENT_TESTDUMMY;
     const uint32_t bitmask = vbcache.Mask(params, dep);
-    const int period = params.nMinerConfirmationWindow; // 144 for regtest
+    const int period = params.nMinerConfirmationWindow; // 120 for regtest
 
     std::vector<CBlockIndex*> blocks;
     auto cleanup = [&blocks]() {

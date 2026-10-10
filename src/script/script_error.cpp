@@ -99,6 +99,8 @@ std::string ScriptErrorString(const ScriptError serror)
             return "Witness provided for non-witness script";
         case SCRIPT_ERR_WITNESS_PUBKEYTYPE:
             return "Using non-compressed keys in segwit";
+        case SCRIPT_ERR_TAPROOT_DISABLED:
+            return "Taproot is not enabled; witness v1 spends are invalid";
         case SCRIPT_ERR_SCHNORR_SIG_SIZE:
             return "Invalid Schnorr signature size";
         case SCRIPT_ERR_SCHNORR_SIG_HASHTYPE:

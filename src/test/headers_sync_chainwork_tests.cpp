@@ -191,20 +191,36 @@ BOOST_AUTO_TEST_CASE(headers_sync_powchange_fork)
 
     const arith_uint256 minimum_required_work{UintToArith256(params.nMinimumChainWork)};
 
-    auto presyncs = [&](const std::vector<CBlockHeader>& headers) {
+    auto run_headers = [&](const std::vector<CBlockHeader>& headers) {
         HeadersSyncState hss(/*id=*/0, params, &chain_start, minimum_required_work);
         const auto result = hss.ProcessNextHeaders(headers, /*full_headers_message=*/true);
-        return result.success && hss.GetState() == HeadersSyncState::State::PRESYNC;
+        return std::pair{result.success, hss.GetState()};
     };
 
-    BOOST_CHECK_NE(fork_nbits, tip_nbits);
-    BOOST_CHECK(presyncs(build_chain(tip_nbits, fork_nbits)));
-    BOOST_CHECK(!presyncs(build_chain(fork_nbits, fork_nbits)));
+    // Product nMinimumChainWork is 0, so two valid headers already meet the
+    // work threshold and the sync switches to REDOWNLOAD. A huge Bitcoin-era
+    // min-work would have stayed in PRESYNC after only two headers.
+    const auto expected_ok_state = params.nMinimumChainWork.IsNull()
+                                       ? HeadersSyncState::State::REDOWNLOAD
+                                       : HeadersSyncState::State::PRESYNC;
+
+    if (params.Blake2bTargetShift == 0) {
+        BOOST_CHECK_EQUAL(fork_nbits, tip_nbits);
+        const auto [ok, state] = run_headers(build_chain(tip_nbits, fork_nbits));
+        BOOST_CHECK(ok);
+        BOOST_CHECK(state == expected_ok_state);
+    } else {
+        BOOST_CHECK_NE(fork_nbits, tip_nbits);
+        const auto [ok, state] = run_headers(build_chain(tip_nbits, fork_nbits));
+        BOOST_CHECK(ok);
+        BOOST_CHECK(state == expected_ok_state);
+        BOOST_CHECK(!run_headers(build_chain(fork_nbits, fork_nbits)).first);
+    }
 
     arith_uint256 too_easy;
     too_easy.SetCompact(fork_nbits);
     too_easy <<= 4;
-    BOOST_CHECK(!presyncs(build_chain(tip_nbits, too_easy.GetCompact())));
+    BOOST_CHECK(!run_headers(build_chain(tip_nbits, too_easy.GetCompact())).first);
 }
 
 // The one-time target shift must not be granted again after activation.
@@ -247,7 +263,9 @@ BOOST_AUTO_TEST_CASE(headers_sync_powchange_repeated_shift)
 
     HeadersSyncState hss(0, params, &chain_start, UintToArith256(params.nMinimumChainWork));
     const auto result = hss.ProcessNextHeaders(headers, true);
-    BOOST_CHECK(!result.success);
+    // Shift 0 does not ease nBits; same-nBits headers are legal. A nonzero
+    // shift would drop the target twice and must be rejected.
+    BOOST_CHECK_EQUAL(result.success, params.Blake2bTargetShift == 0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

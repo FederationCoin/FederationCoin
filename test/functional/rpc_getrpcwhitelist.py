@@ -37,8 +37,10 @@ class RPCWhitelistTest(BitcoinTestFramework):
 
     def set_test_params(self):
         self.num_nodes = 1
-        if self.is_wallet_compiled():
-            self.skip_if_no_wallet()
+
+    def skip_test_if_missing_module(self):
+        # Heritage: Core wallet RPC whitelist. Product wallets are Sparrow and mill.
+        self.skip_if_no_wallet()
 
     def setup_chain(self):
         super().setup_chain()
@@ -60,7 +62,7 @@ class RPCWhitelistTest(BitcoinTestFramework):
                          "getrpcwhitelist"]
 
         # declare rpc-whitelisting entries
-        with open(os.path.join(get_datadir_path(self.options.tmpdir, 0), "bitcoin.conf"), 'a', encoding='utf8') as f:
+        with open(os.path.join(get_datadir_path(self.options.tmpdir, 0), "federationcoin.conf"), 'a', encoding='utf8') as f:
             f.write("\nrpcwhitelistdefault=0\n")
             f.write("rpcauth={}:{}\n".format(self.settings[0], self.settings[1]))
             f.write("rpcwhitelist={}:{}\n".format(self.settings[0], self.settings[3]))
@@ -99,7 +101,7 @@ class RPCWhitelistTest(BitcoinTestFramework):
             assert_equal(result['json']['methods'], whitelisted)
             assert_equal(result['json']['wallets'], {'second':None})
 
-        # should fail because user has no rpcwhitelist-rpc entry in bitcoin.conf
+        # should fail because user has no rpcwhitelist-rpc entry in federationcoin.conf
         result = call_rpc(self.nodes[0], self.settings_forbidden, 'getrpcwhitelist')
         assert_equal(result['status'], 403)
 

@@ -53,7 +53,7 @@ def get_key(node):
     """Generate a fresh key on node
 
     Returns a named tuple of privkey, pubkey and all address and scripts."""
-    addr = node.getnewaddress()
+    addr = node.getnewaddress("", "secp")
     pubkey = node.getaddressinfo(addr)['pubkey']
     return Key(privkey=node.dumpprivkey(addr),
                pubkey=pubkey,
@@ -115,7 +115,7 @@ def test_address(node, address, **kwargs):
 def bytes_to_wif(b, compressed=True):
     if compressed:
         b += b'\x01'
-    return byte_to_base58(b, 239)
+    return byte_to_base58(b, 223)
 
 def generate_keypair(compressed=True, wif=False):
     """Generate a new random keypair and return the corresponding ECKey /

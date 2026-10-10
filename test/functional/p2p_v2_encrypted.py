@@ -40,7 +40,7 @@ class P2PEncrypted(BitcoinTestFramework):
         last_block_time = node.getblock(last_block)['time']
         for _ in range(number):
             # Create some blocks
-            block = create_block(tip, create_coinbase(tipheight + 1), last_block_time + 1)
+            block = create_block(tip, create_coinbase(tipheight + 1), last_block_time + 1, height=tipheight + 1)
             block.solve()
             test_blocks.append(block)
             tip = block.sha256
@@ -49,7 +49,7 @@ class P2PEncrypted(BitcoinTestFramework):
         return test_blocks
 
     def create_test_block(self, txs):
-        block = create_block(self.tip, create_coinbase(self.tipheight + 1), self.last_block_time + 600, txlist=txs)
+        block = create_block(self.tip, create_coinbase(self.tipheight + 1), self.last_block_time + 600, txlist=txs, height=self.tipheight + 1)
         block.solve()
         return block
 

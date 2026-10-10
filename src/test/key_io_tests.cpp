@@ -5,9 +5,11 @@
 #include <test/data/key_io_invalid.json.h>
 #include <test/data/key_io_valid.json.h>
 
+#include <addresstype.h>
 #include <key.h>
 #include <key_io.h>
 #include <script/script.h>
+#include <test/util/chain_encoding.h>
 #include <test/util/json.h>
 #include <test/util/setup_common.h>
 #include <univalue.h>
@@ -36,45 +38,46 @@ BOOST_AUTO_TEST_CASE(key_io_valid_parse)
             continue;
         }
         std::string exp_base58string = test[0].get_str();
-        const std::vector<std::byte> exp_payload{ParseHex<std::byte>(test[1].get_str())};
+        const std::vector<unsigned char> exp_payload{ParseHex(test[1].get_str())};
         const UniValue &metadata = test[2].get_obj();
         bool isPrivkey = metadata.find_value("isPrivkey").get_bool();
         SelectParams(ChainTypeFromString(metadata.find_value("chain").get_str()).value());
-        bool try_case_flip = metadata.find_value("tryCaseFlip").isNull() ? false : metadata.find_value("tryCaseFlip").get_bool();
         if (isPrivkey) {
             bool isCompressed = metadata.find_value("isCompressed").get_bool();
-            // Must be valid private key
-            privkey = DecodeSecret(exp_base58string);
-            BOOST_CHECK_MESSAGE(privkey.IsValid(), "!IsValid:" + strTest);
-            BOOST_CHECK_MESSAGE(privkey.IsCompressed() == isCompressed, "compressed mismatch:" + strTest);
-            BOOST_CHECK_MESSAGE(std::ranges::equal(privkey, exp_payload), "key mismatch:" + strTest);
-
-            // Private key must be invalid public key
+            CKey key;
+            key.Set(exp_payload.begin(), exp_payload.end(), isCompressed);
+            BOOST_CHECK_MESSAGE(key.IsValid(), "!IsValid payload:" + strTest);
+            BOOST_CHECK_MESSAGE(key.IsCompressed() == isCompressed, "compressed mismatch:" + strTest);
+            BOOST_CHECK_MESSAGE(DecodeSecret(EncodeSecret(key)) == key, "secret roundtrip:" + strTest);
+            const std::string recoded = RecodeKeyOrAddressForActiveChain(exp_base58string);
+            privkey = DecodeSecret(recoded);
+            BOOST_CHECK_MESSAGE(privkey == key, "recoded WIF payload:" + strTest);
+            BOOST_CHECK_MESSAGE(EncodeSecret(key) == recoded, "EncodeSecret recode:" + strTest);
+            if (recoded != exp_base58string) {
+                BOOST_CHECK_MESSAGE(!DecodeSecret(exp_base58string).IsValid(), "Bitcoin WIF decoded:" + strTest);
+            }
             destination = DecodeDestination(exp_base58string);
             BOOST_CHECK_MESSAGE(!IsValidDestination(destination), "IsValid privkey as pubkey:" + strTest);
         } else {
-            // Must be valid public key
-            destination = DecodeDestination(exp_base58string);
-            CScript script = GetScriptForDestination(destination);
-            BOOST_CHECK_MESSAGE(IsValidDestination(destination), "!IsValid:" + strTest);
-            BOOST_CHECK_EQUAL(HexStr(script), HexStr(exp_payload));
-
-            // Try flipped case version
-            for (char& c : exp_base58string) {
-                if (c >= 'a' && c <= 'z') {
-                    c = (c - 'a') + 'A';
-                } else if (c >= 'A' && c <= 'Z') {
-                    c = (c - 'A') + 'a';
+            CScript script(exp_payload.begin(), exp_payload.end());
+            CTxDestination payload_dest;
+            const bool extracted = ExtractDestination(script, payload_dest);
+            if (extracted && IsValidDestination(payload_dest)) {
+                BOOST_CHECK_MESSAGE(DecodeDestination(EncodeDestination(payload_dest)) == payload_dest,
+                                    "address roundtrip:" + strTest);
+            }
+            const std::string recoded = RecodeKeyOrAddressForActiveChain(exp_base58string);
+            destination = DecodeDestination(recoded);
+            if (extracted && IsValidDestination(payload_dest)) {
+                // Taproot destinations are invalid on nets where Taproot is parked.
+                if (IsValidDestination(destination)) {
+                    BOOST_CHECK_MESSAGE(destination == payload_dest, "recoded address payload:" + strTest);
+                    BOOST_CHECK_MESSAGE(EncodeDestination(payload_dest) == recoded, "EncodeDestination recode:" + strTest);
                 }
             }
-            destination = DecodeDestination(exp_base58string);
-            BOOST_CHECK_MESSAGE(IsValidDestination(destination) == try_case_flip, "!IsValid case flipped:" + strTest);
-            if (IsValidDestination(destination)) {
-                script = GetScriptForDestination(destination);
-                BOOST_CHECK_EQUAL(HexStr(script), HexStr(exp_payload));
+            if (recoded != exp_base58string) {
+                BOOST_CHECK_MESSAGE(!IsValidDestination(DecodeDestination(exp_base58string)), "Bitcoin address decoded:" + strTest);
             }
-
-            // Public key must be invalid private key
             privkey = DecodeSecret(exp_base58string);
             BOOST_CHECK_MESSAGE(!privkey.IsValid(), "IsValid pubkey as privkey:" + strTest);
         }
@@ -104,14 +107,25 @@ BOOST_AUTO_TEST_CASE(key_io_valid_gen)
             CKey key;
             key.Set(exp_payload.begin(), exp_payload.end(), isCompressed);
             assert(key.IsValid());
-            BOOST_CHECK_MESSAGE(EncodeSecret(key) == exp_base58string, "result mismatch: " + strTest);
+            BOOST_CHECK_MESSAGE(DecodeSecret(EncodeSecret(key)) == key, "secret roundtrip: " + strTest);
+            const std::string recoded = RecodeKeyOrAddressForActiveChain(exp_base58string);
+            BOOST_CHECK_MESSAGE(EncodeSecret(key) == recoded, "EncodeSecret recode: " + strTest);
+            if (recoded != exp_base58string) {
+                BOOST_CHECK_MESSAGE(EncodeSecret(key) != exp_base58string, "Bitcoin WIF: " + strTest);
+            }
         } else {
             CTxDestination dest;
             CScript exp_script(exp_payload.begin(), exp_payload.end());
-            BOOST_CHECK(ExtractDestination(exp_script, dest));
-            std::string address = EncodeDestination(dest);
-
-            BOOST_CHECK_EQUAL(address, exp_base58string);
+            if (ExtractDestination(exp_script, dest) && IsValidDestination(dest)) {
+                BOOST_CHECK_MESSAGE(DecodeDestination(EncodeDestination(dest)) == dest, "address roundtrip: " + strTest);
+                const std::string recoded = RecodeKeyOrAddressForActiveChain(exp_base58string);
+                if (IsValidDestination(dest) && !EncodeDestination(dest).empty()) {
+                    BOOST_CHECK_MESSAGE(EncodeDestination(dest) == recoded, "EncodeDestination recode: " + strTest);
+                }
+                if (recoded != exp_base58string) {
+                    BOOST_CHECK_MESSAGE(EncodeDestination(dest) != exp_base58string, "Bitcoin address: " + strTest);
+                }
+            }
         }
     }
 

@@ -9,6 +9,7 @@
 #include <chain.h>
 #include <coins.h>
 #include <consensus/amount.h>
+#include <consensus/mldsa_spend.h>
 #include <consensus/validation.h>
 #include <core_io.h>
 #include <index/txindex.h>
@@ -47,6 +48,7 @@
 #include <validationinterface.h>
 
 #include <numeric>
+#include <span>
 #include <stdint.h>
 
 #include <univalue.h>
@@ -736,6 +738,30 @@ static RPCHelpMan combinerawtransaction()
         if (coin.IsSpent()) {
             throw JSONRPCError(RPC_VERIFY_ERROR, "Input not found or already spent");
         }
+        int witness_version{0};
+        std::vector<unsigned char> witness_program;
+        if (coin.out.scriptPubKey.IsWitnessProgram(witness_version, witness_program) &&
+            witness_version == 0 && witness_program.size() == 32) {
+            std::vector<std::vector<std::vector<unsigned char>>> stacks;
+            stacks.reserve(txVariants.size());
+            for (const CMutableTransaction& txv : txVariants) {
+                if (txv.vin.size() > i) {
+                    stacks.push_back(txv.vin[i].scriptWitness.stack);
+                }
+            }
+            uint256 sighash;
+            const bool hashed{txdata.m_spent_outputs_ready &&
+                              SignatureHashUnified(sighash, CScript{}, txConst, i, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata)};
+            const std::span<const unsigned char> message{hashed ? std::span<const unsigned char>{sighash.begin(), sighash.size()} : std::span<const unsigned char>{}};
+            const auto merged{Consensus::MergeMlDsa44Witnesses(stacks, message)};
+            if (!merged) {
+                throw JSONRPCError(RPC_VERIFY_ERROR, "Unable to combine ML-DSA-44 slot witnesses");
+            }
+            mergedTx.vin[i].scriptSig.clear();
+            mergedTx.vin[i].scriptWitness.stack = *merged;
+            continue;
+        }
+
         SignatureData sigdata;
 
         // ... and merge in other signatures:

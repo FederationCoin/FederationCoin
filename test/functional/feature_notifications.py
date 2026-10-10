@@ -32,6 +32,9 @@ class NotificationsTest(BitcoinTestFramework):
         self.num_nodes = 2
         self.setup_clean_chain = True
 
+    def skip_test_if_missing_module(self):
+        self.skip_if_no_wallet()
+
     def setup_network(self):
         self.wallet = ''.join(chr(i) for i in range(FILE_CHAR_START, FILE_CHAR_END) if chr(i) not in FILE_CHARS_DISALLOWED)
         self.alertnotify_dir = os.path.join(self.options.tmpdir, "alertnotify")
@@ -59,8 +62,8 @@ class NotificationsTest(BitcoinTestFramework):
     def run_test(self):
         if self.is_wallet_compiled():
             # Setup the descriptors to be imported to the wallet
-            seed = "cTdGmKFWpbvpKQ7ejrdzqYT2hhjyb3GPHnLAK7wdi5Em67YLwSm9"
-            xpriv = "tprv8ZgxMBicQKsPfHCsTwkiM1KT56RXbGGTqvc2hgqzycpwbHqqpcajQeMRZoBD35kW4RtyCemu6j34Ku5DEspmgjKdt2qe4SvRch5Kk8B8A2v"
+            seed = "a6MBcjV829Gcj7uMteKi6kwEikXYELvkgiN5MrQ7rRBNapNHLtDR"
+            xpriv = "trBb8nVXuTDmeQ5gV8J8C88vJjxVZngjmSzLPRtDiWyUv7kMpoineRq1b55QTFMWM9H86kAfSpwLkWgN4VN5CuTrHN1N1svTDhdeouj14jhap8z"
             desc_imports = [{
                 "desc": descsum_create(f"wpkh({xpriv}/0/*)"),
                 "timestamp": 0,
@@ -73,18 +76,18 @@ class NotificationsTest(BitcoinTestFramework):
                 "keypool": True,
                 "internal": True,
             }]
-            # Make the wallets and import the descriptors
-            # Ensures that node 0 and node 1 share the same wallet for the conflicting transaction tests below.
+            # Import the same secp descriptors on both nodes so conflict
+            # notifications share keys. The default wallet may already exist.
             for i, name in enumerate(self.wallet_names):
-                self.nodes[i].createwallet(wallet_name=name, descriptors=self.options.descriptors, blank=True, load_on_startup=True)
-                if self.options.descriptors:
-                    self.nodes[i].importdescriptors(desc_imports)
-                else:
-                    self.nodes[i].sethdseed(True, seed)
+                if name not in self.nodes[i].listwallets():
+                    self.nodes[i].createwallet(wallet_name=name, descriptors=True, blank=True, load_on_startup=True)
+                self.nodes[i].get_wallet_rpc(name).importdescriptors(desc_imports)
 
         self.log.info("test -blocknotify")
         block_count = 10
-        blocks = self.generatetoaddress(self.nodes[1], block_count, self.nodes[1].getnewaddress() if self.is_wallet_compiled() else ADDRESS_BCRT1_UNSPENDABLE)
+        # Mine to the imported secp descriptor so node 0 can rescan the same coins.
+        mine_addr = self.nodes[1].getnewaddress("", "secp") if self.is_wallet_compiled() else ADDRESS_BCRT1_UNSPENDABLE
+        blocks = self.generatetoaddress(self.nodes[1], block_count, mine_addr)
 
         # wait at most 10 seconds for expected number of files before reading the content
         self.wait_until(lambda: len(os.listdir(self.blocknotify_dir)) == block_count, timeout=10)

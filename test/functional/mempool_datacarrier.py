@@ -3,25 +3,24 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test datacarrier functionality"""
+from test_framework.blocktools import add_witness_commitment, create_block, create_coinbase
 from test_framework.messages import (
     COutPoint,
     CTransaction,
     CTxIn,
-    CTxInWitness,
     CTxOut,
     MAX_OP_RETURN_RELAY,
 )
 from test_framework.script import (
     CScript,
     OP_1,
-    OP_2DROP,
-    OP_DROP,
     OP_RETURN,
     taproot_construct,
 )
+from test_framework.authproxy import JSONRPCException
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.test_node import TestNode
-from test_framework.util import assert_raises_rpc_error
+from test_framework.util import assert_equal, assert_raises_rpc_error
 from test_framework.wallet import MiniWallet
 
 from random import randbytes
@@ -37,28 +36,41 @@ class DataCarrierTest(BitcoinTestFramework):
             ["-datacarrier=1", "-datacarriersize=2", "-acceptnonstddatacarrier=1", "-datacarrierfullcount"],
         ]
 
-    def test_null_data_transaction(self, node: TestNode, data, success: bool) -> None:
-        tx = self.wallet.create_self_transfer(fee_rate=0)["tx"]
+    def test_null_data_transaction(self, node: TestNode, data) -> None:
+        # The transaction is rejected, so the coin stays available.
+        utxo = self.wallet.get_utxo(mark_as_spent=False)
+        tx = self.wallet.create_self_transfer(fee_rate=0, utxo_to_spend=utxo)["tx"]
         data = [] if data is None else [data]
         tx.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN] + data)))
         tx.vout[0].nValue -= tx.get_vsize()  # simply pay 1sat/vbyte fee
-
+        self.wallet.resign(tx)
         tx_hex = tx.serialize().hex()
+        self.assert_mempool_rejected(node, tx_hex)
 
-        if success:
+    def assert_mempool_rejected(self, node: TestNode, tx_hex: str) -> None:
+        """Policy may reject the script before the consensus check. Either way it stays out."""
+        try:
             self.wallet.sendrawtransaction(from_node=node, tx_hex=tx_hex)
-            assert tx.rehash() in node.getrawmempool(True), f'{tx_hex} not in mempool'
-        else:
-            assert_raises_rpc_error(-26, "scriptpubkey", self.wallet.sendrawtransaction, from_node=node, tx_hex=tx_hex)
+        except JSONRPCException as exc:
+            assert exc.error["code"] == -26
+            message = exc.error["message"]
+            assert "datacarrier" in message or "scriptpubkey" in message or "toolarge" in message, message
+            return
+        raise AssertionError("OP_RETURN was accepted")
 
-    def test_opnet_transaction(self, node: TestNode, success: bool) -> None:
-        minimal_script = CScript([OP_2DROP, OP_DROP, b'op', OP_DROP, OP_1])
+    def submit_block_with(self, node: TestNode, tx: CTransaction):
+        tip = node.getbestblockhash()
+        height = node.getblockcount() + 1
+        block = create_block(int(tip, 16), create_coinbase(height),
+                             ntime=node.getblockheader(tip)["time"] + 1,
+                             txlist=[tx], height=height, header_v2=True)
+        add_witness_commitment(block)
+        block.solve()
+        return node.submitblock(block.serialize().hex())
+
+    def test_opnet_funding_rejected(self) -> None:
         internal_key = b'\x01' * 32
-        tap = taproot_construct(internal_key, [("leaf", minimal_script), ("dummy", CScript([OP_1]))])
-        leaf = tap.leaves["leaf"]
-        control_block = bytes([leaf.version | tap.negflag]) + tap.internal_pubkey + leaf.merklebranch
-        assert len(control_block) == 65
-
+        tap = taproot_construct(internal_key, [("leaf", CScript([OP_1]))])
         utxo = self.wallet.get_utxo()
         funding_tx = CTransaction()
         funding_tx.vin = [CTxIn(COutPoint(int(utxo['txid'], 16), utxo['vout']))]
@@ -67,29 +79,10 @@ class DataCarrierTest(BitcoinTestFramework):
         funding_tx.version = 2
         self.wallet.sign_tx(funding_tx)
         funding_tx.rehash()
-        self.nodes[0].sendrawtransaction(funding_tx.serialize().hex())
-        self.generate(self.nodes[0], 1, sync_fun=self.sync_blocks)
-
-        spend_tx = CTransaction()
-        spend_tx.version = 2
-        spend_tx.vin = [CTxIn(COutPoint(int(funding_tx.hash, 16), 0))]
-        spend_tx.vout = [CTxOut(funding_value - 1000, tap.scriptPubKey)]
-        spend_tx.wit.vtxinwit = [CTxInWitness()]
-        spend_tx.wit.vtxinwit[0].scriptWitness.stack = [
-            b'',                    # stack[0]: empty (minimises opnet bytes)
-            b'',                    # stack[1]: cleared by OP_2DROP
-            b'',                    # stack[2]: cleared by OP_2DROP
-            bytes(minimal_script),  # stack[3]: tapscript containing \x02op
-            control_block,          # stack[4]: control block (65 bytes)
-        ]
-        tx_hex = spend_tx.serialize().hex()
-
-        if success:
-            self.wallet.sendrawtransaction(from_node=node, tx_hex=tx_hex)
-            assert spend_tx.rehash() in node.getrawmempool(True)
-        else:
-            assert_raises_rpc_error(-26, "txn-datacarrier-exceeded",
-                                    self.wallet.sendrawtransaction, from_node=node, tx_hex=tx_hex)
+        assert_raises_rpc_error(
+            -26, "bad-txns-vout-taproot-disabled",
+            self.nodes[0].sendrawtransaction, funding_tx.serialize().hex(),
+        )
 
 
     def run_test(self):
@@ -102,44 +95,28 @@ class DataCarrierTest(BitcoinTestFramework):
         one_byte = randbytes(1)
         zero_bytes = randbytes(0)
 
-        self.log.info("Testing null data transaction with default -datacarrier and -datacarriersize values.")
-        self.test_null_data_transaction(node=self.nodes[0], data=default_size_data, success=True)
+        self.log.info("A user OP_RETURN is rejected. An over-size script is rejected before that.")
+        for node in self.nodes:
+            self.test_null_data_transaction(node=node, data=default_size_data)
+            self.test_null_data_transaction(node=node, data=small_data)
+            self.test_null_data_transaction(node=node, data=None)
+            self.test_null_data_transaction(node=node, data=zero_bytes)
+            self.test_null_data_transaction(node=node, data=one_byte)
+            self.test_null_data_transaction(node=node, data=too_long_data)
 
-        self.log.info("Testing a null data transaction larger than allowed by the default -datacarriersize value.")
-        self.test_null_data_transaction(node=self.nodes[0], data=too_long_data, success=False)
+        self.log.info("Consensus rejects a user OP_RETURN. Policy flags do not reopen it.")
+        utxo = self.wallet.get_utxo()
+        tx = self.wallet.create_self_transfer(utxo_to_spend=utxo)["tx"]
+        tx.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b"pay"])))
+        tx.rehash()
+        assert_equal(self.submit_block_with(self.nodes[0], tx), "bad-txns-datacarrier")
+        wide = self.wallet.create_self_transfer(utxo_to_spend=utxo)["tx"]
+        wide.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b"x" * 81])))
+        wide.rehash()
+        assert_equal(self.submit_block_with(self.nodes[0], wide), "bad-txns-vout-script-toolarge")
 
-        self.log.info("Testing a null data transaction with -datacarrier=false.")
-        self.test_null_data_transaction(node=self.nodes[1], data=default_size_data, success=False)
-
-        self.log.info("Testing a null data transaction with a size larger than accepted by -datacarriersize.")
-        self.test_null_data_transaction(node=self.nodes[2], data=default_size_data, success=False)
-
-        self.log.info("Testing a null data transaction with a size smaller than accepted by -datacarriersize.")
-        self.test_null_data_transaction(node=self.nodes[2], data=small_data, success=True)
-
-        self.log.info("Testing a null data transaction with no data.")
-        self.test_null_data_transaction(node=self.nodes[0], data=None, success=True)
-        self.test_null_data_transaction(node=self.nodes[1], data=None, success=False)
-        self.test_null_data_transaction(node=self.nodes[2], data=None, success=True)
-        self.test_null_data_transaction(node=self.nodes[3], data=None, success=True)
-
-        self.log.info("Testing a null data transaction with zero bytes of data.")
-        self.test_null_data_transaction(node=self.nodes[0], data=zero_bytes, success=True)
-        self.test_null_data_transaction(node=self.nodes[1], data=zero_bytes, success=False)
-        self.test_null_data_transaction(node=self.nodes[2], data=zero_bytes, success=True)
-        self.test_null_data_transaction(node=self.nodes[3], data=zero_bytes, success=True)
-
-        self.log.info("Testing a null data transaction with one byte of data.")
-        self.test_null_data_transaction(node=self.nodes[0], data=one_byte, success=True)
-        self.test_null_data_transaction(node=self.nodes[1], data=one_byte, success=False)
-        self.test_null_data_transaction(node=self.nodes[2], data=one_byte, success=True)
-        self.test_null_data_transaction(node=self.nodes[3], data=one_byte, success=False)
-
-        self.log.info("Testing an OPNet transaction (just pushing 'op') with default -datacarriersize.")
-        self.test_opnet_transaction(node=self.nodes[0], success=True)
-
-        self.log.info("Testing an OPNet transaction (just pushing 'op') with -datacarriersize=2.")
-        self.test_opnet_transaction(node=self.nodes[3], success=False)
+        self.log.info("Testing that an OPNet taproot output is rejected.")
+        self.test_opnet_funding_rejected()
 
 
 if __name__ == '__main__':

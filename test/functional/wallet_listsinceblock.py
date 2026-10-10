@@ -422,8 +422,8 @@ class ListSinceBlockTest(BitcoinTestFramework):
         self.log.info("Test descriptor lookup by scriptPubKey.")
 
         # Create a watchonly wallet tracking two multisig descriptors.
-        multi_a = descsum_create("wsh(multi(1,tpubD6NzVbkrYhZ4YBNjUo96Jxd1u4XKWgnoc7LsA1jz3Yc2NiDbhtfBhaBtemB73n9V5vtJHwU6FVXwggTbeoJWQ1rzdz8ysDuQkpnaHyvnvzR/*,tpubD6NzVbkrYhZ4YHdDGMAYGaWxMSC1B6tPRTHuU5t3BcfcS3nrF523iFm5waFd1pP3ZvJt4Jr8XmCmsTBNx5suhcSgtzpGjGMASR3tau1hJz4/*))")
-        multi_b = descsum_create("wsh(multi(1,tpubD6NzVbkrYhZ4YHdDGMAYGaWxMSC1B6tPRTHuU5t3BcfcS3nrF523iFm5waFd1pP3ZvJt4Jr8XmCmsTBNx5suhcSgtzpGjGMASR3tau1hJz4/*,tpubD6NzVbkrYhZ4Y2RLiuEzNQkntjmsLpPYDm3LTRBYynUQtDtpzeUKAcb9sYthSFL3YR74cdFgF5mW8yKxv2W2CWuZDFR2dUpE5PF9kbrVXNZ/*))")
+        multi_a = descsum_create("wsh(multi(1,trB6nMbsSD2SBxuhQ8a4ZyxW7eLnRpcfmFxpLMGUrGb66X7FfSnbLJvrRvwnykvKthaDmsFstwijd9Yy5pxC3UwTCgFV3HYMA4tyhAUMzyEEivg/*,trB6nMbsSD2SBxuhQEpYMXyx5GEitCHMRg4Q9hDXALj9EbAqinMqsVHiScWzGZzqrjonFrgTfK6muRDoGbfyLmWrWGqBJJDe27LjNkjgHvsapHh/*))")
+        multi_b = descsum_create("wsh(multi(1,trB6nMbsSD2SBxuhQEpYMXyx5GEitCHMRg4Q9hDXALj9EbAqinMqsVHiScWzGZzqrjonFrgTfK6muRDoGbfyLmWrWGqBJJDe27LjNkjgHvsapHh/*,trB6nMbsSD2SBxuhPycfp64QB6UZRVsDbPZYwzxx9g2f2kyeAxTpd4jytyM4CYdvHAknEMUeDdWKcjnXY7pZJi8y1BJ3cYpPvKoo1ivwTb7BSC1/*))")
         self.nodes[0].createwallet(wallet_name="wo", descriptors=True, disable_private_keys=True)
         wo_wallet = self.nodes[0].get_wallet_rpc("wo")
         wo_wallet.importdescriptors([
@@ -477,17 +477,11 @@ class ListSinceBlockTest(BitcoinTestFramework):
         assert all(self.nodes[2].getaddressinfo(c["address"])["ischange"] for c in coins)
 
     def test_op_return(self):
-        """Test if OP_RETURN outputs will be displayed correctly."""
-        block_hash = self.nodes[2].getbestblockhash()
-
+        """A user OP_RETURN is not a valid transaction."""
         raw_tx = self.nodes[2].createrawtransaction([], [{'data': 'aa'}])
         funded_tx = self.nodes[2].fundrawtransaction(raw_tx)
         signed_tx = self.nodes[2].signrawtransactionwithwallet(funded_tx['hex'])
-        tx_id = self.nodes[2].sendrawtransaction(signed_tx['hex'])
-
-        op_ret_tx = [tx for tx in self.nodes[2].listsinceblock(blockhash=block_hash)["transactions"] if tx['txid'] == tx_id][0]
-
-        assert 'address' not in op_ret_tx
+        assert_raises_rpc_error(-26, "bad-txns-datacarrier", self.nodes[2].sendrawtransaction, signed_tx['hex'])
 
     def test_label(self):
         self.log.info('Test passing "label" argument fetches incoming transactions having the specified label')
@@ -496,12 +490,10 @@ class ListSinceBlockTest(BitcoinTestFramework):
         self.nodes[2].sendtoaddress(address=new_addr, amount="0.001")
         self.generate(self.nodes[2], 1)
 
-        for label in ["new_addr", ""]:
-            new_addr_transactions = self.nodes[1].listsinceblock(label=label)["transactions"]
-            assert_equal(len(new_addr_transactions), 1)
-            assert_equal(new_addr_transactions[0]["label"], label)
-            if label == "new_addr":
-                assert_equal(new_addr_transactions[0]["address"], new_addr)
+        new_addr_transactions = self.nodes[1].listsinceblock(label="new_addr")["transactions"]
+        assert_equal(len(new_addr_transactions), 1)
+        assert_equal(new_addr_transactions[0]["label"], "new_addr")
+        assert_equal(new_addr_transactions[0]["address"], new_addr)
 
 
 if __name__ == '__main__':

@@ -20,8 +20,12 @@ import sys
 import tempfile
 import time
 
-from .address import create_deterministic_address_bcrt1_p2tr_op_true
+from .address import base58_to_byte, key_to_p2wpkh, program_to_witness, script_to_p2wsh
+from .key import ECKey
+from .descriptors import descsum_create
+from .mldsa import keygen
 from .authproxy import JSONRPCException
+from .script import CScript, OP_TRUE
 from . import coverage
 from .p2p import NetworkThread
 from .test_node import TestNode
@@ -29,6 +33,7 @@ from .util import (
     MAX_NODES,
     PortSeed,
     assert_equal,
+    assert_raises_rpc_error,
     check_json_precision,
     find_vout_for_address,
     get_datadir_path,
@@ -120,6 +125,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         # addrman will not result in automatic connections to them.
         self.disable_autoconnect = True
         self.set_test_params()
+        self._apply_secp_wallet_cli_defaults()
         assert self.wallet_names is None or len(self.wallet_names) <= self.num_nodes
         self.rpc_timeout = int(self.rpc_timeout * self.options.timeout_factor) # optionally, increase timeout by a factor
 
@@ -236,10 +242,10 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         """Update self.options with the paths of all binaries from environment variables or their default values"""
 
         binaries = {
-            "bitcoind": ("bitcoind", "BITCOIND"),
-            "bitcoin-cli": ("bitcoincli", "BITCOINCLI"),
-            "bitcoin-util": ("bitcoinutil", "BITCOINUTIL"),
-            "bitcoin-wallet": ("bitcoinwallet", "BITCOINWALLET"),
+            "federationcoind": ("bitcoind", "FEDERATIONCOIND"),
+            "federationcoin-cli": ("bitcoincli", "FEDERATIONCOINCLI"),
+            "federationcoin-util": ("bitcoinutil", "FEDERATIONCOINUTIL"),
+            "federationcoin-wallet": ("bitcoinwallet", "FEDERATIONCOINWALLET"),
         }
         for binary, [attribute_name, env_variable_name] in binaries.items():
             default_filename = os.path.join(
@@ -372,6 +378,23 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         """Tests must override this method to change default values for number of nodes, topology, etc"""
         raise NotImplementedError
 
+    def _apply_secp_wallet_cli_defaults(self):
+        """Most functional tests assume Bitcoin-sized P2WPKH receive/change.
+
+        Product default is Dilithium 87. Tests that exercise all three live
+        kinds set keep_epic21_address_types on the test instance.
+        """
+        if getattr(self, "keep_epic21_address_types", False):
+            return
+        if self.extra_args is None:
+            self.extra_args = [[] for _ in range(self.num_nodes)]
+        for args in self.extra_args:
+            joined = " ".join(args)
+            if "-addresstype=" not in joined:
+                args.append("-addresstype=secp")
+            if "-changetype=" not in joined:
+                args.append("-changetype=secp")
+
     def add_options(self, parser):
         """Override this method to add command-line options to the test"""
         pass
@@ -439,7 +462,17 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             n = self.nodes[node]
             if wallet_name is not None:
                 n.createwallet(wallet_name=wallet_name, descriptors=self.options.descriptors, load_on_startup=True)
-            n.importprivkey(privkey=n.get_deterministic_priv_key().key, label='coinbase', rescan=True)
+            privkey = n.get_deterministic_priv_key().key
+            if self.options.descriptors:
+                imported = n.importdescriptors([{
+                    "desc": descsum_create(f"wpkh({privkey})"),
+                    "timestamp": 0,
+                    "label": "coinbase",
+                }])
+                if not imported[0]["success"]:
+                    raise RuntimeError(imported[0].get("error", {}).get("message", "importdescriptors pkh failed"))
+            else:
+                n.importprivkey(privkey=privkey, label='coinbase', rescan=True)
 
     # Only enables wallet support when the module is available
     def enable_wallet_if_possible(self):
@@ -545,6 +578,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 use_valgrind=self.options.valgrind,
                 descriptors=self.options.descriptors,
                 v2transport=self.options.v2transport,
+                wallet_compiled=self.is_wallet_compiled(),
             )
             self.nodes.append(test_node_i)
             if not test_node_i.version_is_at_least(170000):
@@ -830,6 +864,10 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         CACHE_NODE_ID = 0  # Use node 0 to create the cache for all other nodes
         cache_node_dir = get_datadir_path(self.options.cachedir, CACHE_NODE_ID)
         assert self.num_nodes <= MAX_NODES
+        # Premine pays secp P2WPKH of the first three node keys plus MiniWallet ML-DSA.
+        cache_marker = os.path.join(cache_node_dir, "secp-spend")
+        if os.path.isdir(cache_node_dir) and not os.path.isfile(cache_marker):
+            shutil.rmtree(cache_node_dir)
 
         if not os.path.isdir(cache_node_dir):
             self.log.debug("Creating cache directory {}".format(cache_node_dir))
@@ -850,6 +888,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                     coverage_dir=None,
                     cwd=self.options.tmpdir,
                     descriptors=self.options.descriptors,
+                    wallet_compiled=self.is_wallet_compiled(),
                 ))
             self.start_node(CACHE_NODE_ID)
             cache_node = self.nodes[CACHE_NODE_ID]
@@ -866,7 +905,16 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             # block in the cache does not age too much (have an old tip age).
             # This is needed so that we are out of IBD when the test starts,
             # see the tip age check in IsInitialBlockDownload().
-            gen_addresses = [k.address for k in TestNode.PRIV_KEYS][:3] + [create_deterministic_address_bcrt1_p2tr_op_true()[0]]
+            # The fourth address is MiniWallet's untagged ML-DSA-44 key.
+            program = bytes.fromhex(keygen(self.options.bitcoind)["program"])
+            def wif_to_p2wpkh(wif):
+                payload, _ver = base58_to_byte(wif)
+                secret = payload[:32]
+                compressed = len(payload) > 32 and payload[32] == 1
+                key = ECKey()
+                key.set(secret, compressed)
+                return key_to_p2wpkh(key.get_pubkey().get_bytes())
+            gen_addresses = [wif_to_p2wpkh(k.key) for k in TestNode.PRIV_KEYS][:3] + [program_to_witness(0, program)]
             assert_equal(len(gen_addresses), 4)
             for i in range(8):
                 self.generatetoaddress(
@@ -888,12 +936,14 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             for entry in os.listdir(cache_path()):
                 if entry not in ['chainstate', 'blocks', 'indexes']:  # Only indexes, chainstate and blocks folders
                     os.remove(cache_path(entry))
+            with open(cache_marker, "w", encoding="utf8") as marker:
+                marker.write("secp\n")
 
         for i in range(self.num_nodes):
             self.log.debug("Copy cache directory {} to node {}".format(cache_node_dir, i))
             to_dir = get_datadir_path(self.options.tmpdir, i)
             shutil.copytree(cache_node_dir, to_dir)
-            initialize_datadir(self.options.tmpdir, i, self.chain, self.disable_autoconnect)  # Overwrite port/rpcport in bitcoin.conf
+            initialize_datadir(self.options.tmpdir, i, self.chain, self.disable_autoconnect)  # Overwrite port/rpcport in federationcoin.conf
 
     def _initialize_chain_clean(self):
         """Initialize empty blockchain for use by the test.
@@ -949,6 +999,19 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         """Skip the running test if bitcoind has not been compiled with zmq support."""
         if not self.is_zmq_compiled():
             raise SkipTest("bitcoind has not been built with zmq enabled.")
+
+    def assert_closed_address_types(self, node):
+        """legacy, p2sh-segwit, and bech32m are not spend kinds."""
+        for bad in ("legacy", "p2sh-segwit", "bech32m"):
+            assert_raises_rpc_error(-5, "Unknown address type", node.getnewaddress, "", bad)
+
+    def assert_legacy_wallet_refused(self, node, wallet_name="legacy_bdb"):
+        """Product wallets are descriptor-only. BDB create is refused."""
+        assert_raises_rpc_error(-4, "Legacy wallets are not supported", node.createwallet, wallet_name=wallet_name, descriptors=False)
+        self.assert_closed_address_types(node)
+        for kind in ("mldsa87", "mldsa44", "secp"):
+            addr = node.getnewaddress("", kind)
+            assert node.validateaddress(addr)["isvalid"]
 
     def skip_if_no_wallet(self):
         """Skip the running test if wallet has not been compiled."""
@@ -1016,8 +1079,8 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
 
     def is_cli_available(self):
         """Checks whether bitcoin-cli is available."""
-        if "BITCOINCLI" in os.environ:
-            return os.environ["BITCOINCLI"]
+        if "FEDERATIONCOINCLI" in os.environ:
+            return os.environ["FEDERATIONCOINCLI"]
 
         return self.config["components"].getboolean("ENABLE_CLI")
 

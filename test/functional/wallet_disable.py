@@ -23,8 +23,11 @@ class DisableWalletTest (BitcoinTestFramework):
         assert_raises_rpc_error(-32601, 'Method not found', self.nodes[0].getwalletinfo)
         x = self.nodes[0].validateaddress('3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy')
         assert x['isvalid'] == False
-        x = self.nodes[0].validateaddress('mneYUmWYsuk7kySiURxCi3AGxrAqZxLgPZ')
+        x = self.nodes[0].validateaddress('fQna6UCypCszqVSDYdkbtmGiv2vAYP9zmo')
         assert x['isvalid'] == True
+        # Cached-chain CI and setup_nodes call generate() with wallet RPCs gone.
+        # Probe that path here so -disablewallet cannot poison AuthServiceProxy.
+        self.generate(self.nodes[0], 1)
 
 
 if __name__ == '__main__':

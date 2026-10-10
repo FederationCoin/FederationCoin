@@ -14,6 +14,12 @@
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
+#include <consensus/epoch_watermark.h>
+#include <consensus/flex_weight.h>
+#include <consensus/mldsa87_spend.h>
+#include <consensus/mldsa_spend.h>
+#include <consensus/secp_spend.h>
+#include <consensus/settlement_fee.h>
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
@@ -866,6 +872,10 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return false; // state filled in by CheckTransaction
     }
 
+    if (!Consensus::CheckTaprootDisabledOutputs(tx, m_active_chainstate.m_chainman.GetConsensus(), state)) {
+        return false;
+    }
+
     // Coinbase is only valid in a block, not as a loose transaction
     if (tx.IsCoinBase())
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "coinbase");
@@ -1018,6 +1028,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     if (!Consensus::CheckTxInputs(tx, state, m_view, block_height_next, ws.m_base_fees, CheckTxInputsRules::OutputSizeLimit)) {
         return false; // state filled in by CheckTxInputs
     }
+    if (!Consensus::RejectUserDataCarrier(tx, state)) return false;
 
     if (m_pool.m_opts.minrelaymaturity) {
         auto max_coin_height = block_height_next - m_pool.m_opts.minrelaymaturity;
@@ -1153,6 +1164,14 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "min relay fee not met",
                              strprintf("%d < %d", ws.m_modified_fees, m_pool.m_opts.min_relay_feerate.GetFee(ws.m_vsize)));
     }
+    {
+        const int64_t min_fee_vbytes{static_cast<int64_t>(GetTransactionWeight(*ws.m_ptx) / WITNESS_SCALE_FACTOR)};
+        if (!FeeMeetsMinimumRate(ws.m_base_fees, min_fee_vbytes)) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-min-fee",
+                                 strprintf("fee %d is below the minimum %d", ws.m_base_fees, MinimumFee(min_fee_vbytes)));
+        }
+    }
+
     // No individual transactions are allowed below the mempool min feerate except from disconnected
     // blocks and transactions in a package. Package transactions will be checked using package
     // feerate later.
@@ -2437,13 +2456,34 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txund
 std::optional<std::pair<ScriptError, std::string>> CScriptCheck::operator()() {
     const CScript &scriptSig = ptxTo->vin[nIn].scriptSig;
     const CScriptWitness *witness = &ptxTo->vin[nIn].scriptWitness;
-    ScriptError error{SCRIPT_ERR_UNKNOWN_ERROR};
-    if (VerifyScript(scriptSig, m_tx_out.scriptPubKey, witness, nFlags, CachingTransactionSignatureChecker(ptxTo, nIn, m_tx_out.nValue, cacheStore, *m_signature_cache, *txdata), &error)) {
-        return std::nullopt;
-    } else {
-        auto debug_str = strprintf("input %i of %s (wtxid %s), spending %s:%i", nIn, ptxTo->GetHash().ToString(), ptxTo->GetWitnessHash().ToString(), ptxTo->vin[nIn].prevout.hash.ToString(), ptxTo->vin[nIn].prevout.n);
-        return std::make_pair(error, std::move(debug_str));
+    auto debug_str = strprintf("input %i of %s (wtxid %s), spending %s:%i", nIn, ptxTo->GetHash().ToString(), ptxTo->GetWitnessHash().ToString(), ptxTo->vin[nIn].prevout.hash.ToString(), ptxTo->vin[nIn].prevout.n);
+    if (!scriptSig.empty()) {
+        return std::make_pair(SCRIPT_ERR_WITNESS_MALLEATED, std::move(debug_str));
     }
+    int witness_version{0};
+    std::vector<unsigned char> witness_program;
+    if (m_tx_out.scriptPubKey.IsWitnessProgram(witness_version, witness_program) && witness_version == 0 && witness_program.size() == 20) {
+        uint256 sighash;
+        const bool hashed{txdata != nullptr && SignatureHashUnified(sighash, CScript{}, *ptxTo, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, *txdata)};
+        const uint160 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
+        const std::span<const unsigned char> message{sighash.begin(), 32};
+        if (hashed && Consensus::CheckSecpSingleKeySpend(program, witness->stack, message)) return std::nullopt;
+        return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
+    }
+    if (m_tx_out.scriptPubKey.IsWitnessProgram(witness_version, witness_program) && witness_version == 0 && witness_program.size() == 32) {
+        uint256 sighash;
+        const bool hashed{txdata != nullptr && SignatureHashUnified(sighash, CScript{}, *ptxTo, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, *txdata)};
+        const uint256 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
+        const std::span<const unsigned char> message{sighash.begin(), 32};
+        const bool ok{hashed && (
+            Consensus::CheckSingleKeySpend(program, witness->stack, message) ||
+            Consensus::CheckMultisigSpend(program, witness->stack, message) ||
+            Consensus::CheckSingleKey87Spend(program, witness->stack, message) ||
+            Consensus::CheckMultisig87Spend(program, witness->stack, message))};
+        if (ok) return std::nullopt;
+        return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
+    }
+    return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
 }
 
 ValidationCache::ValidationCache(const size_t script_execution_cache_bytes, const size_t signature_cache_bytes)
@@ -2486,7 +2526,7 @@ ValidationCache::ValidationCache(const size_t script_execution_cache_bytes, cons
  * Non-static (and redeclared) in src/test/txvalidationcache_tests.cpp
  */
 bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
-                       const CCoinsViewCache& inputs, unsigned int flags, bool cacheSigStore,
+                       const CCoinsViewCache& inputs, unsigned int flags, [[maybe_unused]] bool cacheSigStore,
                        bool cacheFullScriptStore, PrecomputedTransactionData& txdata,
                        ValidationCache& validation_cache,
                        std::vector<CScriptCheck>* pvChecks,
@@ -2539,7 +2579,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
         // spent being checked as a part of CScriptCheck.
 
         // Verify signature
-        CScriptCheck check(txdata.m_spent_outputs[i], tx, validation_cache.m_signature_cache, i, flags, cacheSigStore, &txdata);
+        CScriptCheck check(txdata.m_spent_outputs[i], tx, i, &txdata);
         if (pvChecks) {
             pvChecks->emplace_back(std::move(check));
         } else if (auto result = check(); result.has_value()) {
@@ -2714,11 +2754,11 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
     // retroactively applied to testnet)
     // However, only one historical block violated the P2SH rules (on both
     // mainnet and testnet).
-    // Similarly, only one historical block violated the TAPROOT rules on
-    // mainnet.
-    // For simplicity, always leave P2SH+WITNESS+TAPROOT on except for the two
-    // violating blocks.
-    uint32_t flags{SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT};
+    // Bitcoin Core always leaves P2SH+WITNESS+TAPROOT on except for those
+    // exceptions. FederationCoin parks Taproot at NEVER_ACTIVE, so the
+    // TAPROOT flag follows DeploymentActiveAt: off means fail-closed v1
+    // spends, not anyone-can-spend.
+    uint32_t flags{SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS};
     const auto it{consensusparams.script_flag_exceptions.find(*Assert(block_index.phashBlock))};
     if (it != consensusparams.script_flag_exceptions.end()) {
         flags = it->second;
@@ -2744,14 +2784,19 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
         flags |= SCRIPT_VERIFY_NULLDUMMY;
     }
 
+    if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_TAPROOT)) {
+        flags |= SCRIPT_VERIFY_TAPROOT;
+    }
+
     if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_BLAKE2B)) {
         flags |= SCRIPT_VERIFY_UNIFIED_SIGHASH;
     }
 
-    // RDTS (see RdtsActiveAt). Genesis has no parent median-time-past and is
-    // never subject to the RDTS rules.
+    // RDTS (see RdtsActiveAt). Genesis has no parent, so the script flags
+    // start on the first block that has one. The rules themselves are on
+    // from the BLAKE2b height, which is the first block on this chain.
     if (block_index.pprev != nullptr &&
-        consensusparams.RdtsActiveAt(block_index.nHeight, block_index.pprev->GetMedianTimePast())) {
+        consensusparams.RdtsActiveAt(block_index.nHeight)) {
         flags |= REDUCED_DATA_MANDATORY_VERIFY_FLAGS;
     }
 
@@ -2763,6 +2808,24 @@ static bool ContextualCheckBlockHeaderVolatile(const CBlockHeader& block, BlockV
 /** Apply the effects of this block (with given index) on the UTXO set represented by coins.
  *  Validity checks that depend on the UTXO set are also done; ConnectBlock()
  *  can fail if those validity checks fail (among other reasons). */
+static void ApplyFlexWatermark(CBlockIndex& index, uint64_t block_weight, const Consensus::Params& params)
+{
+    const int interval{params.nSubsidyHalvingInterval};
+    if (index.pprev == nullptr || index.nHeight <= 0) {
+        index.nFlexCap = Consensus::MIN_FLEX_BLOCK_WEIGHT;
+        index.nEpochWatermark.Clear();
+        index.nEpochWatermark.AddBlock(block_weight, index.nHeight, interval);
+        return;
+    }
+    index.nFlexCap = Consensus::CapForBlock(index.pprev->nFlexCap, index.pprev->nEpochWatermark, index.nHeight, interval);
+    if (index.nHeight % interval == 0) {
+        index.nEpochWatermark.Clear();
+    } else {
+        index.nEpochWatermark = index.pprev->nEpochWatermark;
+    }
+    index.nEpochWatermark.AddBlock(block_weight, index.nHeight, interval);
+}
+
 bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, CBlockIndex* pindex,
                                CCoinsViewCache& view, bool fJustCheck)
 {
@@ -2814,8 +2877,14 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     // Special case for the genesis block, skipping connection of its transactions
     // (its coinbase is unspendable)
     if (block_hash == params.GetConsensus().hashGenesisBlock) {
-        if (!fJustCheck)
+        const int64_t genesis_weight{GetBlockWeight(block)};
+        if (genesis_weight < 0 || static_cast<uint64_t>(genesis_weight) > Consensus::MIN_FLEX_BLOCK_WEIGHT) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", "flex weight limit failed");
+        }
+        if (!fJustCheck) {
+            ApplyFlexWatermark(*pindex, static_cast<uint64_t>(genesis_weight), params.GetConsensus());
             view.SetBestBlock(pindex->GetBlockHash());
+        }
         return true;
     }
 
@@ -2969,14 +3038,13 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     std::vector<PrecomputedTransactionData> txsdata(block.vtx.size());
     CCheckQueueControl<CScriptCheck> control(fScriptChecks && parallel_script_checks ? &m_chainman.GetCheckQueue() : nullptr);
 
-    // RDTS (see RdtsActiveAt): active from the BLAKE2b fork height
-    // until the parent's median-time-past reaches expiry. When RDTS is
-    // inactive the start height is 0, so no input is treated as pre-activation and
-    // flags_per_input stays empty (keeping the script-execution cache enabled).
-    // Grandfathering below compares each input's creating height against the
-    // fork height: activation and the exemption boundary are the same instant
-    // by construction.
-    const bool reduced_data_active{params.GetConsensus().RdtsActiveAt(pindex->nHeight, Assert(pindex->pprev)->GetMedianTimePast())};
+    // RDTS (see RdtsActiveAt): active from the BLAKE2b fork height, with no
+    // expiry. When RDTS is inactive the start height is 0, so no input is
+    // treated as pre-activation and flags_per_input stays empty (keeping the
+    // script-execution cache enabled). Grandfathering below compares each
+    // input's creating height against the fork height: activation and the
+    // exemption boundary are the same instant by construction.
+    const bool reduced_data_active{params.GetConsensus().RdtsActiveAt(pindex->nHeight)};
     const auto reduced_data_start_height = reduced_data_active
         ? params.GetConsensus().RdtsActivationHeight()
         : 0;
@@ -2987,8 +3055,10 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     // reject an inherited over-cap block, as they do for the other RDTS rules.
     // Malleation is not a concern at this point: the witness commitment was
     // verified before the block was stored.
-    if (reduced_data_active && GetBlockWeight(block) > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight-reduced_data", strprintf("%s : RDTS weight limit failed", __func__));
+    const int64_t connect_weight{GetBlockWeight(block)};
+    ApplyFlexWatermark(*pindex, connect_weight < 0 ? 0 : static_cast<uint64_t>(connect_weight), params.GetConsensus());
+    if (connect_weight < 0 || static_cast<uint64_t>(connect_weight) > pindex->nFlexCap) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : flex weight limit failed", __func__));
     }
 
     const CheckTxInputsRules chk_input_rules{reduced_data_active ? CheckTxInputsRules::OutputSizeLimit : CheckTxInputsRules::None};
@@ -2997,6 +3067,14 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     if (chk_input_rules.test(CheckTxInputsRules::OutputSizeLimit)) {
         TxValidationState tx_state;
         if (!Consensus::CheckOutputSizes(*block.vtx[0], tx_state)) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                                 tx_state.GetRejectReason(),
+                                 tx_state.GetDebugMessage() + " in generation tx " + block.vtx[0]->GetHash().ToString());
+        }
+    }
+    {
+        TxValidationState tx_state;
+        if (!Consensus::RejectCoinbaseDataCarrier(*block.vtx[0], tx_state)) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                                  tx_state.GetRejectReason(),
                                  tx_state.GetDebugMessage() + " in generation tx " + block.vtx[0]->GetHash().ToString());
@@ -3027,10 +3105,22 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
                               tx_state.GetDebugMessage() + " in transaction " + tx.GetHash().ToString());
                 break;
             }
+            if (!Consensus::RejectUserDataCarrier(tx, tx_state)) {
+                state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
+                              tx_state.GetRejectReason(),
+                              tx_state.GetDebugMessage() + " in transaction " + tx.GetHash().ToString());
+                break;
+            }
             nFees += txfee;
             if (!MoneyRange(nFees)) {
                 state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-accumulated-fee-outofrange",
                               "accumulated fee in the block out of range");
+                break;
+            }
+            const int64_t min_fee_vbytes{static_cast<int64_t>(GetTransactionWeight(tx) / WITNESS_SCALE_FACTOR)};
+            if (!FeeMeetsMinimumRate(txfee, min_fee_vbytes)) {
+                state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-min-fee",
+                              strprintf("fee %d is below the minimum %d", txfee, MinimumFee(min_fee_vbytes)));
                 break;
             }
 
@@ -4481,7 +4571,7 @@ static bool CheckWitnessMalleation(const CBlock& block, bool expect_witness_comm
             assert(!block.vtx.empty() && !block.vtx[0]->vin.empty());
             const auto& witness_stack{block.vtx[0]->vin[0].scriptWitness.stack};
 
-            if (witness_stack.size() != 1 || witness_stack[0].size() != 32) {
+            if (witness_stack.size() != 1 || witness_stack[0].size() != 32 || !Consensus::WitnessNonceIsZero(witness_stack[0])) {
                 return state.Invalid(
                     /*result=*/BlockValidationResult::BLOCK_MUTATED,
                     /*reject_reason=*/"bad-witness-nonce-size",
@@ -4548,7 +4638,7 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     // checks that use witness data may be performed here.
 
     // Size limits
-    if (block.vtx.empty() || block.vtx.size() * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT || ::GetSerializeSize(TX_NO_WITNESS(block)) * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT)
+    if (block.vtx.empty() || static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > MAX_BLOCK_SERIALIZED_SIZE)
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
 
     // First transaction must be coinbase, the rest must not be
@@ -4558,14 +4648,10 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
         if (block.vtx[i]->IsCoinBase())
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-multiple", "more than one coinbase");
 
-    if (block.m_height == consensusParams.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)) {
-        const auto& coinbase = block.vtx[0]->vin[0].scriptSig;
-        if (std::search(coinbase.begin(), coinbase.end(), consensusParams.Blake2bHeadline.begin(), consensusParams.Blake2bHeadline.end()) == coinbase.end()) {
-            return state.Invalid(
-                /*result=*/BlockValidationResult::BLOCK_MUTATED,
-                /*reject_reason=*/"bad-headline",
-                /*debug_message=*/"Headline is wrong");
-        }
+    // One cap for every block, including genesis. The scriptSig holds the
+    // height, a tag of at most 6 bytes, the gateway ids, and the extranonce.
+    if (!Consensus::MiningCoinbaseScriptSigFits(block.vtx[0]->vin[0].scriptSig.size())) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-length", "coinbase scriptsig too long");
     }
 
     // Check transactions
@@ -4575,6 +4661,11 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
         if (!CheckTransaction(*tx, tx_state)) {
             // CheckBlock() does context-free validation checks. The only
             // possible failures are consensus failures.
+            assert(tx_state.GetResult() == TxValidationResult::TX_CONSENSUS);
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, tx_state.GetRejectReason(),
+                                 strprintf("Transaction check failed (tx hash %s) %s", tx->GetHash().ToString(), tx_state.GetDebugMessage()));
+        }
+        if (!Consensus::CheckTaprootDisabledOutputs(*tx, consensusParams, tx_state)) {
             assert(tx_state.GetResult() == TxValidationResult::TX_CONSENSUS);
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, tx_state.GetRejectReason(),
                                  strprintf("Transaction check failed (tx hash %s) %s", tx->GetHash().ToString(), tx_state.GetDebugMessage()));
@@ -4864,17 +4955,13 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
     // the block hash, so we couldn't mark the block as permanently
     // failed).
     const int64_t block_weight{GetBlockWeight(block)};
-    if (block_weight > MAX_BLOCK_WEIGHT) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : weight limit failed", __func__));
+    const int interval{chainman.GetConsensus().nSubsidyHalvingInterval};
+    uint64_t flex_cap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
+    if (pindexPrev != nullptr) {
+        flex_cap = Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, nHeight, interval);
     }
-
-    // RDTS: a reduced block-weight limit applies to exactly the blocks with
-    // RDTS active (see RdtsActiveAt). Checked here, after the coinbase
-    // witness, for the same malleability reason as the limit above.
-    if (pindexPrev != nullptr &&
-        chainman.GetConsensus().RdtsActiveAt(nHeight, pindexPrev->GetMedianTimePast()) &&
-        block_weight > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight-reduced_data", strprintf("%s : RDTS weight limit failed", __func__));
+    if (block_weight < 0 || static_cast<uint64_t>(block_weight) > flex_cap) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : flex weight limit failed", __func__));
     }
 
     return true;
@@ -5656,21 +5743,6 @@ bool Chainstate::CorrectRdtsInvalidBlocks(bilingual_str& error)
         // is corrected by the next normal startup.
         if (m_chain.Tip() == nullptr) return true;
         const CBlockIndex& tip{*m_chain.Tip()};
-        const Consensus::Params& params{m_chainman.GetConsensus()};
-        // The expiry is a fixed date while the fork is a height: a fork
-        // scheduled late enough that the expiry has already passed would make
-        // RDTS never apply, silently. Say so.
-        if (params.Blake2bHeight != std::numeric_limits<int>::max() &&
-                params.RdtsExpiryTime != std::numeric_limits<int64_t>::min() &&
-                tip.nHeight < params.Blake2bHeight && tip.GetMedianTimePast() >= params.RdtsExpiryTime) {
-            LogWarning("RDTS: the BLAKE2b hardfork height %d has not been reached but the chain's median-time-past (%d) "
-                       "already exceeds the RDTS expiry (%d); the RDTS rules will never be enforced on this chain\n",
-                       params.Blake2bHeight, tip.GetMedianTimePast(), params.RdtsExpiryTime);
-        }
-        // A previous correction (or an invalidateblock) cut short between the
-        // block-index write and the coins write leaves the active tip marked
-        // invalid. LoadChainTip kept its valid ancestors as candidates;
-        // reconnecting the best chain below finishes the rewind.
         tip_failed = tip.nStatus & BLOCK_FAILED_MASK;
         violators = m_chainman.FindInheritedInvalidBlocks();
     }

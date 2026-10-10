@@ -85,6 +85,9 @@ CreateWalletDialog::CreateWalletDialog(QWidget* parent) :
         }
     });
 
+    ui->descriptor_checkbox->setVisible(false);
+    ui->descriptor_checkbox->setChecked(true);
+
 #ifndef USE_SQLITE
         ui->descriptor_checkbox->setToolTip(tr("Compiled without sqlite support (required for descriptor wallets)"));
         ui->descriptor_checkbox->setEnabled(false);
@@ -155,7 +158,7 @@ bool CreateWalletDialog::isMakeBlankWalletChecked() const
 
 bool CreateWalletDialog::isDescriptorWalletChecked() const
 {
-    return ui->descriptor_checkbox->isChecked();
+    return true;
 }
 
 bool CreateWalletDialog::isExternalSignerChecked() const

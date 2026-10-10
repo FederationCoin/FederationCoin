@@ -5,9 +5,11 @@
 
 from decimal import Decimal
 
+from test_framework.authproxy import JSONRPCException
+from test_framework.messages import COIN
+from test_framework.script import CScript, OP_TRUE
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
-from test_framework.messages import COIN
 from test_framework.wallet import MiniWallet, MiniWalletMode, getnewdestination
 
 
@@ -41,7 +43,7 @@ class GetBlocksActivityTest(BitcoinTestFramework):
 
     def test_activity_in_block(self, node, wallet):
         self.log.info("Test that receive activity is correctly reported in a mined block")
-        _, spk_1, addr_1 = getnewdestination(address_type='bech32m')
+        _, spk_1, addr_1 = getnewdestination(address_type='bech32')
         txid = wallet.send_to(from_node=node, scriptPubKey=spk_1, amount=1 * COIN)['txid']
         blockhash = self.generate(node, 1)[0]
 
@@ -62,11 +64,11 @@ class GetBlocksActivityTest(BitcoinTestFramework):
 
         outspk = activity['output_spk']
 
-        assert_equal(outspk['asm'][:2], '1 ')
-        assert_equal(outspk['desc'].split('(')[0], 'rawtr')
+        assert_equal(outspk['asm'][:2], '0 ')
+        assert_equal(outspk['desc'].split('(')[0], 'addr')
         assert_equal(outspk['hex'], spk_1.hex())
         assert_equal(outspk['address'], addr_1)
-        assert_equal(outspk['type'], 'witness_v1_taproot')
+        assert_equal(outspk['type'], 'witness_v0_keyhash')
 
 
     def test_no_mempool_inclusion(self, node, wallet):
@@ -205,33 +207,17 @@ class GetBlocksActivityTest(BitcoinTestFramework):
             [blockhash_1, blockhash_2, blockhash_2], [wallet.get_descriptor()], True))
 
     def test_no_address(self, node, wallet):
-        self.log.info("Test that activity is still reported for scripts without an associated address")
-        raw_wallet = MiniWallet(self.nodes[0], mode=MiniWalletMode.RAW_OP_TRUE)
-        self.generate(raw_wallet, 100)
-
-        no_addr_tx = raw_wallet.send_self_transfer(from_node=node)
-        raw_desc = raw_wallet.get_descriptor()
-
-        blockhash = self.generate(node, 1)[0]
-
-        result = node.getdescriptoractivity([blockhash], [raw_desc], False)
-
-        assert_equal(len(result['activity']), 2)
-
-        a1 = result['activity'][0]
-        a2 = result['activity'][1]
-
-        assert a1['type'] == "spend"
-        assert a1['blockhash'] == blockhash
-        # sPK lacks address.
-        assert_equal(list(a1['prevout_spk'].keys()), ['asm', 'desc', 'hex', 'type'])
-        assert a1['amount'] == no_addr_tx["fee"] + Decimal(no_addr_tx["tx"].vout[0].nValue) / COIN
-
-        assert a2['type'] == "receive"
-        assert a2['blockhash'] == blockhash
-        # sPK lacks address.
-        assert_equal(list(a2['output_spk'].keys()), ['asm', 'desc', 'hex', 'type'])
-        assert a2['amount'] == Decimal(no_addr_tx["tx"].vout[0].nValue) / COIN
+        self.log.info("A raw anyone-can-spend script is not a payment")
+        raw_wallet = MiniWallet(node, mode=MiniWalletMode.RAW_OP_TRUE)
+        raw_spk = raw_wallet.get_output_script()
+        assert_equal(raw_spk, CScript([OP_TRUE]))
+        try:
+            wallet.send_to(from_node=node, scriptPubKey=raw_spk, amount=1 * COIN)
+            assert False, "raw OP_TRUE output must be refused"
+        except JSONRPCException as exc:
+            assert "scriptpubkey" in exc.error["message"], exc.error
+        result = node.getdescriptoractivity([], [raw_wallet.get_descriptor()], True)
+        assert_equal(len(result['activity']), 0)
 
     def test_required_args(self, node):
         self.log.info("Test that required arguments must be passed")

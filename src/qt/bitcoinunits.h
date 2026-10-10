@@ -10,6 +10,7 @@
 #include <QAbstractListModel>
 #include <QDataStream>
 #include <QFont>
+#include <QList>
 #include <QString>
 
 // U+2009 THIN SPACE = UTF-8 E2 80 89
@@ -37,17 +38,10 @@ class BitcoinUnits: public QAbstractListModel
 public:
     explicit BitcoinUnits(QObject *parent);
 
-    /** Bitcoin units.
-      @note Source: https://en.bitcoin.it/wiki/Units . Please add only sensible ones
-     */
+    /** Display units: 1 COIN = 100 million tokens. Not a ticker. */
     enum class Unit {
-        BTC,
-        mBTC,
-        uBTC,
-        SAT,
-        bTBC,
-        sTBC,
-        TBC,
+        COIN,
+        TOKEN,
     };
     Q_ENUM(Unit)
 
@@ -64,9 +58,9 @@ public:
 
     //! Get list of units, for drop-down box
     static QList<Unit> availableUnits();
-    //! String for setting(s)
-    static std::variant<qint8, QString> ToSetting(Unit unit);
-    //! Convert setting(s) string to unit
+    //! Integer for QSettings / QDataStream
+    static qint8 ToSetting(Unit unit);
+    //! Convert setting string to unit
     static Unit FromSetting(const QString&, Unit def);
     //! Long name
     static QString longName(Unit unit);
@@ -74,17 +68,11 @@ public:
     static QString shortName(Unit unit);
     //! Longer description
     static QString description(Unit unit);
-    //! Number of Satoshis (1e-8) per unit
+    //! Number of atomic tokens per unit
     static qint64 factor(Unit unit);
     //! Number of fractional places
     static int decimals(Unit unit);
-    //! Radix
-    static int radix(Unit unit);
-    //! Number system
-    static Unit numsys(Unit unit);
-    //! Number of digits total in maximum value
-    static qint64 max_digits(Unit unit);
-    //! "Single step" amount, in satoshis
+    //! "Single step" amount, in atomic tokens
     static qint64 singlestep(Unit unit);
     //! Format as string
     static QString format(Unit unit, const CAmount& amount, bool plussign = false, SeparatorStyle separators = SeparatorStyle::STANDARD, bool justify = false);
@@ -118,7 +106,7 @@ public:
         return text;
     }
 
-    //! Return maximum number of base units (Satoshis)
+    //! Return maximum number of atomic tokens
     static CAmount maxMoney();
 
 private:

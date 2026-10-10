@@ -73,6 +73,7 @@ void BIP324Cipher::Initialize(const EllSwiftPubKey& their_pubkey, bool initiator
 void BIP324Cipher::Encrypt(Span<const std::byte> contents, Span<const std::byte> aad, bool ignore, Span<std::byte> output) noexcept
 {
     assert(output.size() == contents.size() + EXPANSION);
+    assert(contents.size() <= MAX_CONTENTS_LEN);
 
     // Encrypt length.
     std::byte len[LENGTH_LEN];

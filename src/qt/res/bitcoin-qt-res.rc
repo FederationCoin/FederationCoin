@@ -1,6 +1,6 @@
 IDI_ICON1 ICON DISCARDABLE "rendered_icons/bitcoin.ico"
 IDI_ICON2 ICON DISCARDABLE "rendered_icons/bitcoin_testnet.ico"
-IDI_ICON3 ICON DISCARDABLE "@CMAKE_CURRENT_SOURCE_DIR@/res/icons/bitcoin_signet.ico"
+IDI_ICON3 ICON DISCARDABLE "rendered_icons/bitcoin_signet.ico"
 IDI_ICON4 ICON DISCARDABLE "rendered_icons/bitcoin_testnet.ico" // testnet4
 
 #include <windows.h>             // needed for VERSIONINFO
@@ -24,10 +24,10 @@ BEGIN
             VALUE "CompanyName",        CLIENT_NAME " project"
             VALUE "FileDescription",    CLIENT_NAME
             VALUE "FileVersion",        VER_FILEVERSION_STR
-            VALUE "InternalName",       "bitcoin-qt"
+            VALUE "InternalName",       "federationcoin-qt"
             VALUE "LegalCopyright",     COPYRIGHT_STR
             VALUE "LegalTrademarks1",   "Distributed under the MIT software license, see the accompanying file COPYING or http://www.opensource.org/licenses/mit-license.php."
-            VALUE "OriginalFilename",   "bitcoin-qt.exe"
+            VALUE "OriginalFilename",   "federationcoin-qt.exe"
             VALUE "ProductName",        CLIENT_NAME
             VALUE "ProductVersion",     VER_PRODUCTVERSION_STR
         END

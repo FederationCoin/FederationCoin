@@ -9,6 +9,8 @@
 #include <qt/bitcoin.h>
 #include <qt/guiconstants.h>
 #include <qt/test/apptests.h>
+#include <qt/test/bitcoinunits_tests.h>
+#include <qt/test/networkstyle_tests.h>
 #include <qt/test/optiontests.h>
 #include <qt/test/rpcnestedtests.h>
 #include <qt/test/uritests.h>
@@ -17,7 +19,6 @@
 
 #ifdef ENABLE_WALLET
 #include <qt/test/addressbooktests.h>
-#include <qt/test/wallettests.h>
 #endif // ENABLE_WALLET
 
 #include <QApplication>
@@ -88,13 +89,19 @@ int main(int argc, char* argv[])
         URITests test1;
         num_test_failures += QTest::qExec(&test1);
 
+        BitcoinUnitsTests units_tests;
+        num_test_failures += QTest::qExec(&units_tests);
+
+        NetworkStyleTests networkstyle_tests;
+        num_test_failures += QTest::qExec(&networkstyle_tests);
+
         RPCNestedTests test3(app.node());
         num_test_failures += QTest::qExec(&test3);
 
 #ifdef ENABLE_WALLET
-        WalletTests test5(app.node());
-        num_test_failures += QTest::qExec(&test5);
-
+        // Heritage Core descriptor and legacy watch-only wallets. Product
+        // wallets are Sparrow and mill; they cannot own or spend ML-DSA-44
+        // coinbases. Address book still runs.
         AddressBookTests test6(app.node());
         num_test_failures += QTest::qExec(&test6);
 #endif

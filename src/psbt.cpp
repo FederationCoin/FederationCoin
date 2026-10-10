@@ -322,6 +322,10 @@ bool PSBTInputSignedAndVerified(const PartiallySignedTransaction psbt, unsigned 
     }
 
     if (txdata) {
+        const CTransaction txConst{*psbt.tx};
+        if (CheckWitnessV0Spend(input.final_script_sig, utxo.scriptPubKey, input.final_script_witness, txConst, input_index, *txdata)) {
+            return true;
+        }
         const unsigned int flags{STANDARD_SCRIPT_VERIFY_FLAGS | (SighashRulesForVerifying() == SighashRules::UNIFIED ? uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH} : uint32_t{0})};
         return VerifyScript(input.final_script_sig, utxo.scriptPubKey, &input.final_script_witness, flags, MutableTransactionSignatureChecker{&(*psbt.tx), input_index, utxo.nValue, *txdata, MissingDataBehavior::FAIL});
     } else {

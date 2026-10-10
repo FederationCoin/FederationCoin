@@ -9,7 +9,7 @@ import time
 
 from test_framework.messages import (
     COIN,
-    MAX_BLOCK_WEIGHT,
+    REDUCED_DATA_MAX_BLOCK_WEIGHT,
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -27,6 +27,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         self.extra_args = [[
             "-printpriority=1",
             "-datacarriersize=100000",
+            "-minrelaytxfee=0.00010000",
         ]] * self.num_nodes
         self.supports_cli = False
 
@@ -73,6 +74,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         tx_o_a = self.wallet.send_self_transfer_multi(
             from_node=self.nodes[0],
             num_outputs=2,
+            fee_per_output=30_000,
         )
         txid_a = tx_o_a["txid"]
 
@@ -89,6 +91,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
                 self.wallet.get_utxo(txid=txid_b),
                 self.wallet.get_utxo(txid=txid_c),
             ],
+            fee_per_output=30_000,
         )
         txid_d = tx_o_d["txid"]
 
@@ -171,8 +174,9 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         self.txouts = gen_return_txouts()
         self.relayfee = self.nodes[0].getnetworkinfo()['relayfee']
 
-        utxo_count = 90
-        utxos = self.wallet.send_self_transfer_multi(from_node=self.nodes[0], num_outputs=utxo_count)['new_utxos']
+        # Twelve ~66KB transactions exceed a quarter of a 2,400,000-weight block.
+        utxo_count = 36
+        utxos = self.wallet.send_self_transfer_multi(from_node=self.nodes[0], num_outputs=utxo_count, fee_per_output=30_000)['new_utxos']
         self.generate(self.wallet, 1)
         assert_equal(len(self.nodes[0].getrawmempool()), 0)
 
@@ -193,16 +197,15 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
                 self.txouts,
                 utxos[start_range:end_range])
 
-        # Make sure that the size of each group of transactions exceeds
-        # MAX_BLOCK_WEIGHT // 4 -- otherwise the test needs to be revised to
-        # create more transactions.
+        # Each fee group must be larger than a quarter of the RDTS block
+        # (REDUCED_DATA_MAX_BLOCK_WEIGHT // 4 virtual bytes).
         mempool = self.nodes[0].getrawmempool(True)
         sizes = [0, 0, 0]
         for i in range(3):
             for j in txids[i]:
                 assert j in mempool
                 sizes[i] += mempool[j]['vsize']
-            assert sizes[i] > MAX_BLOCK_WEIGHT // 4  # Fail => raise utxo_count
+            assert sizes[i] > REDUCED_DATA_MAX_BLOCK_WEIGHT // 4  # Fail => raise utxo_count
 
         assert_equal(self.nodes[0].getprioritisedtransactions(), {})
         # add a fee delta to something in the cheapest bucket and make sure it gets mined
@@ -267,7 +270,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         assert tx_id_zero_del not in self.nodes[0].getprioritisedtransactions()
 
         # Create a free transaction.  Should be rejected.
-        tx_res = self.wallet.create_self_transfer(fee_rate=0)
+        tx_res = self.wallet.create_self_transfer(fee_rate=Decimal("0.00003000"))
         tx_hex = tx_res['hex']
         tx_id = tx_res['txid']
 
@@ -290,16 +293,21 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         # getblocktemplate to (eventually) return a new block.
         mock_time = int(time.time())
         self.nodes[0].setmocktime(mock_time)
-        template = self.nodes[0].getblocktemplate({'rules': ['segwit']})
+        template = self.nodes[0].getblocktemplate({'rules': ['segwit', 'blake2b']})
         self.nodes[0].prioritisetransaction(txid=tx_id, fee_delta=-int(self.relayfee*COIN))
 
         # Calling prioritisetransaction with the inverse amount should delete its prioritisation entry
         assert tx_id not in self.nodes[0].getprioritisedtransactions()
 
         self.nodes[0].setmocktime(mock_time+10)
-        new_template = self.nodes[0].getblocktemplate({'rules': ['segwit']})
+        new_template = self.nodes[0].getblocktemplate({'rules': ['segwit', 'blake2b']})
 
         assert template != new_template
+
+        self.log.info("Priority does not waive a base fee under 3 tokens per virtual byte")
+        zero_fee = self.wallet.create_self_transfer(fee=0, fee_rate=0)
+        self.nodes[0].prioritisetransaction(txid=zero_fee["txid"], fee_delta=int(COIN))
+        assert_raises_rpc_error(-26, "bad-txns-min-fee", self.nodes[0].sendrawtransaction, zero_fee["hex"])
 
 if __name__ == '__main__':
     PrioritiseTransactionTest(__file__).main()

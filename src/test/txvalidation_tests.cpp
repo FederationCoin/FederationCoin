@@ -452,7 +452,8 @@ BOOST_FIXTURE_TEST_CASE(version3_tests, RegTestingSetup)
     }
 
     // Tx spending TRUC cannot be too large in virtual size.
-    auto many_inputs{random_outpoints(100)};
+    // 200 placeholder inputs puts vsize above TRUC_CHILD_MAX_VSIZE (5000).
+    auto many_inputs{random_outpoints(200)};
     many_inputs.emplace_back(mempool_tx_v3->GetHash(), 0);
     {
         auto tx_v3_child_big = make_tx(many_inputs, /*version=*/3);
@@ -470,8 +471,8 @@ BOOST_FIXTURE_TEST_CASE(version3_tests, RegTestingSetup)
     }
 
     // Tx spending TRUC cannot have too many sigops.
-    // This child has 10 P2WSH multisig inputs.
-    auto multisig_outpoints{random_outpoints(10)};
+    // 55 CHECKMULTISIG inputs put the sigop-adjusted vsize above 5000.
+    auto multisig_outpoints{random_outpoints(55)};
     multisig_outpoints.emplace_back(mempool_tx_v3->GetHash(), 0);
     auto keys{random_keys(2)};
     CScript script_multisig;

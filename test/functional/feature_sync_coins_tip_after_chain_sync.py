@@ -66,7 +66,7 @@ class SyncCoinsTipAfterChainSyncTest(BitcoinTestFramework):
         # Prepare blocks without sending them to the node
         block_dict = {}
         for _ in range(NUM_BLOCKS):
-            blocks.append(create_block(tip, create_coinbase(height), block_time))
+            blocks.append(create_block(tip, create_coinbase(height), block_time, height=height))
             blocks[-1].solve()
             tip = blocks[-1].sha256
             block_time += 1

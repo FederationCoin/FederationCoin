@@ -311,7 +311,7 @@ OptionsDialog::OptionsDialog(QWidget* parent, bool enableWallet)
     CreateOptionUI(ui->verticalLayout_Network, QStringLiteral("%1"), {ui->mapPortNatpmp}, { .insert_at=insert_at, .indent=checkbox_indent, });
     upnp = new QCheckBox(ui->tabNetwork);
     upnp->setText(tr("Automatically configure router(s) that support &UPnP"));
-    upnp->setToolTip(tr("Automatically open the Bitcoin client port on the router. This only works when your router supports UPnP and it is enabled."));
+    upnp->setToolTip(tr("Automatically open the Federation Coin client port on the router. This only works when your router supports UPnP and it is enabled."));
 #ifndef USE_UPNP
     upnp->setEnabled(false);
 #endif
@@ -410,8 +410,8 @@ OptionsDialog::OptionsDialog(QWidget* parent, bool enableWallet)
     FixTabOrder(rejectparasites);
 
     rejecttokens = new QCheckBox(groupBox_Spamfiltering);
-    rejecttokens->setText(tr("Ignore transactions involving non-bitcoin token/asset overlay protocols"));
-    rejecttokens->setToolTip(tr("With this option enabled, transactions involving non-bitcoin tokens/assets will not be relayed or mined by your node. Due to not having value, and some technical design flaws, token mints and transfers are often spammy and can bog down the network."));
+    rejecttokens->setText(tr("Ignore overlay token/asset protocols"));
+    rejecttokens->setToolTip(tr("With this option enabled, overlay token/asset protocols (Counterparty, OLGA, and similar) will not be relayed or mined. This does not apply to native COIN tokens. Overlay mints and transfers are often spammy and can bog down the network."));
     verticalLayout_Spamfiltering->addWidget(rejecttokens);
     FixTabOrder(rejecttokens);
 

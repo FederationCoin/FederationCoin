@@ -112,7 +112,7 @@ class WalletGetHDKeyTest(BitcoinTestFramework):
         wallet = self.nodes[0].get_wallet_rpc("lonekey")
 
         assert_equal(wallet.gethdkeys(), [])
-        wallet.importdescriptors([{"desc": descsum_create("wpkh(cTe1f5rdT8A8DFgVWTjyPwACsDPJM9ff4QngFxUixCSvvbg1x6sh)"), "timestamp": "now"}])
+        wallet.importdescriptors([{"desc": descsum_create("wpkh(a6MvWW6EefVvcyUCfFRgf9eQtGArzTL2TLpbJgwD6YPYRJWwN1pD)"), "timestamp": "now"}])
         assert_equal(wallet.gethdkeys(), [])
 
         self.log.info("HD keys of non-ranged descriptors should appear in gethdkeys")
@@ -166,7 +166,7 @@ class WalletGetHDKeyTest(BitcoinTestFramework):
 
         xpub = wallet.gethdkeys()[0]["xpub"]
         xprv = wallet.gethdkeys(private=True)[0]["xprv"]
-        pub = def_wallet.getaddressinfo(def_wallet.getnewaddress())["pubkey"]
+        pub = def_wallet.getaddressinfo(def_wallet.getnewaddress("", "secp"))["pubkey"]
 
         prv_multi_desc = descsum_create(f"wsh(multi(2,{xprv},{pub}))")
         pub_multi_desc = descsum_create(f"wsh(multi(2,{xpub},{pub}))")

@@ -61,7 +61,7 @@ class CreateWalletTest(BitcoinTestFramework):
 
         self.nodes[0].createwallet(wallet_name='w0')
         w0 = node.get_wallet_rpc('w0')
-        address1 = w0.getnewaddress()
+        address1 = w0.getnewaddress("", "secp")
 
         self.log.info("Test disableprivatekeys creation.")
         self.nodes[0].createwallet(wallet_name='w1', disable_private_keys=True)
@@ -103,12 +103,12 @@ class CreateWalletTest(BitcoinTestFramework):
         # Set the seed
         if self.options.descriptors:
             w3.importdescriptors([{
-                'desc': descsum_create('wpkh(tprv8ZgxMBicQKsPcwuZGKp8TeWppSuLMiLe2d9PupB14QpPeQsqoj3LneJLhGHH13xESfvASyd4EFLJvLrG8b7DrLxEuV7hpF9uUc6XruKA1Wq/0h/*)'),
+                'desc': descsum_create('wpkh(trBb8nVXuTDmeQ5gSnzozWCLRP9sK9AYXu4Wa8RaveJUzujosvkndYHcy52KaiTaK7UrUzBrh9nVt2ycew986ckJSydy3LCWyVs8fpkDBbXictd/0h/*)'),
                 'timestamp': 'now',
                 'active': True
             },
             {
-                'desc': descsum_create('wpkh(tprv8ZgxMBicQKsPcwuZGKp8TeWppSuLMiLe2d9PupB14QpPeQsqoj3LneJLhGHH13xESfvASyd4EFLJvLrG8b7DrLxEuV7hpF9uUc6XruKA1Wq/1h/*)'),
+                'desc': descsum_create('wpkh(trBb8nVXuTDmeQ5gSnzozWCLRP9sK9AYXu4Wa8RaveJUzujosvkndYHcy52KaiTaK7UrUzBrh9nVt2ycew986ckJSydy3LCWyVs8fpkDBbXictd/1h/*)'),
                 'timestamp': 'now',
                 'active': True,
                 'internal': True
@@ -116,8 +116,8 @@ class CreateWalletTest(BitcoinTestFramework):
         else:
             w3.sethdseed()
         assert_equal(w3.getwalletinfo()['keypoolsize'], 1)
-        w3.getnewaddress()
-        w3.getrawchangeaddress()
+        w3.getnewaddress("", "secp")
+        w3.getrawchangeaddress("secp")
 
         self.log.info("Test blank creation with privkeys enabled and then encryption")
         self.nodes[0].createwallet(wallet_name='w4', disable_private_keys=False, blank=True)
@@ -133,20 +133,20 @@ class CreateWalletTest(BitcoinTestFramework):
             # Now set a seed and it should work. Wallet should also be encrypted
             if self.options.descriptors:
                 w4.importdescriptors([{
-                    'desc': descsum_create('wpkh(tprv8ZgxMBicQKsPcwuZGKp8TeWppSuLMiLe2d9PupB14QpPeQsqoj3LneJLhGHH13xESfvASyd4EFLJvLrG8b7DrLxEuV7hpF9uUc6XruKA1Wq/0h/*)'),
+                    'desc': descsum_create('wpkh(trBb8nVXuTDmeQ5gSnzozWCLRP9sK9AYXu4Wa8RaveJUzujosvkndYHcy52KaiTaK7UrUzBrh9nVt2ycew986ckJSydy3LCWyVs8fpkDBbXictd/0h/*)'),
                     'timestamp': 'now',
                     'active': True
                 },
                 {
-                    'desc': descsum_create('wpkh(tprv8ZgxMBicQKsPcwuZGKp8TeWppSuLMiLe2d9PupB14QpPeQsqoj3LneJLhGHH13xESfvASyd4EFLJvLrG8b7DrLxEuV7hpF9uUc6XruKA1Wq/1h/*)'),
+                    'desc': descsum_create('wpkh(trBb8nVXuTDmeQ5gSnzozWCLRP9sK9AYXu4Wa8RaveJUzujosvkndYHcy52KaiTaK7UrUzBrh9nVt2ycew986ckJSydy3LCWyVs8fpkDBbXictd/1h/*)'),
                     'timestamp': 'now',
                     'active': True,
                     'internal': True
                 }])
             else:
                 w4.sethdseed()
-            w4.getnewaddress()
-            w4.getrawchangeaddress()
+            w4.getnewaddress("", "secp")
+            w4.getrawchangeaddress("secp")
 
         self.log.info("Test blank creation with privkeys disabled and then encryption")
         self.nodes[0].createwallet(wallet_name='w5', disable_private_keys=True, blank=True)
@@ -173,11 +173,11 @@ class CreateWalletTest(BitcoinTestFramework):
         w6 = node.get_wallet_rpc('w6')
         assert_raises_rpc_error(-13, "Error: Please enter the wallet passphrase with walletpassphrase first.", w6.signmessage, "needanargument", "test")
         with WalletUnlock(w6, "thisisapassphrase"):
-            w6.signmessage(w6.getnewaddress('', 'legacy'), "test")
+            w6.signmessage(w6.getnewaddress('', 'secp'), "test")
             w6.keypoolrefill(1)
-            # There should only be 1 key for legacy, 3 for descriptors
+            # Three product descriptors: Dilithium 87, Dilithium 44, secp.
             walletinfo = w6.getwalletinfo()
-            keys = 4 if self.options.descriptors else 1
+            keys = 3
             assert_equal(walletinfo['keypoolsize'], keys)
             assert_equal(walletinfo['keypoolsize_hd_internal'], keys)
         # Allow empty passphrase, but there should be a warning
@@ -196,18 +196,8 @@ class CreateWalletTest(BitcoinTestFramework):
         self.log.info('Using a passphrase with private keys disabled returns error')
         assert_raises_rpc_error(-4, 'Passphrase provided but private keys are disabled. A passphrase is only used to encrypt private keys, so cannot be used for wallets with private keys disabled.', self.nodes[0].createwallet, wallet_name='w9', disable_private_keys=True, passphrase='thisisapassphrase')
 
-        if False:
-            self.log.info("Test legacy wallet deprecation")
-            result = self.nodes[0].createwallet(wallet_name="legacy_w0", descriptors=False, passphrase=None)
-            assert_equal(result, {
-                "name": "legacy_w0",
-                "warnings": [LEGACY_WALLET_MSG],
-            })
-            result = self.nodes[0].createwallet(wallet_name="legacy_w1", descriptors=False, passphrase="")
-            assert_equal(result, {
-                "name": "legacy_w1",
-                "warnings": [EMPTY_PASSPHRASE_MSG, LEGACY_WALLET_MSG],
-            })
+        self.log.info("createwallet descriptors=false is rejected")
+        assert_raises_rpc_error(-4, "Legacy wallets are not supported", self.nodes[0].createwallet, wallet_name="legacy_w0", descriptors=False)
 
         self.log.info("Check that the version number is being logged correctly")
         with node.assert_debug_log(expected_msgs=[], unexpected_msgs=["Last client version = ", "Wallet file version = "]):

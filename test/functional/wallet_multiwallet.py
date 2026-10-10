@@ -419,7 +419,10 @@ class MultiWalletTest(BitcoinTestFramework):
             self.nodes[0].loadwallet(wallet_name)
         for wallet_name in wallet_names:
             rpc = self.nodes[0].get_wallet_rpc(wallet_name)
-            addr = rpc.getnewaddress()
+            info = rpc.getwalletinfo()
+            if info.get("unlocked_until") == 0:
+                rpc.walletpassphrase("test", 60)
+            addr = rpc.getnewaddress("", "secp")
             backup = os.path.join(self.options.tmpdir, 'backup.dat')
             if os.path.exists(backup):
                 os.unlink(backup)

@@ -21,8 +21,6 @@ from test_framework.blocktools import (
 
 from test_framework.util import assert_equal
 
-import time
-
 NODE1_BLOCKS_REQUIRED = 15
 NODE2_BLOCKS_REQUIRED = 2047
 
@@ -55,6 +53,7 @@ class RejectLowDifficultyHeadersTest(BitcoinTestFramework):
             n.setmocktime(time)
 
     def test_chains_sync_when_long_enough(self):
+        genesis = self.nodes[1].getblockhash(0)
         self.log.info("Generate blocks on the node with no required chainwork, and verify nodes 1 and 2 have no new headers in their headers tree")
         with self.nodes[1].assert_debug_log(expected_msgs=["[net] Ignoring low-work chain (height=14)"]), self.nodes[2].assert_debug_log(expected_msgs=["[net] Ignoring low-work chain (height=14)"]), self.nodes[3].assert_debug_log(expected_msgs=["Synchronizing blockheaders, height: 14"]):
             self.generate(self.nodes[0], NODE1_BLOCKS_REQUIRED-1, sync_fun=self.no_op)
@@ -79,7 +78,7 @@ class RejectLowDifficultyHeadersTest(BitcoinTestFramework):
             assert len(chaintips) == 1
             assert {
                 'height': 0,
-                'hash': '0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206',
+                'hash': genesis,
                 'branchlen': 0,
                 'status': 'active',
             } in chaintips
@@ -91,7 +90,7 @@ class RejectLowDifficultyHeadersTest(BitcoinTestFramework):
 
         assert {
             'height': 0,
-            'hash': '0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206',
+            'hash': genesis,
             'branchlen': 0,
             'status': 'active',
         } in self.nodes[2].getchaintips()
@@ -153,11 +152,19 @@ class RejectLowDifficultyHeadersTest(BitcoinTestFramework):
         self.generate(self.nodes[0], BLOCKS_TO_MINE, sync_fun=self.no_op)
         self.generate(self.nodes[1], BLOCKS_TO_MINE+2, sync_fun=self.no_op)
 
-        self.reconnect_all()
-
-        self.mocktime_all(int(time.time()))  # Temporarily hold time to avoid internal timeouts
-        self.sync_blocks(timeout=300) # Ensure tips eventually agree
-        self.mocktime_all(0)
+        # Align clocks before reconnect. Node 0/1 advanced mocktime by 12-minute
+        # spacing across 4k blocks; node 2/3 did not. A version-time gap drops
+        # the handshake.
+        tip_time = max(n.getblock(n.getbestblockhash())["time"] for n in self.nodes)
+        self.mocktime_all(tip_time + 1)
+        # Resolve the 0/1 fork first. If node2 starts downloading node0's
+        # shorter fork and then sees node1's headers, it stops requesting
+        # blocks after "Large reorg, won't direct fetch" and sync hangs.
+        self.connect_nodes(0, 1)
+        self.sync_blocks(self.nodes[0:2], timeout=900)
+        self.connect_nodes(0, 2)
+        self.connect_nodes(0, 3)
+        self.sync_blocks(timeout=900)
 
 
     def run_test(self):

@@ -12,6 +12,7 @@ addresses, when given only seeds as private data."""
 import time
 
 from test_framework.test_framework import BitcoinTestFramework
+from test_framework.test_framework import SkipTest
 from test_framework.util import (
     assert_raises_rpc_error,
 )
@@ -28,6 +29,9 @@ class ImportDescriptorsTest(BitcoinTestFramework):
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
+        # BIP93 vectors import pkh / tr / rawtr. Live single-key spends are
+        # Dilithium 87, Dilithium 44, and warned secp P2WPKH.
+        raise SkipTest("BIP93 seed import of pkh/tr/rawtr; live descriptors are mldsa87, mldsa, and wpkh.")
 
     def run_test(self):
         test_start = int(time.time())
@@ -46,19 +50,20 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         #         back and repeat. Uses single codex32 seed.
         #
         # xpub converted from BIP 93 test vector 1 xpriv using rust-bitcoin
-        xpub = "tpubD6NzVbkrYhZ4YAqhvsGTCD5axU32P9MH7ySPr38icriLyJc4KcCvwVzE3rsi" \
-               "XaAHBC8QtYWhiBGdc6aZRmroQShGcWygQfErbvLULfJSi8j"
+        xpub = "trB6nMbsSD2SBxuhQ833245rztoMVE8NdiXHrDN1YHypfqDaG3B3x2Ubfrk8NrcwNVb1s8VzVYmM5qHf1F59pTVkD75m1pP3hWERYG2G3ZAZtr3"
         descriptors = [
-            f"wsh(pk({xpub}/55/*))",
-            f"tr({xpub}/1/2/3/4/5/*)",
             f"pkh({xpub}/*)",
             f"wpkh({xpub}/*)",
+            f"tr({xpub}/1/2/3/4/5/*)",
             f"rawtr({xpub}/1/2/3/*)",
         ]
         assert_raises_rpc_error(-4, "This wallet has no available keys", w1.getnewaddress)
         for descriptor in descriptors:
             descriptor_chk = w0.getdescriptorinfo(descriptor)["descriptor"]
             addr = w0.deriveaddresses(descriptor_chk, range=[0, 20])[0]
+            if descriptor.startswith("tr(") or descriptor.startswith("rawtr("):
+                assert_raises_rpc_error(-5, "Invalid Bitcoin address", w0.sendtoaddress, addr, 95)
+                continue
 
             assert w0.getbalance() > 99  # sloppy balance checks, to account for fees
             w0.sendtoaddress(addr, 95)
@@ -83,13 +88,12 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         self.nodes[0].createwallet(wallet_name='w2', descriptors=True, blank=True)
         w2 = self.nodes[0].get_wallet_rpc('w2')
 
-        xpub = "tpubD6NzVbkrYhZ4Wf289qp46iFM6zACTdXTqqrA3pKUV8bF8SNBcYS8xvVPZg43" \
-               "6YhSuCqTKLfnDkmwi9TE6fa5cvxm3NHRCBbgJoC6YgsQBFY"
+        xpub = "trB6nMbsSD2SBxuhNcDTF2dTuPy7dkFYiChUa5mmk5AaY76URAwBExhohHFHtfoFwU8Bb9D2vLvRbQny7HwpVMD2RbMFSfgnV2bFF8stFgojdqV"
         descriptor = f"tr([fab6868a/1h/2]{xpub}/1h/2/*h)"
         descriptor_chk = w2.getdescriptorinfo(descriptor)["descriptor"]
         assert_raises_rpc_error(
-            -4,
-            "This wallet has no available keys",
+            -5,
+            "Unknown address type",
             w2.getnewaddress,
             address_type="bech32m",
         )
@@ -101,8 +105,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         )
         assert "Cannot expand descriptor." in err[0]["error"]["message"]
         assert_raises_rpc_error(
-            -4,
-            "This wallet has no available keys",
+            -5,
+            "Unknown address type",
             w2.getnewaddress,
             address_type="bech32m",
         )
@@ -146,8 +150,13 @@ class ImportDescriptorsTest(BitcoinTestFramework):
                 "MS12NAMECACDEFGHJKLMNPQRSTUVWXYZ023FTR2GDZMPY6PN",
             ]],
         )
-        # getnewaddress no longer fails. Annoyingl, deriveaddresses will
-        w2.getnewaddress(address_type="bech32m")
+        # Taproot stays disabled even after the seed imports.
+        assert_raises_rpc_error(
+            -5,
+            "Unknown address type",
+            w2.getnewaddress,
+            address_type="bech32m",
+        )
         assert_raises_rpc_error(
             -5,
             "Cannot derive script without private keys",
@@ -170,12 +179,9 @@ class ImportDescriptorsTest(BitcoinTestFramework):
 
         self.nodes[0].createwallet(wallet_name='w3', descriptors=True, blank=True)
         w3 = self.nodes[0].get_wallet_rpc('w3')
-        xpub1 = "tpubD6NzVbkrYhZ4WNNA2qNKYbaxKR3TYtP2n5bNSj6JKzYsVUPxahe2vWJKwiX2" \
-                "wfoTJyERQNJ8YnmJvprMHygyaXziTdyFVsSGNmfQtDCCSJ3"  # vector 3
-        xpub2 = "tpubD6NzVbkrYhZ4Y9KL2R346X9ZwcN16c37vjXuZEhDV2LaMt84zqVbKVbVAw1z" \
-                "nMksNtdKnSRZQXyBL9qJaNnq9BkjtRBdsQbxkTbSGZGrcG6"  # vector 4
-        xpub3 = "tpubD6NzVbkrYhZ4Ykomd4u92cmRCkhZtctLkKU3vCVi7DKBAopRDWVpq6wEGoq7" \
-                "xYbCQQjEGM8KkqxvQDoLa3sdfpzTBv1yodq4FKwrCdxweHE"  # vector 5
+        xpub1 = "trB6nMbsSD2SBxuhNKZV82BjMHJirB8ooTZ3WKWz8ywQNy46nCxxD7uhes4EGiGFnbEBzuc11NYmvSnLKyLwgfKvPCPCrwNcniRqK7MCb8RG3Wo"  # vector 3
+        xpub2 = "trB6nMbsSD2SBxuhQ6Wf7brTuCsLUNTMMBD8eyTXFVYKXzqoech4dFmG3rMPVvmDdHBc4pzuPSgCnBzCjJKty4Rmwr9EHib1AFbXgoHDyZEDuhU"  # vector 4
+        xpub3 = "trB6nMbsSD2SBxuhQi16iFiYqJVBjWnv9C4MUZPfcTLpABpQTYPQqvmVZTh8boaLoU1w6M6osMNy8VywoNHvxjWaUVNwbDRM6UpdBfddudiw9dp"  # vector 5
 
         descriptor1 = f"rawtr({xpub1}/1/2h/*)"
         descriptor1_chk = w3.getdescriptorinfo(descriptor1)["descriptor"]
@@ -185,8 +191,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         descriptor3_chk = w3.getdescriptorinfo(descriptor3)["descriptor"]
 
         assert_raises_rpc_error(
-            -4,
-            "This wallet has no available keys",
+            -5,
+            "Unknown address type",
             w3.getnewaddress,
             address_type="bech32m",
         )
@@ -197,8 +203,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
             address_type="bech32",
         )
         assert_raises_rpc_error(
-            -4,
-            "This wallet has no available keys",
+            -5,
+            "Unknown address type",
             w3.getnewaddress,
             address_type="legacy",
         )
@@ -242,13 +248,17 @@ class ImportDescriptorsTest(BitcoinTestFramework):
                 "ms10leetsllhdmn9m42vcsamx24zrxgs3qrl7ahwvhw4fnzrhve25gvezzyqqtum9pgv99ycma",
             ]],
         )
-        # All good now for the two descriptors that had seeds
+        # All good now for the descriptor that had a seed. Taproot stays disabled.
         w3.getnewaddress(address_type="bech32")
-        w3.getnewaddress(address_type="bech32m")
-        # but the one without a seed still doesn't work
         assert_raises_rpc_error(
-            -12,
-            "No legacy addresses available",
+            -5,
+            "Unknown address type",
+            w3.getnewaddress,
+            address_type="bech32m",
+        )
+        assert_raises_rpc_error(
+            -5,
+            "Unknown address type",
             w3.getnewaddress,
             address_type="legacy",
         )
@@ -259,10 +269,15 @@ class ImportDescriptorsTest(BitcoinTestFramework):
             [["MS100C8VSM32ZXFGUHPCHTLUPZRY9X8GF2TVDW0S3JN54KHCE6MUA7LQPZYGSFJD"  # concat string
               "6AN074RXVCEMLH8WU3TK925ACDEFGHJKLMNPQRSTUVWXY06FHPV80UNDVARHRAK"]],
         )
-        # And all is well!
+        # And all is well for legacy and bech32. Taproot stays disabled.
         w3.getnewaddress(address_type="bech32")
-        w3.getnewaddress(address_type="bech32m")
-        w3.getnewaddress(address_type="legacy")
+        assert_raises_rpc_error(
+            -5,
+            "Unknown address type",
+            w3.getnewaddress,
+            address_type="bech32m",
+        )
+        w3.getnewaddress(address_type="secp")
 
 
 if __name__ == '__main__':

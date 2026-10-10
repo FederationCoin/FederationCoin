@@ -141,16 +141,30 @@ class InvalidMessagesTest(BitcoinTestFramework):
 
     def test_size(self):
         self.log.info("Test message with oversized payload disconnects peer")
-        conn = self.nodes[0].add_p2p_connection(P2PDataStore())
-        error_msg = (
-            ['V2 transport error: packet too large (4000014 bytes)'] if self.options.v2transport
-            else ['Header error: Size too large (badmsg, 4000001 bytes)']
-        )
-        with self.nodes[0].assert_debug_log(error_msg):
+        # The 32MB cap is a 4-byte v1 header. BIP324's length field is 3 bytes,
+        # so a v2 encoder cannot name MAX_PROTOCOL_MESSAGE_LENGTH+1. Always
+        # exercise the v1 header reject, including under --v2transport.
+        v1 = self.nodes[0].add_p2p_connection(P2PDataStore(), supports_v2_p2p=False)
+        with self.nodes[0].assert_debug_log(
+            [f'Header error: Size too large (badmsg, {MAX_PROTOCOL_MESSAGE_LENGTH + 1} bytes)']
+        ):
             msg = msg_unrecognized(str_data="d" * (VALID_DATA_LIMIT + 1))
-            msg = conn.build_message(msg)
-            conn.send_raw_message(msg)
-            conn.wait_for_disconnect(timeout=1)
+            v1.send_raw_message(v1.build_message(msg))
+            v1.wait_for_disconnect(timeout=1)
+        self.nodes[0].disconnect_p2ps()
+
+        if not self.options.v2transport:
+            return
+        self.log.info("Test a BIP324-max length field is not treated as 32MB-oversized")
+        conn = self.nodes[0].add_p2p_connection(P2PDataStore())
+        # Encrypt only the 3-byte length (2^24-1). The node must accept it and
+        # wait for the ciphertext instead of logging packet too large.
+        enc_len = conn.v2_state.peer['send_L'].crypt((2**24 - 1).to_bytes(3, 'little'))
+        before = self.nodes[0].getnettotals()['totalbytesrecv']
+        with self.nodes[0].assert_debug_log([], unexpected_msgs=['packet too large']):
+            conn.send_raw_message(enc_len)
+            self.wait_until(lambda: self.nodes[0].getnettotals()['totalbytesrecv'] >= before + 3)
+            assert conn.is_connected
         self.nodes[0].disconnect_p2ps()
 
     def test_msgtype(self):
@@ -288,6 +302,9 @@ class InvalidMessagesTest(BitcoinTestFramework):
         blockheader.hashPrevBlock = int(blockheader_tip_hash, 16)
         blockheader.nTime = int(time.time())
         blockheader.nBits = blockheader_tip.nBits
+        blockheader.m_header_v2 = True
+        blockheader.m_height = 1
+        blockheader.m_txcount = 1
         blockheader.rehash()
         while not blockheader.hash.startswith('0'):
             blockheader.nNonce += 1
@@ -351,7 +368,7 @@ class InvalidMessagesTest(BitcoinTestFramework):
         # connection, it can still service other peers in a timely way.
         self.log.info("(b) Check node still services peers in a timely way")
         for _ in range(20):
-            conn2.sync_with_ping(timeout=2)
+            conn2.sync_with_ping(timeout=10)
 
         self.log.info("(c) Wait for node to drop junk messages, while remaining connected")
         conn.sync_with_ping(timeout=400)

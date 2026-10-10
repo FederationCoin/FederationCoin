@@ -1,3 +1,23 @@
+FederationCoin
+==============
+
+This tree is FederationCoin, based on Bitcoin Knots `v29.4.1.knots20260508`.
+**Main is not live.** Mine and peer on `-testnet`.
+
+Downloads: <https://github.com/FederationCoin/FederationCoin/releases>
+
+Bugs: <https://github.com/FederationCoin/FederationCoin/issues>
+
+Binaries are `federationcoind` / `federationcoin-qt`. Datadir is
+`~/.federationcoin` (Windows: `%LOCALAPPDATA%\FederationCoin`). Unsigned
+macOS and Windows; Gatekeepers may warn.
+
+The remainder of this file is the inherited Knots 29.4.1 notes (Blake2b
+filter work and related). Names below still say bitcoind / Bitcoin-Qt /
+bitcoinknots.org; they describe that upstream release, not our installers.
+
+---
+
 Bitcoin Knots version 29.4.1.knots20260508 is now available from:
 
   <https://bitcoinknots.org/files/29.x/29.4.1.knots20260508/>

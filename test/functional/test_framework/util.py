@@ -292,7 +292,7 @@ def random_bitflip(data):
 
 
 def get_fee(tx_size, feerate_btc_kvb):
-    """Calculate the fee in BTC given a feerate is BTC/kvB. Reflects CFeeRate::GetFee"""
+    """Calculate the fee in BTC given a feerate is COIN/kvB. Reflects CFeeRate::GetFee"""
     feerate_sat_kvb = int(feerate_btc_kvb * Decimal(1e8)) # Fee in sat/kvb as an int to avoid float precision errors
     target_fee_sat = ceildiv(feerate_sat_kvb * tx_size, 1000) # Round calculated fee up to nearest sat
     return target_fee_sat / Decimal(1e8) # Return result in  BTC
@@ -451,7 +451,7 @@ def initialize_datadir(dirname, n, chain, disable_autoconnect=True):
     datadir = get_datadir_path(dirname, n)
     if not os.path.isdir(datadir):
         os.makedirs(datadir)
-    write_config(os.path.join(datadir, "bitcoin.conf"), n=n, chain=chain, disable_autoconnect=disable_autoconnect)
+    write_config(os.path.join(datadir, "federationcoin.conf"), n=n, chain=chain, disable_autoconnect=disable_autoconnect)
     os.makedirs(os.path.join(datadir, 'stderr'), exist_ok=True)
     os.makedirs(os.path.join(datadir, 'stdout'), exist_ok=True)
     return datadir
@@ -520,18 +520,18 @@ def get_temp_default_datadir(temp_dir: pathlib.Path) -> tuple[dict, pathlib.Path
     temp_dir, as well as the complete path it would return."""
     if platform.system() == "Windows":
         env = dict(APPDATA=str(temp_dir))
-        datadir = temp_dir / "Bitcoin"
+        datadir = temp_dir / "FederationCoin"
     else:
         env = dict(HOME=str(temp_dir))
         if platform.system() == "Darwin":
-            datadir = temp_dir / "Library/Application Support/Bitcoin"
+            datadir = temp_dir / "Library/Application Support/FederationCoin"
         else:
-            datadir = temp_dir / ".bitcoin"
+            datadir = temp_dir / ".federationcoin"
     return env, datadir
 
 
 def append_config(datadir, options):
-    with open(os.path.join(datadir, "bitcoin.conf"), 'a', encoding='utf8') as f:
+    with open(os.path.join(datadir, "federationcoin.conf"), 'a', encoding='utf8') as f:
         for option in options:
             f.write(option + "\n")
 
@@ -539,8 +539,8 @@ def append_config(datadir, options):
 def get_auth_cookie(datadir, chain):
     user = None
     password = None
-    if os.path.isfile(os.path.join(datadir, "bitcoin.conf")):
-        with open(os.path.join(datadir, "bitcoin.conf"), 'r', encoding='utf8') as f:
+    if os.path.isfile(os.path.join(datadir, "federationcoin.conf")):
+        with open(os.path.join(datadir, "federationcoin.conf"), 'r', encoding='utf8') as f:
             for line in f:
                 if line.startswith("rpcuser="):
                     assert user is None  # Ensure that there is only one rpcuser line
@@ -588,15 +588,15 @@ def check_node_connections(*, node, num_in, num_out):
 #############################
 
 
-# Create large OP_RETURN txouts that can be appended to a transaction
-# to make it large (helper for constructing large transactions). The
-# total serialized size of the txouts is about 66k vbytes.
+# Payment outputs appended to a transaction to make it large. A user
+# OP_RETURN is not valid. Each output is above dust at 3 tokens per virtual byte.
+# The total serialized size of the txouts is about 66k vbytes.
 def gen_return_txouts():
     from .messages import CTxOut
-    from .script import CScript, OP_RETURN
-    txouts = [CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b'\x01'*80]))] * 733
-    txouts.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b'\x01'*9])))
-    assert_equal(sum([len(txout.serialize()) for txout in txouts]), 67456)
+    from .script import CScript, OP_0
+    pay = CScript([OP_0, b'\x11' * 32])
+    txouts = [CTxOut(nValue=1000, scriptPubKey=pay) for _ in range(1568)]
+    assert_equal(sum([len(txout.serialize()) for txout in txouts]), 67424)
     return txouts
 
 
@@ -610,19 +610,30 @@ def create_lots_of_big_transactions(mini_wallet, node, fee, tx_batch_size, txout
             utxo_to_spend=None if use_internal_utxos else utxos.pop(),
             fee=fee,
         )["tx"]
+        pad_value = sum(out.nValue for out in txouts)
+        assert tx.vout[0].nValue > pad_value
+        tx.vout[0].nValue -= pad_value
         tx.vout.extend(txouts)
+        need = max(fee, Decimal(3 * tx.get_vsize()) / 100_000_000)
+        extra = int((need - fee) * 100_000_000)
+        if extra > 0:
+            assert tx.vout[0].nValue > extra
+            tx.vout[0].nValue -= extra
+            fee = need
+        mini_wallet.resign(tx)
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
+        assert 'fees' in res, res
         assert_equal(res['fees']['base'], fee)
         txids.append(node.sendrawtransaction(tx.serialize().hex()))
     return txids
 
 
 def mine_large_block(test_framework, mini_wallet, node):
-    # generate a 66k transaction,
-    # and 14 of them is close to the 1MB block limit
+    # One of these transactions is about 66k vbytes. Two fit under the
+    # reduced-data block weight cap (800000). Fourteen do not.
     txouts = gen_return_txouts()
     fee = 100 * node.getnetworkinfo()["relayfee"]
-    create_lots_of_big_transactions(mini_wallet, node, fee, 14, txouts)
+    create_lots_of_big_transactions(mini_wallet, node, fee, 2, txouts)
     test_framework.generate(node, 1)
 
 

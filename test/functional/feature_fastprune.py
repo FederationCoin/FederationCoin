@@ -18,10 +18,10 @@ class FeatureFastpruneTest(BitcoinTestFramework):
     def run_test(self):
         self.log.info("ensure that large blocks don't crash or freeze in -fastprune")
         wallet = MiniWallet(self.nodes[0])
-        tx = wallet.create_self_transfer()['tx']
-        annex = b"\x50" + b"\xff" * 0x10000
-        tx.wit.vtxinwit[0].scriptWitness.stack.append(annex)
-        self.generateblock(self.nodes[0], output="raw(55)", transactions=[tx.serialize().hex()])
+        # Fastprune block files are 64KiB. Fill the block with payments.
+        # One ML-DSA-44 payment is about 1,100 vB; stay under the 2,400,000 weight cap.
+        chain = wallet.create_self_transfer_chain(chain_length=200)
+        self.generateblock(self.nodes[0], output="raw(55)", transactions=[tx["hex"] for tx in chain])
         assert_equal(self.nodes[0].getblockcount(), 201)
 
 

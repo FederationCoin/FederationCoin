@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="560" viewBox="0 0 720 560">
+  <title>Bitcoin Knots - check a block</title>
+  <rect width="720" height="560" fill="#ffffff"/>
+  <text x="360" y="36" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#181818">Bitcoin Knots - check a block</text>
+  <rect x="48" y="56" width="88" height="32" rx="4" fill="#E2E2F0" stroke="#181818" stroke-width="0.75"/>
+  <text x="92" y="77" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#181818">Peer</text>
+  <rect x="560" y="56" width="120" height="32" rx="4" fill="#E2E2F0" stroke="#181818" stroke-width="0.75"/>
+  <text x="620" y="77" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#181818">A Knots node</text>
+  <line x1="92" y1="88" x2="92" y2="500" stroke="#181818" stroke-width="0.5" stroke-dasharray="5 5"/>
+  <line x1="620" y1="88" x2="620" y2="500" stroke="#181818" stroke-width="0.5" stroke-dasharray="5 5"/>
+  <line x1="92" y1="112" x2="610" y2="112" stroke="#181818" stroke-width="1"/>
+  <polygon points="610,108 620,112 610,116" fill="#181818"/>
+  <text x="356" y="106" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">here is a block</text>
+  <rect x="196" y="130" width="424" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="408" y="153" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">1. Read the header - 80 bytes</text>
+  <rect x="196" y="176" width="424" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="408" y="199" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">2. Is the hash hard enough? - double SHA-256</text>
+  <rect x="196" y="222" width="424" height="44" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="408" y="240" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">3. Do we have the previous block?</text>
+  <text x="408" y="256" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444444">Time and difficulty look sane? About 10 minutes.</text>
+  <rect x="196" y="276" width="424" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="408" y="299" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">4. Do the transactions match the merkle root?</text>
+  <rect x="196" y="322" width="424" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="408" y="345" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">5. Does the block fit the room? - always 4,000,000</text>
+  <rect x="196" y="368" width="424" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="408" y="391" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">6. Coinbase first. Reward not too big?</text>
+  <rect x="196" y="414" width="424" height="44" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="408" y="432" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">7. Each payment: script and signature</text>
+  <text x="408" y="448" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444444">Legacy, P2SH, SegWit, Taproot</text>
+  <rect x="196" y="468" width="424" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="408" y="491" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">8. Those coins exist and are not spent twice</text>
+  <line x1="620" y1="520" x2="102" y2="520" stroke="#181818" stroke-width="1" stroke-dasharray="3 3"/>
+  <polygon points="102,516 92,520 102,524" fill="#181818"/>
+  <text x="356" y="514" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">keep it, or hang up</text>
+  <text x="360" y="548" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444444">A skinny fee does not fail the block. Relaying cheap payments is a courtesy.</text>
+</svg>

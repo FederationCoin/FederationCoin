@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="680" viewBox="0 0 720 680">
+  <title>FederationCoin - check a block</title>
+  <rect width="720" height="680" fill="#ffffff"/>
+  <text x="360" y="36" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#181818">FederationCoin - check a block</text>
+  <rect x="48" y="56" width="88" height="32" rx="4" fill="#E2E2F0" stroke="#181818" stroke-width="0.75"/>
+  <text x="92" y="77" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#181818">Peer</text>
+  <rect x="528" y="56" width="152" height="32" rx="4" fill="#E2E2F0" stroke="#181818" stroke-width="0.75"/>
+  <text x="604" y="77" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">A FederationCoin node</text>
+  <line x1="92" y1="88" x2="92" y2="548" stroke="#181818" stroke-width="0.5" stroke-dasharray="5 5"/>
+  <line x1="604" y1="88" x2="604" y2="548" stroke="#181818" stroke-width="0.5" stroke-dasharray="5 5"/>
+  <line x1="92" y1="112" x2="594" y2="112" stroke="#181818" stroke-width="1"/>
+  <polygon points="594,108 604,112 594,116" fill="#181818"/>
+  <text x="348" y="106" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">here is a block</text>
+  <rect x="168" y="130" width="436" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="386" y="153" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">1. Read the header - version 2, 164 bytes</text>
+  <rect x="168" y="176" width="436" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="386" y="199" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">2. Is the hash hard enough? - Blake2b</text>
+  <rect x="168" y="222" width="436" height="44" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="386" y="240" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">3. Do we have the previous block?</text>
+  <text x="386" y="256" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444444">Time and difficulty look sane? 12 minutes.</text>
+  <rect x="168" y="276" width="436" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="386" y="299" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">4. Do the transactions match the merkle root?</text>
+  <rect x="168" y="322" width="436" height="44" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="386" y="340" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">5. Does the block fit the current room?</text>
+  <text x="386" y="356" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444444">Flex cap - starts at 2,400,000 (note below)</text>
+  <rect x="168" y="376" width="436" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="386" y="399" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">6. Coinbase first. Reward not too big?</text>
+  <rect x="168" y="422" width="436" height="52" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="386" y="442" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">7. Each payment: a named kind and a good signature</text>
+  <text x="386" y="460" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444444">secp (warned), Dilithium-44, or Dilithium-87 - no Taproot, no spare witness</text>
+  <rect x="168" y="484" width="436" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="386" y="507" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">8. Each payment pays at least floor(vsize / 12)</text>
+  <rect x="168" y="530" width="436" height="36" rx="4" fill="#F7F7FB" stroke="#181818" stroke-width="0.6"/>
+  <text x="386" y="553" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">9. Those coins exist and are not spent twice</text>
+  <line x1="604" y1="580" x2="102" y2="580" stroke="#181818" stroke-width="1" stroke-dasharray="3 3"/>
+  <polygon points="102,576 92,580 102,584" fill="#181818"/>
+  <text x="348" y="574" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#181818">keep it, or hang up</text>
+  <text x="360" y="612" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444444">Room (step 5): 16 windows. 13 of 16 at least 80% full - next = (cap x 3) / 2.</text>
+  <text x="360" y="630" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444444">Skip the grow past 87,841,638,446,235. Quiet epoch (under 20%) - max(2,400,000, cap / 2).</text>
+  <text x="360" y="648" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444444">Otherwise the cap stays. Floor 2,400,000. Same step, different number.</text>
+  <text x="360" y="666" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#444444">Step 8 is new: a skinny fee fails the block.</text>
+</svg>

@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1260" viewBox="0 0 900 1260">
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1160" viewBox="0 0 900 1160">
   <title>FederationCoin - check a block</title>
-  <rect width="900" height="1260" fill="#FFF6E8"/>
+  <rect width="900" height="1160" fill="#FFF6E8"/>
   <text x="450" y="38" text-anchor="middle" font-family="Georgia, serif" font-size="26" font-weight="bold" fill="#1B2838">FederationCoin checks a block</text>
   <text x="450" y="62" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">Same walk. Gray is the same. Blue is a change. Green is new.</text>
 
@@ -66,38 +66,33 @@
 
   <text x="450" y="808" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Arbitrary data paths are closed.</text>
 
-  <rect x="80" y="824" width="740" height="72" rx="10" fill="#FFE08A" stroke="#8A5A00" stroke-width="2"/>
-  <text x="450" y="850" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#5A3A00">If a block is late</text>
-  <text x="450" y="872" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5A3A00">Ask for more confirmations. That history is cheaper to re-mine. Not a fail.</text>
-  <text x="450" y="888" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5A3A00">After new coins stop, a block is only worth mining if someone paid. Gaps are normal.</text>
+  <rect x="80" y="828" width="740" height="308" rx="10" fill="#FFFFFF" stroke="#1B2838" stroke-width="1.5"/>
+  <rect x="80" y="828" width="740" height="40" rx="10" fill="#1B2838"/>
+  <rect x="80" y="848" width="740" height="20" fill="#1B2838"/>
+  <text x="450" y="854" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#FFF6E8">Max block size</text>
 
-  <rect x="80" y="916" width="740" height="308" rx="10" fill="#FFFFFF" stroke="#1B2838" stroke-width="1.5"/>
-  <rect x="80" y="916" width="740" height="40" rx="10" fill="#1B2838"/>
-  <rect x="80" y="936" width="740" height="20" fill="#1B2838"/>
-  <text x="450" y="942" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#FFF6E8">Max block size</text>
+  <text x="220" y="896" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">At the coin-halving (~4.8 years)</text>
+  <text x="620" y="896" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">What happens to the max</text>
+  <line x1="100" y1="908" x2="800" y2="908" stroke="#1B2838" stroke-width="1"/>
 
-  <text x="220" y="984" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">At the coin-halving (~4.8 years)</text>
-  <text x="620" y="984" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">What happens to the max</text>
-  <line x1="100" y1="996" x2="800" y2="996" stroke="#1B2838" stroke-width="1"/>
+  <rect x="90" y="916" width="720" height="48" fill="#FFF6E8"/>
+  <text x="250" y="936" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#1B2838">Completely pegged to the limit</text>
+  <text x="250" y="954" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#3D3424">80% of the ~4.8 year interval</text>
+  <text x="620" y="946" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Grow the max by half</text>
 
-  <rect x="90" y="1004" width="720" height="48" fill="#FFF6E8"/>
-  <text x="250" y="1024" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#1B2838">Completely pegged to the limit</text>
-  <text x="250" y="1042" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#3D3424">80% of the ~4.8 year interval</text>
-  <text x="620" y="1034" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Grow the max by half</text>
+  <rect x="90" y="964" width="720" height="48" fill="#E4E2DC"/>
+  <text x="250" y="984" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#1B2838">Lots of slack (below 20% weight)</text>
+  <text x="250" y="1002" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#3D3424">80% of that ~4.8 year interval</text>
+  <text x="620" y="994" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Cut the max in half (not below 2.4M)</text>
 
-  <rect x="90" y="1052" width="720" height="48" fill="#E4E2DC"/>
-  <text x="250" y="1072" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#1B2838">Lots of slack (below 20% weight)</text>
-  <text x="250" y="1090" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#3D3424">80% of that ~4.8 year interval</text>
-  <text x="620" y="1082" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Cut the max in half (not below 2.4M)</text>
+  <rect x="90" y="1012" width="720" height="40" fill="#FFF6E8"/>
+  <text x="250" y="1038" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">In between</text>
+  <text x="620" y="1038" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Leave the max as it is</text>
 
-  <rect x="90" y="1100" width="720" height="40" fill="#FFF6E8"/>
-  <text x="250" y="1126" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">In between</text>
-  <text x="620" y="1126" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Leave the max as it is</text>
+  <rect x="90" y="1052" width="720" height="40" fill="#E4E2DC"/>
+  <text x="250" y="1078" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">The next max would break the math</text>
+  <text x="620" y="1078" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Do not grow the max</text>
 
-  <rect x="90" y="1140" width="720" height="40" fill="#E4E2DC"/>
-  <text x="250" y="1166" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">The next max would break the math</text>
-  <text x="620" y="1166" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Do not grow the max</text>
-
-  <text x="450" y="1208" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Pegged means hit the max. Fees are the fight to get in. After a cut, slack blocks sit at about 40% of the new max.</text>
-  <text x="450" y="1228" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">A stable load does not bounce. Starts at 2.4M. 80% of 210,000 blocks is 168,000 pegged or slack.</text>
+  <text x="450" y="1120" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Pegged means hit the max. Fees are the fight to get in. After a cut, slack blocks sit at about 40% of the new max.</text>
+  <text x="450" y="1140" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">A stable load does not bounce. Starts at 2.4M. 80% of 210,000 blocks is 168,000 pegged or slack.</text>
 </svg>

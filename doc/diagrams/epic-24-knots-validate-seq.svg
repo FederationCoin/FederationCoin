@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="840" viewBox="0 0 900 840">
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="736" viewBox="0 0 900 736">
   <title>Bitcoin Knots - check a block</title>
-  <rect width="900" height="840" fill="#FFF6E8"/>
+  <rect width="900" height="736" fill="#FFF6E8"/>
   <text x="450" y="38" text-anchor="middle" font-family="Georgia, serif" font-size="26" font-weight="bold" fill="#1B2838">Bitcoin Knots checks a block</text>
   <text x="450" y="62" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">The walk we started from. Gray is the same. Blue is a change.</text>
 
@@ -59,8 +59,4 @@
   <text x="430" y="706" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">keep it, or hang up</text>
   <line x1="770" y1="718" x2="106" y2="718" stroke="#1B2838" stroke-width="2" stroke-dasharray="5 4"/>
   <polygon points="106,713 90,718 106,723" fill="#1B2838"/>
-
-  <rect x="80" y="740" width="740" height="76" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
-  <text x="450" y="768" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="bold" fill="#1B2838">No required-fee step</text>
-  <text x="450" y="792" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#3D3424">A cheap fee does not fail the block. FederationCoin adds a green step here.</text>
 </svg>

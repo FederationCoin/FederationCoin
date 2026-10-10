@@ -118,10 +118,10 @@ if [ "$DOWNLOAD_PREVIOUS_RELEASES" = "true" ]; then
   echo "bin.federationcoin.org is not yet provisioned; not downloading previous releases"
 fi
 
-# Fuzz is a mainnet gate. Compile the harness on every job. Dedicated
-# fuzz envs set BUILD_FOR_FUZZING, which overrides this to ON and drops
-# other targets. Benches stay off unless a job turns them on.
-BITCOIN_CONFIG_ALL="-DBUILD_BENCH=OFF -DBUILD_FUZZ_BINARY=ON"
+# Fuzz and bench are gates. Compile both on every job. Dedicated
+# fuzz envs set BUILD_FOR_FUZZING, which overrides BUILD_FUZZ_BINARY
+# to ON and drops other targets (including bench).
+BITCOIN_CONFIG_ALL="-DBUILD_BENCH=ON -DBUILD_FUZZ_BINARY=ON"
 if [ -z "$NO_DEPENDS" ]; then
   BITCOIN_CONFIG_ALL="${BITCOIN_CONFIG_ALL} -DCMAKE_TOOLCHAIN_FILE=$DEPENDS_DIR/$HOST/toolchain.cmake"
 fi
@@ -171,6 +171,12 @@ fi
 
 if [ "$RUN_UNIT_TESTS" = "true" ]; then
   DIR_UNIT_TEST_DATA="${DIR_UNIT_TEST_DATA}" LD_LIBRARY_PATH="${DEPENDS_DIR}/${HOST}/lib" CTEST_OUTPUT_ON_FAILURE=ON ctest --stop-on-failure "${MAKEJOBS}" --timeout $(( TEST_RUNNER_TIMEOUT_FACTOR * 60 ))
+fi
+
+if [ "$RUN_BENCH" = "true" ]; then
+  # Timing run, not -sanity-check. Sanitizer jobs leave RUN_BENCH off;
+  # those numbers are not comparable.
+  LD_LIBRARY_PATH="${DEPENDS_DIR}/${HOST}/lib" "${BASE_OUTDIR}"/bin/bench_bitcoin -priority-level=high
 fi
 
 if [ "$RUN_UNIT_TESTS_SEQUENTIAL" = "true" ]; then

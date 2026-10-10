@@ -239,6 +239,11 @@ jobs:
         run: |
           ctest --output-on-failure --stop-on-failure -j $env:NUMBER_OF_PROCESSORS -C Release
 
+      - name: Run high-priority benches
+        if: matrix.job-type == 'standard'
+        working-directory: build
+        run: .\bin\Release\bench_bitcoin.exe -priority-level=high
+
       - name: Run functional tests
         if: matrix.job-type == 'standard'
         working-directory: build

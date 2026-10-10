@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="860" viewBox="0 0 900 860">
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="840" viewBox="0 0 900 840">
   <title>Bitcoin Knots - check a block</title>
-  <rect width="900" height="860" fill="#FFF6E8"/>
+  <rect width="900" height="840" fill="#FFF6E8"/>
   <text x="450" y="38" text-anchor="middle" font-family="Georgia, serif" font-size="26" font-weight="bold" fill="#1B2838">Bitcoin Knots checks a block</text>
   <text x="450" y="62" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">The walk we started from. Gray is the same. Blue is a change.</text>
 
@@ -17,8 +17,8 @@
   <rect x="680" y="100" width="180" height="36" rx="8" fill="#1B2838"/>
   <text x="770" y="124" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="bold" fill="#FFF6E8">A Knots node</text>
 
-  <line x1="90" y1="136" x2="90" y2="700" stroke="#8A7A5C" stroke-width="1.5" stroke-dasharray="4 6"/>
-  <line x1="770" y1="136" x2="770" y2="700" stroke="#8A7A5C" stroke-width="1.5" stroke-dasharray="4 6"/>
+  <line x1="90" y1="136" x2="90" y2="680" stroke="#8A7A5C" stroke-width="1.5" stroke-dasharray="4 6"/>
+  <line x1="770" y1="136" x2="770" y2="680" stroke="#8A7A5C" stroke-width="1.5" stroke-dasharray="4 6"/>
 
   <text x="430" y="156" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">here is a block</text>
   <line x1="90" y1="168" x2="754" y2="168" stroke="#1B2838" stroke-width="2"/>
@@ -32,37 +32,35 @@
   <text x="450" y="270" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">2. Was the work hard enough?</text>
   <text x="450" y="290" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">double SHA-256</text>
 
-  <rect x="150" y="310" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
-  <text x="450" y="332" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">3. Do we have the last block?</text>
-  <text x="450" y="352" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Not dated in the future. A long wait does not fail the block.</text>
+  <rect x="150" y="310" width="600" height="44" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
+  <text x="450" y="338" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">3. Do we have the last block?</text>
 
-  <rect x="150" y="372" width="600" height="68" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
-  <text x="450" y="394" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">4. Do the payments match the fingerprint?</text>
-  <text x="450" y="414" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">The merkle root is a short fingerprint of every payment listed.</text>
-  <text x="450" y="432" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">If someone swapped a payment, it would not match.</text>
+  <rect x="150" y="364" width="600" height="68" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
+  <text x="450" y="386" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">4. Do the payments match the fingerprint?</text>
+  <text x="450" y="406" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">The merkle root is a short fingerprint of every payment listed.</text>
+  <text x="450" y="424" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">If someone swapped a payment, it would not match.</text>
 
-  <rect x="150" y="450" width="600" height="52" rx="10" fill="#C5D8F0" stroke="#2B5A8A" stroke-width="1.5"/>
-  <text x="450" y="472" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">5. Does the block fit the max block size?</text>
-  <text x="450" y="492" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Max block size is always 4M.</text>
+  <rect x="150" y="442" width="600" height="52" rx="10" fill="#C5D8F0" stroke="#2B5A8A" stroke-width="1.5"/>
+  <text x="450" y="464" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">5. Does the block fit the max block size?</text>
+  <text x="450" y="484" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Max block size is always 4M.</text>
 
-  <rect x="150" y="512" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
-  <text x="450" y="534" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">6. First payment is the miner reward</text>
-  <text x="450" y="554" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">The new coins in that reward cannot be too big.</text>
+  <rect x="150" y="504" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
+  <text x="450" y="526" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">6. First payment is the miner reward</text>
+  <text x="450" y="546" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">The new coins in that reward cannot be too big.</text>
 
-  <rect x="150" y="574" width="600" height="56" rx="10" fill="#C5D8F0" stroke="#2B5A8A" stroke-width="1.5"/>
-  <text x="450" y="596" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">7. Each payment: script and signature</text>
-  <text x="450" y="616" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Legacy, wrapped SegWit, native SegWit, Taproot</text>
+  <rect x="150" y="566" width="600" height="56" rx="10" fill="#C5D8F0" stroke="#2B5A8A" stroke-width="1.5"/>
+  <text x="450" y="588" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">7. Each payment: script and signature</text>
+  <text x="450" y="608" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Legacy, wrapped SegWit, native SegWit, Taproot</text>
 
-  <rect x="150" y="640" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
-  <text x="450" y="662" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">Those coins exist and were not spent twice</text>
-  <text x="450" y="682" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Last check. The coins are real and unspent.</text>
+  <rect x="150" y="632" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
+  <text x="450" y="654" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">Those coins exist and were not spent twice</text>
+  <text x="450" y="674" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Last check. The coins are real and unspent.</text>
 
-  <text x="430" y="714" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">keep it, or hang up</text>
-  <line x1="770" y1="726" x2="106" y2="726" stroke="#1B2838" stroke-width="2" stroke-dasharray="5 4"/>
-  <polygon points="106,721 90,726 106,731" fill="#1B2838"/>
+  <text x="430" y="706" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">keep it, or hang up</text>
+  <line x1="770" y1="718" x2="106" y2="718" stroke="#1B2838" stroke-width="2" stroke-dasharray="5 4"/>
+  <polygon points="106,713 90,718 106,723" fill="#1B2838"/>
 
-  <rect x="80" y="748" width="740" height="88" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
-  <text x="450" y="776" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="bold" fill="#1B2838">No required-fee step</text>
-  <text x="450" y="798" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#3D3424">A cheap fee does not fail the block. Passing a cheap payment along is a courtesy.</text>
-  <text x="450" y="818" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">FederationCoin adds a green step here.</text>
+  <rect x="80" y="740" width="740" height="76" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
+  <text x="450" y="768" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="bold" fill="#1B2838">No required-fee step</text>
+  <text x="450" y="792" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#3D3424">A cheap fee does not fail the block. FederationCoin adds a green step here.</text>
 </svg>

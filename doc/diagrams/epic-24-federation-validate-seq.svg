@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1280" viewBox="0 0 900 1280">
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1240" viewBox="0 0 900 1240">
   <title>FederationCoin - check a block</title>
-  <rect width="900" height="1280" fill="#FFF6E8"/>
+  <rect width="900" height="1240" fill="#FFF6E8"/>
   <text x="450" y="38" text-anchor="middle" font-family="Georgia, serif" font-size="26" font-weight="bold" fill="#1B2838">FederationCoin checks a block</text>
   <text x="450" y="62" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">Same walk. Gray is the same. Blue is a change. Green is new.</text>
 
@@ -17,8 +17,8 @@
   <rect x="680" y="100" width="180" height="36" rx="8" fill="#1B2838"/>
   <text x="770" y="124" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="bold" fill="#FFF6E8">FederationCoin node</text>
 
-  <line x1="90" y1="136" x2="90" y2="800" stroke="#8A7A5C" stroke-width="1.5" stroke-dasharray="4 6"/>
-  <line x1="770" y1="136" x2="770" y2="800" stroke="#8A7A5C" stroke-width="1.5" stroke-dasharray="4 6"/>
+  <line x1="90" y1="136" x2="90" y2="760" stroke="#8A7A5C" stroke-width="1.5" stroke-dasharray="4 6"/>
+  <line x1="770" y1="136" x2="770" y2="760" stroke="#8A7A5C" stroke-width="1.5" stroke-dasharray="4 6"/>
 
   <text x="430" y="156" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">here is a block</text>
   <line x1="90" y1="168" x2="754" y2="168" stroke="#1B2838" stroke-width="2"/>
@@ -32,70 +32,70 @@
   <text x="450" y="270" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">2. Was the work hard enough?</text>
   <text x="450" y="290" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Blake2b</text>
 
-  <rect x="150" y="310" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
-  <text x="450" y="332" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">3. Do we have the last block?</text>
-  <text x="450" y="352" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Not dated in the future. A long wait does not fail the block.</text>
+  <rect x="150" y="310" width="600" height="44" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
+  <text x="450" y="338" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">3. Do we have the last block?</text>
 
-  <rect x="150" y="372" width="600" height="68" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
-  <text x="450" y="394" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">4. Do the payments match the fingerprint?</text>
-  <text x="450" y="414" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">The merkle root is a short fingerprint of every payment listed.</text>
-  <text x="450" y="432" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">If someone swapped a payment, it would not match.</text>
+  <rect x="150" y="364" width="600" height="68" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
+  <text x="450" y="386" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">4. Do the payments match the fingerprint?</text>
+  <text x="450" y="406" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">The merkle root is a short fingerprint of every payment listed.</text>
+  <text x="450" y="424" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">If someone swapped a payment, it would not match.</text>
 
-  <rect x="150" y="450" width="600" height="52" rx="10" fill="#C5D8F0" stroke="#2B5A8A" stroke-width="1.5"/>
-  <text x="450" y="472" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">5. Does the block fit the max block size?</text>
-  <text x="450" y="492" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Max starts at 2.4M. At each coin-halving it may grow or shrink.</text>
+  <rect x="150" y="442" width="600" height="52" rx="10" fill="#C5D8F0" stroke="#2B5A8A" stroke-width="1.5"/>
+  <text x="450" y="464" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">5. Does the block fit the max block size?</text>
+  <text x="450" y="484" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Starts at 2.4M. Grows only when blocks are full, 80% of the time.</text>
 
-  <rect x="150" y="512" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
-  <text x="450" y="534" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">6. First payment is the miner reward</text>
-  <text x="450" y="554" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">The new coins in that reward cannot be too big.</text>
+  <rect x="150" y="504" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
+  <text x="450" y="526" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">6. First payment is the miner reward</text>
+  <text x="450" y="546" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">The new coins in that reward cannot be too big.</text>
 
-  <rect x="150" y="574" width="600" height="86" rx="10" fill="#C5D8F0" stroke="#2B5A8A" stroke-width="1.5"/>
-  <text x="450" y="596" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">7. Each payment is a named kind, with a real signature</text>
-  <text x="450" y="616" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">SegWit (BIP 141), Dilithium 44, or Dilithium 87.</text>
-  <text x="450" y="634" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">SegWit uses the old Bitcoin curve (secp256k1). That is the math, not a fourth wallet.</text>
-  <text x="450" y="652" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">No Taproot. No leftover unlock item (that would be a hidden data pocket).</text>
+  <rect x="150" y="566" width="600" height="56" rx="10" fill="#C5D8F0" stroke="#2B5A8A" stroke-width="1.5"/>
+  <text x="450" y="588" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">7. Each payment: script and signature</text>
+  <text x="450" y="608" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Native SegWit, Dilithium 44, Dilithium 87</text>
 
-  <rect x="150" y="670" width="600" height="52" rx="10" fill="#C8E6D4" stroke="#2D6A4F" stroke-width="1.5"/>
-  <text x="450" y="692" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">8. Each payment pays a small required fee</text>
-  <text x="450" y="712" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">At least one token per 12 virtual bytes, rounded down. A cheap fee fails the block.</text>
+  <rect x="150" y="632" width="600" height="52" rx="10" fill="#C8E6D4" stroke="#2D6A4F" stroke-width="1.5"/>
+  <text x="450" y="654" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">8. Each payment pays a small required fee</text>
+  <text x="450" y="674" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">At least one token per 12 virtual bytes, rounded down. A cheap fee fails the block.</text>
 
-  <rect x="150" y="732" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
-  <text x="450" y="754" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">Those coins exist and were not spent twice</text>
-  <text x="450" y="774" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Last check. The coins are real and unspent.</text>
+  <rect x="150" y="694" width="600" height="52" rx="10" fill="#E4E2DC" stroke="#8A8680" stroke-width="1.25"/>
+  <text x="450" y="716" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#1B2838">Those coins exist and were not spent twice</text>
+  <text x="450" y="736" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#3D3424">Last check. The coins are real and unspent.</text>
 
-  <text x="430" y="806" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">keep it, or hang up</text>
-  <line x1="770" y1="818" x2="106" y2="818" stroke="#1B2838" stroke-width="2" stroke-dasharray="5 4"/>
-  <polygon points="106,813 90,818 106,823" fill="#1B2838"/>
+  <text x="430" y="768" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">keep it, or hang up</text>
+  <line x1="770" y1="780" x2="106" y2="780" stroke="#1B2838" stroke-width="2" stroke-dasharray="5 4"/>
+  <polygon points="106,775 90,780 106,785" fill="#1B2838"/>
 
-  <rect x="80" y="842" width="740" height="72" rx="10" fill="#FFE08A" stroke="#8A5A00" stroke-width="2"/>
-  <text x="450" y="868" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#5A3A00">If a block is late</text>
-  <text x="450" y="890" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5A3A00">Ask for more confirmations. That history is cheaper to re-mine. Not a fail.</text>
-  <text x="450" y="906" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5A3A00">After new coins stop, a block is only worth mining if someone paid. Gaps are normal.</text>
+  <text x="450" y="808" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Arbitrary data paths are closed.</text>
 
-  <rect x="80" y="934" width="740" height="280" rx="10" fill="#FFFFFF" stroke="#1B2838" stroke-width="1.5"/>
-  <rect x="80" y="934" width="740" height="40" rx="10" fill="#1B2838"/>
-  <rect x="80" y="954" width="740" height="20" fill="#1B2838"/>
-  <text x="450" y="960" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#FFF6E8">Max block size</text>
+  <rect x="80" y="824" width="740" height="72" rx="10" fill="#FFE08A" stroke="#8A5A00" stroke-width="2"/>
+  <text x="450" y="850" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#5A3A00">If a block is late</text>
+  <text x="450" y="872" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5A3A00">Ask for more confirmations. That history is cheaper to re-mine. Not a fail.</text>
+  <text x="450" y="888" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5A3A00">After new coins stop, a block is only worth mining if someone paid. Gaps are normal.</text>
 
-  <text x="220" y="1002" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">At the coin-halving (~4.8 years)</text>
-  <text x="620" y="1002" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">What happens to the max</text>
-  <line x1="100" y1="1014" x2="800" y2="1014" stroke="#1B2838" stroke-width="1"/>
+  <rect x="80" y="916" width="740" height="292" rx="10" fill="#FFFFFF" stroke="#1B2838" stroke-width="1.5"/>
+  <rect x="80" y="916" width="740" height="40" rx="10" fill="#1B2838"/>
+  <rect x="80" y="936" width="740" height="20" fill="#1B2838"/>
+  <text x="450" y="942" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#FFF6E8">Max block size</text>
 
-  <rect x="90" y="1022" width="720" height="40" fill="#FFF6E8"/>
-  <text x="250" y="1048" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">80% of blocks were full</text>
-  <text x="620" y="1048" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Grow the max by half</text>
+  <text x="220" y="984" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">At the coin-halving (~4.8 years)</text>
+  <text x="620" y="984" text-anchor="middle" font-family="sans-serif" font-size="13" font-weight="bold" fill="#1B2838">What happens to the max</text>
+  <line x1="100" y1="996" x2="800" y2="996" stroke="#1B2838" stroke-width="1"/>
 
-  <rect x="90" y="1062" width="720" height="40" fill="#E4E2DC"/>
-  <text x="250" y="1088" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">The stretch was quiet (under 20% full)</text>
-  <text x="620" y="1088" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Cut the max in half (not below 2.4M)</text>
+  <rect x="90" y="1004" width="720" height="40" fill="#FFF6E8"/>
+  <text x="250" y="1030" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">80% of blocks were full (100% of the max)</text>
+  <text x="620" y="1030" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Grow the max by half</text>
 
-  <rect x="90" y="1102" width="720" height="40" fill="#FFF6E8"/>
-  <text x="250" y="1128" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">In between</text>
-  <text x="620" y="1128" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Leave the max as it is</text>
+  <rect x="90" y="1044" width="720" height="40" fill="#E4E2DC"/>
+  <text x="250" y="1070" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">80% of blocks were under 20% of the max</text>
+  <text x="620" y="1070" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Cut the max in half (not below 2.4M)</text>
 
-  <rect x="90" y="1142" width="720" height="40" fill="#E4E2DC"/>
-  <text x="250" y="1168" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">The next max would break the math</text>
-  <text x="620" y="1168" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Do not grow the max</text>
+  <rect x="90" y="1084" width="720" height="40" fill="#FFF6E8"/>
+  <text x="250" y="1110" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">In between</text>
+  <text x="620" y="1110" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Leave the max as it is</text>
 
-  <text x="450" y="1254" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Starts at 2.4M. One look per coin-halving, not every block.</text>
+  <rect x="90" y="1124" width="720" height="40" fill="#E4E2DC"/>
+  <text x="250" y="1150" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">The next max would break the math</text>
+  <text x="620" y="1150" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Do not grow the max</text>
+
+  <text x="450" y="1194" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Full means maxed. Fees are the fight to get in. After a cut, those quiet blocks sit at about 40% of the new max.</text>
+  <text x="450" y="1214" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">A stable load does not bounce the size. Starts at 2.4M. One look per coin-halving.</text>
 </svg>

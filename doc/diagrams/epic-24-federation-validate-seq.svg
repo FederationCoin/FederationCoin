@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200">
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1260" viewBox="0 0 900 1260">
   <title>FederationCoin - check a block</title>
-  <rect width="900" height="1200" fill="#FFF6E8"/>
+  <rect width="900" height="1260" fill="#FFF6E8"/>
   <text x="450" y="38" text-anchor="middle" font-family="Georgia, serif" font-size="26" font-weight="bold" fill="#1B2838">FederationCoin checks a block</text>
   <text x="450" y="62" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#5C4A2A">Same walk. Gray is the same. Blue is a change. Green is new.</text>
 
@@ -66,7 +66,7 @@
 
   <text x="450" y="808" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Arbitrary data paths are closed.</text>
 
-  <rect x="80" y="828" width="740" height="348" rx="10" fill="#FFFFFF" stroke="#1B2838" stroke-width="1.5"/>
+  <rect x="80" y="828" width="740" height="400" rx="10" fill="#FFFFFF" stroke="#1B2838" stroke-width="1.5"/>
   <rect x="80" y="828" width="740" height="40" rx="10" fill="#1B2838"/>
   <rect x="80" y="848" width="740" height="20" fill="#1B2838"/>
   <text x="450" y="854" text-anchor="middle" font-family="sans-serif" font-size="16" font-weight="bold" fill="#FFF6E8">Max block size</text>
@@ -93,6 +93,8 @@
   <text x="250" y="1078" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">The next max would break the math</text>
   <text x="620" y="1078" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Do not grow the max</text>
 
-  <text x="450" y="1136" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Pegged means hit the max. Fees are the fight to get in. After a cut, slack blocks sit at about 40% of the new max.</text>
-  <text x="450" y="1158" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">A stable load does not bounce. Starts at 2.4M. 80% of 210,000 blocks is 168,000 pegged or slack.</text>
+  <text x="450" y="1128" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Pegged means the block was completely saturated: full to the brim, no leftover space.</text>
+  <text x="450" y="1150" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">The grow rule applies only if we were in that state 80% of the full ~4.8 year period.</text>
+  <text x="450" y="1172" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">After a cut, slack blocks sit at about 40% of the new max. A stable load does not bounce.</text>
+  <text x="450" y="1194" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Starts at 2.4M. 80% of 210,000 blocks is 168,000 pegged or slack.</text>
 </svg>

@@ -4,6 +4,7 @@
 
 #include <consensus/mldsa44_spend.h>
 #include <consensus/mldsa87_spend.h>
+#include <script/mldsa_merge.h>
 #include <span.h>
 #include <test/fuzz/FuzzedDataProvider.h>
 #include <test/fuzz/fuzz.h>

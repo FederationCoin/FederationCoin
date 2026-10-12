@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <pubkey.h>
+#include <key.h>
 #include <key_io.h>
 #include <script/descriptor.h>
 #include <script/sign.h>
@@ -1109,6 +1110,45 @@ BOOST_AUTO_TEST_CASE(descriptor_test)
     CheckInferDescriptor("76a914a31725c74421fadc50d35520ab8751ed120af80588ac", "pkh(04c56fe4a92d401bcbf1b3dfbe4ac3dac5602ca155a3681497f02c1b9a733b92d704e2da6ec4162e4846af9236ef4171069ac8b7f8234a8405b6cadd96f34f5a31)", {}, {{"04c56fe4a92d401bcbf1b3dfbe4ac3dac5602ca155a3681497f02c1b9a733b92d704e2da6ec4162e4846af9236ef4171069ac8b7f8234a8405b6cadd96f34f5a31", ""}});
     // Infer pk() from p2pk with uncompressed key
     CheckInferDescriptor("4104032540df1d3c7070a8ab3a9cdd304dfc7fd1e6541369c53c4c3310b2537d91059afc8b8e7673eb812a32978dabb78c40f2e423f7757dca61d11838c7aeeb5220ac", "pk(04032540df1d3c7070a8ab3a9cdd304dfc7fd1e6541369c53c4c3310b2537d91059afc8b8e7673eb812a32978dabb78c40f2e423f7757dca61d11838c7aeeb5220)", {}, {{"04032540df1d3c7070a8ab3a9cdd304dfc7fd1e6541369c53c4c3310b2537d91059afc8b8e7673eb812a32978dabb78c40f2e423f7757dca61d11838c7aeeb5220", ""}});
+}
+
+BOOST_AUTO_TEST_CASE(mldsa_expand_is_public_and_cached)
+{
+    const CKey key{GenerateRandomKey()};
+    const std::string desc_str{"mldsa87(" + EncodeSecret(key) + ")"};
+    FlatSigningProvider keys;
+    std::string error;
+    auto parsed{Parse(desc_str, keys, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed.size(), 1U);
+
+    FlatSigningProvider out;
+    std::vector<CScript> scripts;
+    DescriptorCache cache;
+    BOOST_REQUIRE(parsed[0]->Expand(0, keys, scripts, out, &cache));
+    BOOST_REQUIRE_EQUAL(scripts.size(), 1U);
+    BOOST_CHECK(out.keys.empty());
+
+    FlatSigningProvider priv;
+    parsed[0]->ExpandPrivate(0, keys, priv);
+    BOOST_CHECK_EQUAL(priv.keys.size(), 1U);
+
+    FlatSigningProvider from_cache;
+    std::vector<CScript> cached_scripts;
+    BOOST_REQUIRE(parsed[0]->ExpandFromCache(0, cache, cached_scripts, from_cache));
+    BOOST_CHECK(scripts == cached_scripts);
+    BOOST_CHECK(from_cache.keys.empty());
+
+    const std::string desc44{"mldsa(" + EncodeSecret(key) + ")"};
+    FlatSigningProvider keys44;
+    auto parsed44{Parse(desc44, keys44, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed44.size(), 1U);
+    FlatSigningProvider out44, cache_out44;
+    std::vector<CScript> scripts44, cached44;
+    DescriptorCache cache44;
+    BOOST_REQUIRE(parsed44[0]->Expand(0, keys44, scripts44, out44, &cache44));
+    BOOST_CHECK(out44.keys.empty());
+    BOOST_REQUIRE(parsed44[0]->ExpandFromCache(0, cache44, cached44, cache_out44));
+    BOOST_CHECK(scripts44 == cached44);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

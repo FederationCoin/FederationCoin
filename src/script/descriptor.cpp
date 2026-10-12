@@ -961,34 +961,37 @@ protected:
     }
     bool ExpandHelper(int pos, const SigningProvider& arg, const DescriptorCache* read_cache, std::vector<CScript>& output_scripts, FlatSigningProvider& out, DescriptorCache* write_cache) const override
     {
-        CKey key;
-        if (!m_pubkey_args[0]->GetPrivKey(pos, arg, key)) return false;
-        if (key.size() != 32) return false;
-        const std::span<const unsigned char> seed{reinterpret_cast<const unsigned char*>(key.begin()), 32};
-        uint256 program;
-        if (m_type == OutputType::DILITHIUM87) {
-            Consensus::MlDsa87Keypair kp;
-            if (!Consensus::MlDsa87Keygen(seed, kp)) return false;
-            program = Consensus::MlDsa87SingleKeyProgram(kp.pubkey);
-        } else {
-            Consensus::MlDsa44Keypair kp;
-            if (!Consensus::MlDsa44Keygen(seed, kp)) return false;
-            program = Consensus::MlDsa44SingleKeyProgram(kp.pubkey);
-        }
         CPubKey pubkey;
         KeyOriginInfo origin;
         if (!m_pubkey_args[0]->GetPubKey(pos, arg, pubkey, origin, read_cache, write_cache)) return false;
+        const uint8_t kind{static_cast<uint8_t>(m_type == OutputType::DILITHIUM87 ? 87 : 44)};
+        uint256 program;
+        uint8_t cached_kind{0};
+        const bool have_program{read_cache && read_cache->GetCachedMldsaProgram(pos, program, cached_kind) && cached_kind == kind};
+        if (!have_program) {
+            CKey key;
+            if (!m_pubkey_args[0]->GetPrivKey(pos, arg, key) || key.size() != 32) {
+                out.origins.emplace(pubkey.GetID(), std::make_pair(pubkey, std::move(origin)));
+                out.pubkeys.emplace(pubkey.GetID(), pubkey);
+                out.mldsa_pending.push_back(MldsaProgramRecord{kind, pubkey.GetID()});
+                return false;
+            }
+            const std::span<const unsigned char> seed{reinterpret_cast<const unsigned char*>(key.begin()), 32};
+            if (m_type == OutputType::DILITHIUM87) {
+                Consensus::MlDsa87Keypair kp;
+                if (!Consensus::MlDsa87Keygen(seed, kp)) return false;
+                program = Consensus::MlDsa87SingleKeyProgram(kp.pubkey);
+            } else {
+                Consensus::MlDsa44Keypair kp;
+                if (!Consensus::MlDsa44Keygen(seed, kp)) return false;
+                program = Consensus::MlDsa44SingleKeyProgram(kp.pubkey);
+            }
+            if (write_cache) write_cache->CacheMldsaProgram(pos, program, kind);
+        }
         out.origins.emplace(pubkey.GetID(), std::make_pair(pubkey, std::move(origin)));
         out.pubkeys.emplace(pubkey.GetID(), pubkey);
-        out.keys.emplace(pubkey.GetID(), key);
-        CScript witprog = GetScriptForDestination(WitnessV0ScriptHash(program));
-        CScript marker;
-        marker << std::vector<unsigned char>{static_cast<unsigned char>(m_type == OutputType::DILITHIUM87 ? 87 : 44)};
-        // ToByteVector binds one CKeyID. pubkey.GetID().begin()/end() are two
-        // temporaries; libc++ treats that iterator pair as a huge size.
-        marker << ToByteVector(pubkey.GetID());
-        out.scripts.emplace(CScriptID(witprog), std::move(marker));
-        output_scripts = Vector(std::move(witprog));
+        out.mldsa_programs[program] = MldsaProgramRecord{kind, pubkey.GetID()};
+        output_scripts = Vector(GetScriptForDestination(WitnessV0ScriptHash(program)));
         return true;
     }
 public:
@@ -2371,22 +2374,18 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
             if (sub) return std::make_unique<WSHDescriptor>(std::move(sub));
         }
         if (ctx == ParseScriptContext::TOP) {
-            CScript marker;
-            if (provider.GetCScript(CScriptID(script), marker)) {
-                CScript::const_iterator pc = marker.begin();
-                std::vector<unsigned char> vch_tag, vch_id;
-                opcodetype opcode;
-                if (marker.GetOp(pc, opcode, vch_tag) && marker.GetOp(pc, opcode, vch_id) &&
-                    vch_tag.size() == 1 && vch_id.size() == 20) {
-                    CPubKey pk;
-                    if (provider.GetPubKey(CKeyID(uint160(vch_id)), pk)) {
-                        if (auto pubkey_provider = InferPubkey(pk, ctx, provider)) {
-                            if (vch_tag[0] == 87) {
-                                return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM87, "mldsa87");
-                            }
-                            if (vch_tag[0] == 44) {
-                                return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM44, "mldsa");
-                            }
+            const uint256 program{Span<const unsigned char>{data[0].data(), data[0].size()}};
+            uint8_t kind{0};
+            CKeyID key_id;
+            if (provider.GetMldsaProgram(program, kind, key_id)) {
+                CPubKey pk;
+                if (provider.GetPubKey(key_id, pk)) {
+                    if (auto pubkey_provider = InferPubkey(pk, ctx, provider)) {
+                        if (kind == 87) {
+                            return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM87, "mldsa87");
+                        }
+                        if (kind == 44) {
+                            return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM44, "mldsa");
                         }
                     }
                 }
@@ -2621,6 +2620,18 @@ DescriptorCache DescriptorCache::MergeAndDiff(const DescriptorCache& other)
         CacheLastHardenedExtPubKey(lh_xpub_pair.first, lh_xpub_pair.second);
         diff.CacheLastHardenedExtPubKey(lh_xpub_pair.first, lh_xpub_pair.second);
     }
+    for (const auto& [der_index, rec] : other.GetCachedMldsaPrograms()) {
+        uint256 program;
+        uint8_t kind{0};
+        if (GetCachedMldsaProgram(der_index, program, kind)) {
+            if (program != rec.program || kind != rec.kind) {
+                throw std::runtime_error(std::string(__func__) + ": New cached Dilithium program does not match already cached program");
+            }
+            continue;
+        }
+        CacheMldsaProgram(der_index, rec.program, rec.kind);
+        diff.CacheMldsaProgram(der_index, rec.program, rec.kind);
+    }
     return diff;
 }
 
@@ -2637,4 +2648,23 @@ std::unordered_map<uint32_t, ExtPubKeyMap> DescriptorCache::GetCachedDerivedExtP
 ExtPubKeyMap DescriptorCache::GetCachedLastHardenedExtPubKeys() const
 {
     return m_last_hardened_xpubs;
+}
+
+void DescriptorCache::CacheMldsaProgram(uint32_t der_index, const uint256& program, uint8_t kind)
+{
+    m_mldsa_programs[der_index] = CachedMldsaProgram{program, kind};
+}
+
+bool DescriptorCache::GetCachedMldsaProgram(uint32_t der_index, uint256& program, uint8_t& kind) const
+{
+    const auto it{m_mldsa_programs.find(der_index)};
+    if (it == m_mldsa_programs.end()) return false;
+    program = it->second.program;
+    kind = it->second.kind;
+    return true;
+}
+
+std::unordered_map<uint32_t, CachedMldsaProgram> DescriptorCache::GetCachedMldsaPrograms() const
+{
+    return m_mldsa_programs;
 }

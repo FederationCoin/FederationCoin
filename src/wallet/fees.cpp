@@ -82,6 +82,14 @@ CFeeRate GetMinimumFeeRate(const CWallet& wallet, const CCoinControl& coin_contr
         feerate_needed = required_feerate;
         if (feeCalc) feeCalc->reason = FeeReason::REQUIRED;
     }
+    // 84 sat/kvB is ceil(1000/12) so CFeeRate::GetFee(n) stays at or above floor(n/12)
+    // when the user did not name a fee rate. An explicit below-floor rate is refused
+    // after the transaction is sized, using MinimumFee(vsize).
+    const CFeeRate chain_floor{84};
+    if (!coin_control.m_feerate && feerate_needed < chain_floor) {
+        feerate_needed = chain_floor;
+        if (feeCalc) feeCalc->reason = FeeReason::REQUIRED;
+    }
     return feerate_needed;
 }
 

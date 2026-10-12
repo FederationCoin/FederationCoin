@@ -64,11 +64,6 @@ bool CheckSingleKey87Spend(const uint256& program, const std::vector<std::vector
 /** True when this witness spends program as an ML-DSA-87 policy: 87 sizes
  *  only, hashes strictly increasing, recovered t, signed_ok >= t. */
 bool CheckMultisig87Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
-/** Merge 87 policy slot witnesses. A signed slot wins over a skip hash.
- *  Hash lists must match. Requires a 32-byte sighash and verifies. */
-std::optional<std::vector<std::vector<unsigned char>>> MergeMlDsa87Witnesses(
-    const std::vector<std::vector<std::vector<unsigned char>>>& stacks,
-    std::span<const unsigned char> sighash);
 
 using MlDsa87WitnessLayout = MlDsaWitnessLayout;
 /** Shape only: Single, Policy, or Neither. Validity is CheckSingleKey87Spend

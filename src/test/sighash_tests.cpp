@@ -332,6 +332,44 @@ static PrecomputedTransactionData MakeUnifiedTxdata(const CMutableTransaction& t
     return txdata;
 }
 
+BOOST_AUTO_TEST_CASE(unified_empty_scriptcode_product_v0)
+{
+    // Product v0: empty scriptCode, SHA256 TaggedHash("UnifiedSighash"), hashtype 0x21.
+    // Stored-byte order (HexStr), not GetHex.
+    auto digest_for = [](const CScript& spk) {
+        CMutableTransaction tx;
+        tx.version = 2;
+        tx.nLockTime = 0;
+        tx.vin.resize(1);
+        tx.vin[0].prevout = COutPoint(Txid::FromUint256(uint256::ONE), 0);
+        tx.vin[0].nSequence = CTxIn::SEQUENCE_FINAL;
+        tx.vout.resize(1);
+        tx.vout[0].nValue = 25000;
+        tx.vout[0].scriptPubKey = CScript() << OP_TRUE;
+        std::vector<CTxOut> spent{CTxOut{50000, spk}};
+        const auto txdata{MakeUnifiedTxdata(tx, spent)};
+        uint256 hash;
+        BOOST_REQUIRE(SignatureHashUnified(hash, CScript{}, tx, 0, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata));
+        return hash;
+    };
+    const CScript secp{CScript() << OP_0 << std::vector<unsigned char>(20, 0x11)};
+    const CScript d44{CScript() << OP_0 << std::vector<unsigned char>(32, 0x44)};
+    const CScript d87{CScript() << OP_0 << std::vector<unsigned char>(32, 0x87)};
+    const uint256 secp_hash{digest_for(secp)};
+    const uint256 d44_hash{digest_for(d44)};
+    const uint256 d87_hash{digest_for(d87)};
+    BOOST_CHECK_NE(secp_hash, d44_hash);
+    BOOST_CHECK_NE(d44_hash, d87_hash);
+    const auto expect = [](const char* hex) {
+        const std::vector<unsigned char> raw{ParseHex(hex)};
+        BOOST_REQUIRE_EQUAL(raw.size(), 32U);
+        return uint256{Span<const unsigned char>{raw.data(), raw.size()}};
+    };
+    BOOST_CHECK_EQUAL(secp_hash, expect("cbe315aa43df656f81e26a77692d60c26fec6933609ef3006834bb8828cc02ea"));
+    BOOST_CHECK_EQUAL(d44_hash, expect("31026e9adedd9d8452efc6def91e9f5d446d787bf02eba10429c1a028ce4aa07"));
+    BOOST_CHECK_EQUAL(d87_hash, expect("990f0636c1fd41de8666378c90349aa59ffa799f76af6bf37b324b10a07c6daa"));
+}
+
 BOOST_AUTO_TEST_CASE(unified_sighash_replay_protection)
 {
     const CScript script0{CScript() << OP_1 << OP_CHECKSIG};
@@ -468,10 +506,10 @@ BOOST_AUTO_TEST_CASE(unified_sighash_signing_rules_are_always_unified)
     SetupSighashRulesArgs(plain);
     BOOST_CHECK(SighashRulesForSigning(plain, params) == SighashRules::UNIFIED);
 
-    ArgsManager old_sigs;
-    SetupSighashRulesArgs(old_sigs);
-    old_sigs.ForceSetArg("-walletoldsigs", "1");
-    BOOST_CHECK(SighashRulesForSigning(old_sigs, params) == SighashRules::LEGACY);
+    ArgsManager ignored_old_flag;
+    SetupSighashRulesArgs(ignored_old_flag);
+    ignored_old_flag.ForceSetArg("-walletoldsigs", "1");
+    BOOST_CHECK(SighashRulesForSigning(ignored_old_flag, params) == SighashRules::UNIFIED);
 }
 
 BOOST_AUTO_TEST_CASE(unified_sighash_hash_type_names_round_trip)

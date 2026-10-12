@@ -23,8 +23,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
                        const CCoinsViewCache& inputs, unsigned int flags, bool cacheSigStore,
                        bool cacheFullScriptStore, PrecomputedTransactionData& txdata,
                        ValidationCache& validation_cache,
-                       std::vector<CScriptCheck>* pvChecks,
-                       const std::vector<unsigned int>& flags_per_input = {}
+                       std::vector<CScriptCheck>* pvChecks
 ) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 BOOST_AUTO_TEST_SUITE(txvalidationcache_tests)
@@ -155,7 +154,7 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_test, Dersig100Setup)
     CheckMldsaCache(CTransaction(two), /*expect_valid=*/false, m_node.chainman->ActiveChainstate().CoinsTip(), m_node.chainman->m_validation_cache);
 }
 
-BOOST_FIXTURE_TEST_CASE(checkinputs_flags_per_input_cache_safety, Dersig100Setup)
+BOOST_FIXTURE_TEST_CASE(checkinputs_rdts_from_height_zero, Dersig100Setup)
 {
     CScript dest = MldsaScriptPubKey();
     auto spend = CreateValidTransaction(
@@ -167,29 +166,26 @@ BOOST_FIXTURE_TEST_CASE(checkinputs_flags_per_input_cache_safety, Dersig100Setup
         /*feerate=*/std::nullopt,
         /*fee_output=*/std::nullopt).first;
 
-    const unsigned int strict_flags{SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_REDUCED_DATA | SCRIPT_VERIFY_UNIFIED_SIGHASH};
-    const unsigned int relaxed_flags{SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_UNIFIED_SIGHASH};
+    const unsigned int flags{SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_REDUCED_DATA | SCRIPT_VERIFY_UNIFIED_SIGHASH};
 
     LOCK(cs_main);
     auto& coins_tip = m_node.chainman->ActiveChainstate().CoinsTip();
     ValidationCache validation_cache{/*script_execution_cache_bytes=*/1 << 20, /*signature_cache_bytes=*/1 << 20};
 
-    const auto run_check{[&](const CTransaction& tx, const std::vector<unsigned int>& flags_per_input) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
+    const auto run_check{[&](const CTransaction& tx) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
         TxValidationState state;
         PrecomputedTransactionData txdata;
-        return CheckInputScripts(tx, state, &coins_tip, strict_flags,
+        return CheckInputScripts(tx, state, &coins_tip, flags,
                                  /*cacheSigStore=*/true, /*cacheFullScriptStore=*/true,
-                                 txdata, validation_cache, /*pvChecks=*/nullptr, flags_per_input);
+                                 txdata, validation_cache, /*pvChecks=*/nullptr);
     }};
 
     const CTransaction valid{spend};
-    BOOST_CHECK(run_check(valid, {}));
-    BOOST_CHECK(run_check(valid, {relaxed_flags}));
+    BOOST_CHECK(run_check(valid));
 
     spend.vin[0].scriptWitness.SetNull();
     const CTransaction invalid{spend};
-    BOOST_CHECK(!run_check(invalid, {}));
-    BOOST_CHECK(!run_check(invalid, {relaxed_flags}));
+    BOOST_CHECK(!run_check(invalid));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

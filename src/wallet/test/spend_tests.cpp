@@ -12,6 +12,8 @@
 #include <script/script.h>
 #include <script/solver.h>
 #include <validation.h>
+#include <script/descriptor.h>
+#include <script/signingprovider.h>
 #include <wallet/coincontrol.h>
 #include <wallet/spend.h>
 #include <wallet/test/util.h>
@@ -53,6 +55,33 @@ BOOST_AUTO_TEST_CASE(max_signed_input_size_uses_external_outpoint)
     BOOST_CHECK_EQUAL(high_r, low_r);
 }
 
+BOOST_FIXTURE_TEST_CASE(multi_provider_infer_dilithium_input_size, TestChain100Setup)
+{
+    auto wallet = CreateProductWallet(*m_node.chain);
+    for (const OutputType type : {OutputType::DILITHIUM87, OutputType::DILITHIUM44}) {
+        const CScript spk{GetScriptForDestination(ProductReceiveDest(*wallet, type))};
+        MultiSigningProvider providers;
+        for (ScriptPubKeyMan* man : wallet->GetScriptPubKeyMans(spk)) {
+            auto solving = man->GetSolvingProvider(spk);
+            BOOST_REQUIRE(solving);
+            providers.AddProvider(std::move(solving));
+        }
+        int witver{0};
+        std::vector<unsigned char> program;
+        BOOST_REQUIRE(spk.IsWitnessProgram(witver, program));
+        BOOST_REQUIRE_EQUAL(program.size(), 32U);
+        const uint256 prog{Span<const unsigned char>{program.data(), program.size()}};
+        uint8_t kind{0};
+        CKeyID key_id;
+        BOOST_REQUIRE(providers.GetMldsaProgram(prog, kind, key_id));
+        BOOST_CHECK_EQUAL(kind, type == OutputType::DILITHIUM87 ? 87 : 44);
+        const auto desc{InferDescriptor(spk, providers)};
+        BOOST_REQUIRE(desc);
+        BOOST_REQUIRE(desc->MaxSatisfactionWeight(/*use_max_sig=*/false).has_value());
+        BOOST_CHECK_GT(CalculateMaximumSignedInputSize(CTxOut{COIN, spk}, wallet.get(), /*coin_control=*/nullptr), 0);
+    }
+}
+
 BOOST_FIXTURE_TEST_CASE(SubtractFee, TestChain100Setup)
 {
     auto wallet = CreateProductWallet(*m_node.chain);
@@ -74,7 +103,7 @@ BOOST_FIXTURE_TEST_CASE(SubtractFee, TestChain100Setup)
         coin_control.fOverrideFeeRate = true;
         coin_control.m_change_type = OutputType::DILITHIUM87;
         auto res = CreateTransaction(*wallet, {recipient}, /*change_pos=*/std::nullopt, coin_control);
-        BOOST_CHECK(res);
+        BOOST_REQUIRE_MESSAGE(res, util::ErrorString(res).original);
         const auto& txr = *res;
         BOOST_CHECK_GT(txr.fee, 0);
         CAmount out_sum{0};

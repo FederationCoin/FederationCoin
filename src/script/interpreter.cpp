@@ -5,6 +5,8 @@
 
 #include <script/interpreter.h>
 
+#include <consensus/mldsa44_spend.h>
+#include <consensus/mldsa87_spend.h>
 #include <consensus/secp_spend.h>
 #include <crypto/ripemd160.h>
 #include <crypto/sha1.h>
@@ -2386,3 +2388,29 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
 
     return 0;
 }
+
+namespace Consensus {
+
+bool CheckWitnessV0Spend(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness& witness, const CTransaction& tx, unsigned int nIn, const PrecomputedTransactionData& txdata)
+{
+    if (!scriptSig.empty()) return false;
+    int witness_version{0};
+    std::vector<unsigned char> witness_program;
+    if (!scriptPubKey.IsWitnessProgram(witness_version, witness_program) || witness_version != 0) return false;
+    uint256 sighash;
+    if (!SignatureHashUnified(sighash, CScript{}, tx, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata)) return false;
+    const std::span<const unsigned char> message{sighash.begin(), 32};
+    if (witness_program.size() == WITNESS_V0_KEYHASH_SIZE) {
+        return CheckSecpSingleKeySpend(uint160{Span<const unsigned char>{witness_program.data(), witness_program.size()}}, witness.stack, message);
+    }
+    if (witness_program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
+        const uint256 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
+        return CheckSingleKey44Spend(program, witness.stack, message) ||
+               CheckMultisig44Spend(program, witness.stack, message) ||
+               CheckSingleKey87Spend(program, witness.stack, message) ||
+               CheckMultisig87Spend(program, witness.stack, message);
+    }
+    return false;
+}
+
+} // namespace Consensus

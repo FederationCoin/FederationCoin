@@ -10,9 +10,11 @@ from test_framework.blocktools import (
     create_block,
     create_coinbase,
 )
-from test_framework.messages import CTxOut
+from test_framework.messages import CBlockHeader, CTxOut
+from test_framework.p2p import P2PDataStore
 from test_framework.script import CScript, OP_0
 from test_framework.test_framework import BitcoinTestFramework
+from test_framework.util import assert_equal
 
 
 MIN_CAP = 2400000
@@ -28,23 +30,30 @@ PEGGED_WEIGHT = MIN_CAP
 
 class FlexWeightTest(BitcoinTestFramework):
     def set_test_params(self):
-        self.num_nodes = 1
+        self.num_nodes = 2
         self.setup_clean_chain = True
+
+    def setup_network(self):
+        self.setup_nodes()
 
     def flexcap(self):
         return int(self.nodes[0].getblockchaininfo()["flexcap"])
 
-    def make_weighted(self, target_weight):
+    def make_weighted(self, target_weight, *, tip=None, height=None, ntime=None):
         node = self.nodes[0]
-        tip = node.getbestblockhash()
-        height = node.getblockcount() + 1
+        if tip is None:
+            tip = node.getbestblockhash()
+        if height is None:
+            height = node.getblockcount() + 1
+        if ntime is None:
+            ntime = node.getblockheader(tip)["time"] + 1
+        prev = int(tip, 16) if isinstance(tip, str) else tip
         extra = CTxOut(0, FILLER)
         extra_wu = 4 * len(extra.serialize())
         pads = max(0, (target_weight - 2500 + extra_wu - 1) // extra_wu)
         cb = create_coinbase(height, nValue=50, halving_period=REGTEST_HALVING_INTERVAL)
         cb.vout.extend([CTxOut(0, FILLER) for _ in range(pads)])
-        block = create_block(int(tip, 16), cb, ntime=node.getblockheader(tip)["time"] + 1,
-                             height=height, header_v2=True)
+        block = create_block(prev, cb, ntime=ntime, height=height, header_v2=True)
         add_witness_commitment(block)
         while block.get_weight() < target_weight:
             more = max(1, (target_weight - block.get_weight() + extra_wu - 1) // extra_wu)
@@ -71,10 +80,10 @@ class FlexWeightTest(BitcoinTestFramework):
         assert result is not None, f"expected overweight reject, weight={weight}"
         assert "weight" in result, result
 
-        self.generate(node, REGTEST_HALVING_INTERVAL - 1)
+        self.generate(node, REGTEST_HALVING_INTERVAL - 1, sync_fun=self.no_op)
         assert node.getblockcount() == REGTEST_HALVING_INTERVAL - 1
         assert self.flexcap() == MIN_CAP
-        self.generate(node, 1)
+        self.generate(node, 1, sync_fun=self.no_op)
         assert node.getblockcount() == REGTEST_HALVING_INTERVAL
         assert self.flexcap() == MIN_CAP, "a cut from the floor stays at the floor"
 
@@ -85,7 +94,7 @@ class FlexWeightTest(BitcoinTestFramework):
             assert MIN_CAP - weight < 503, weight
         assert node.getblockcount() == REGTEST_HALVING_INTERVAL + pegged
 
-        self.generate(node, REGTEST_HALVING_INTERVAL - pegged - 1)
+        self.generate(node, REGTEST_HALVING_INTERVAL - pegged - 1, sync_fun=self.no_op)
         assert node.getblockcount() == 2 * REGTEST_HALVING_INTERVAL - 1
         assert self.flexcap() == MIN_CAP, "cap changes on the first block of the next epoch"
 
@@ -94,15 +103,46 @@ class FlexWeightTest(BitcoinTestFramework):
         assert node.getblockcount() == 2 * REGTEST_HALVING_INTERVAL
         assert self.flexcap() == GROWN_CAP
 
+        # Header-only parent: a grown child must not be marked permanently invalid.
+        parent = self.make_weighted(FIT_AFTER_GROW)
+        child = self.make_weighted(FIT_AFTER_GROW, tip=parent.hash, height=node.getblockcount() + 2,
+                                   ntime=parent.nTime + 1)
+        node.submitheader(hexdata=CBlockHeader(parent).serialize().hex())
+        orphan = node.submitblock(child.serialize().hex())
+        assert orphan != "duplicate-invalid", orphan
+        assert orphan is None or "weight" not in orphan, orphan
+        assert node.submitblock(parent.serialize().hex()) is None
+        child_again = node.submitblock(child.serialize().hex())
+        assert child_again is None or child_again == "duplicate", child_again
+        assert_equal(self.flexcap(), GROWN_CAP)
+
+        # Restart must republish the admit bound so a grown-cap block still arrives.
+        self.restart_node(0)
+        peer = node.add_p2p_connection(P2PDataStore())
+        p2p_block = self.make_weighted(FIT_AFTER_GROW)
+        peer.send_blocks_and_test([p2p_block], node, success=True)
+        node.disconnect_p2ps()
+
         result, weight = self.submit_weighted(OVER_GROWN)
         assert result is not None, f"expected reject over grown cap, weight={weight}"
         assert "weight" in result, result
 
-        self.generate(node, REGTEST_HALVING_INTERVAL - 1)
+        self.generate(node, 3 * REGTEST_HALVING_INTERVAL - node.getblockcount() - 1, sync_fun=self.no_op)
         assert self.flexcap() == GROWN_CAP
-        self.generate(node, 1)
-        assert node.getblockcount() == 3 * REGTEST_HALVING_INTERVAL
+        self.generate(node, 1, sync_fun=self.no_op)
+        assert_equal(node.getblockcount(), 3 * REGTEST_HALVING_INTERVAL)
         assert self.flexcap() == MIN_CAP, "slack for four fifths of an epoch cuts back to the floor"
+
+        # IBD from genesis across the grow. Admit is the window, not tip+1.
+        self.connect_nodes(1, 0)
+        self.sync_blocks()
+        assert_equal(self.nodes[1].getblockcount(), node.getblockcount())
+        assert_equal(int(self.nodes[1].getblockchaininfo()["flexcap"]), MIN_CAP)
+
+        # Reindex of a chain that already grew must accept the post-grow blocks.
+        self.restart_node(0, extra_args=["-reindex"])
+        assert_equal(node.getblockcount(), 3 * REGTEST_HALVING_INTERVAL)
+        assert_equal(self.flexcap(), MIN_CAP)
 
 
 if __name__ == "__main__":

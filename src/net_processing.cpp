@@ -12,6 +12,7 @@
 #include <chainparams.h>
 #include <common/args.h>
 #include <consensus/amount.h>
+#include <consensus/block_limits.h>
 #include <consensus/validation.h>
 #include <deploymentstatus.h>
 #include <hash.h>
@@ -113,6 +114,7 @@ static_assert(MAX_BLOCKTXN_DEPTH <= MIN_BLOCKS_TO_KEEP, "MAX_BLOCKTXN_DEPTH too 
  *  degree of disordering of blocks on disk (which make reindexing and pruning harder). We'll probably
  *  want to make this a per-peer adaptive value at some point. */
 static const unsigned int BLOCK_DOWNLOAD_WINDOW = 1024;
+static_assert(BLOCK_DOWNLOAD_WINDOW == Consensus::BLOCK_MESSAGE_ADMIT_WINDOW);
 /** Block download timeout base, expressed in multiples of the block interval (i.e. 10 min) */
 static constexpr double BLOCK_DOWNLOAD_TIMEOUT_BASE = 1;
 /** Additional block download timeout per parallel downloading peer (i.e. 5 min) */

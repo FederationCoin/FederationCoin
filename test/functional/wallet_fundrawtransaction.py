@@ -803,9 +803,10 @@ class RawTransactionsTest(BitcoinTestFramework):
         assert_fee_amount(result3['fee'], count_bytes(result3['hex']), 10 * result_fee_rate)
         assert_fee_amount(result4['fee'], count_bytes(result4['hex']), 10 * result_fee_rate)
 
-        # Test that funding non-standard "zero-fee" transactions is valid.
+        # A zero fee_rate cannot skip the chain settlement floor.
         for param, zero_value in product(["fee_rate", "feeRate"], [0, 0.000, 0.00000000, "0", "0.000", "0.00000000"]):
-            assert_equal(self.nodes[3].fundrawtransaction(rawtx, {param: zero_value})["fee"], 0)
+            assert_raises_rpc_error(-4, "The chain has a minimum fee of 1 token per 12 vB",
+                self.nodes[3].fundrawtransaction, rawtx, {param: zero_value})
 
         default_funded = node.fundrawtransaction(rawtx)
         self.assert_fund_feerate(node, default_funded, self.min_relay_tx_fee, extra="settxfee default")

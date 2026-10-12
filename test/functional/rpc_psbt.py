@@ -254,9 +254,9 @@ class PSBTTest(BitcoinTestFramework):
 
         psbtx_child = self.nodes[0].createpsbt([{"txid": parent_txid, "vout": parent_vout}], {self.nodes[0].getnewaddress(): parent_txinfo["vout"][0]["value"] - Decimal("0.01")})
 
-        # Can not sign due to lack of utxo
-        res = self.nodes[0].walletprocesspsbt(psbtx_child)
-        assert not res["complete"]
+        # Unified sighash needs every spent output. Refuse rather than sign
+        # a message that will stop verifying once the co-signer adds them.
+        assert_raises_rpc_error(-25, "Inputs missing or spent", self.nodes[0].walletprocesspsbt, psbtx_child)
 
         prev_txs = [processed_parent["hex"]]
         utxo_updated = self.nodes[0].utxoupdatepsbt(psbt=psbtx_child, prevtxs=prev_txs)
@@ -278,8 +278,7 @@ class PSBTTest(BitcoinTestFramework):
         prev_txs = [self.nodes[0].createrawtransaction([], [])]
         utxo_updated = self.nodes[0].utxoupdatepsbt(psbt=psbtx_child, prevtxs=prev_txs)
         assert_equal(utxo_updated, psbtx_child)
-        res = self.nodes[0].walletprocesspsbt(utxo_updated)
-        assert not res["complete"]
+        assert_raises_rpc_error(-25, "Inputs missing or spent", self.nodes[0].walletprocesspsbt, utxo_updated)
 
         # If there's a txid collision, it's rejected
         prev_txs = [processed_parent["hex"], processed_parent["hex"]]
@@ -465,15 +464,16 @@ class PSBTTest(BitcoinTestFramework):
         res2 = self.nodes[1].walletcreatefundedpsbt([], secp_out, 0, {**secp_opts, "feeRate": "0.1"})
         assert res2["fee"] < 0.1
 
-        self.log.info("Test min fee rate checks with walletcreatefundedpsbt are bypassed, e.g. a fee_rate under 1 token/vB is allowed")
+        self.log.info("Test minrelay can be bypassed with walletcreatefundedpsbt when the fee still meets the chain floor")
         res3 = self.nodes[1].walletcreatefundedpsbt([], secp_out, 0, {**secp_opts, "fee_rate": "0.999"})
         assert res3["fee"] < 0.0001
         res4 = self.nodes[1].walletcreatefundedpsbt([], secp_out, 0, {**secp_opts, "feeRate": 0.00000999})
         assert res4["fee"] < 0.0001
 
-        self.log.info("Test min fee rate checks with walletcreatefundedpsbt are bypassed and that funding non-standard 'zero-fee' transactions is valid")
+        self.log.info("Test that a zero fee_rate cannot skip the chain settlement floor")
         for param, zero_value in product(["fee_rate", "feeRate"], [0, 0.000, 0.00000000, "0", "0.000", "0.00000000"]):
-            assert_equal(0, self.nodes[1].walletcreatefundedpsbt(inputs, outputs, 0, {param: zero_value, "add_inputs": True})["fee"])
+            assert_raises_rpc_error(-4, "The chain has a minimum fee of 1 token per 12 vB",
+                self.nodes[1].walletcreatefundedpsbt, inputs, outputs, 0, {param: zero_value, "add_inputs": True})
 
         self.log.info("Test invalid fee rate settings")
         for param, value in {("fee_rate", 100000), ("feeRate", 1)}:
@@ -677,7 +677,7 @@ class PSBTTest(BitcoinTestFramework):
 
         # Check that unknown values are just passed through
         unknown_psbt = "cHNidP8BAD8CAAAAAf//////////////////////////////////////////AAAAAAD/////AQAAAAAAAAAAA2oBAAAAAAAACg8BAgMEBQYHCAkPAQIDBAUGBwgJCgsMDQ4PAAA="
-        unknown_out = self.nodes[0].walletprocesspsbt(unknown_psbt)['psbt']
+        unknown_out = self.nodes[0].walletprocesspsbt(unknown_psbt, False)['psbt']
         assert_equal(unknown_psbt, unknown_out)
 
         # Open the data file

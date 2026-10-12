@@ -26,20 +26,22 @@ inline bool Blake2b256(std::span<const unsigned char> data, uint256& out)
     return true;
 }
 
+/** Skip slots are untyped 32-byte hashes (same width as UNIFIED_SIGHASH_SIZE). */
+static constexpr size_t MLDSA_SKIP_HASH_SIZE{32};
+
 /** Tagged key fingerprint for this kind.
- *  Preimage is 1-byte ASCII length, then the KEY tag, then the pubkey.
- *  Returns the null hash when pubkey is not this kind's size. */
+ *  Preimage is 1-byte ASCII length, then the KEY tag, then the pubkey. */
 template <typename Kind>
-uint256 MlDsaTaggedKeyHash(std::span<const unsigned char> pubkey)
+std::optional<uint256> MlDsaTaggedKeyHash(std::span<const unsigned char> pubkey)
 {
-    uint256 hash;
-    if (pubkey.size() != Kind::PUBKEY_SIZE) return hash;
+    if (pubkey.size() != Kind::PUBKEY_SIZE) return std::nullopt;
     std::vector<unsigned char> preimage;
     preimage.reserve(1 + Kind::KEY_TAG.size() + Kind::PUBKEY_SIZE);
     preimage.push_back(static_cast<unsigned char>(Kind::KEY_TAG.size()));
     preimage.insert(preimage.end(), Kind::KEY_TAG.begin(), Kind::KEY_TAG.end());
     preimage.insert(preimage.end(), pubkey.begin(), pubkey.end());
-    Blake2b256(preimage, hash);
+    uint256 hash;
+    if (!Blake2b256(preimage, hash)) return std::nullopt;
     return hash;
 }
 

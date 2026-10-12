@@ -602,7 +602,9 @@ private:
     using KeyMap = std::map<CKeyID, CKey>;
 
     ScriptPubKeyMap m_map_script_pub_keys GUARDED_BY(cs_desc_man);
+    std::map<int32_t, CScript> m_map_index_scripts GUARDED_BY(cs_desc_man);
     PubKeyMap m_map_pubkeys GUARDED_BY(cs_desc_man);
+    void CacheScriptAtIndex(const CScript& script, int32_t index) EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
     int32_t m_max_cached_index = -1;
 
     KeyMap m_map_keys GUARDED_BY(cs_desc_man);

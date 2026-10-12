@@ -27,6 +27,22 @@ The FIPS 204 context string is the raw ASCII bytes `FederationCoin`.
 
 `scriptSig` must be empty. Extra witness items fail.
 
+## Unified sighash preimage (product v0)
+
+Hasher is **SHA256**, BIP-340 `TaggedHash("UnifiedSighash")`, then
+`GetSHA256()`. Not Blake2b (PoW `GetHash` and Dilithium fingerprints
+are Blake2b; those are different objects). Epoch 0. Hashtype `0x21`
+(`SIGHASH_ALL | SIGHASH_UNIFIED`). Version, then locktime plus a zero
+byte. SHA256 single-hashes of prevouts, amounts, spent scripts, and
+sequences. SHA256 of the outputs. `script_type` 1 for `WITNESS_V0`.
+Input index. **Empty `scriptCode`** for every product v0 spend (secp
+P2WPKH, Dilithium 44/87 single, Dilithium t-of-n). JSON vector hex is
+stored-byte order (`ParseHex` then `uint256{span}`), not `GetHex`.
+
+Consensus fee: a virtual byte is `floor(weight / 4)` (`ConsensusVsize`).
+The floor is `floor(virtual_bytes / 12)`. BIP-141 ceil-vsize is not
+this check.
+
 ## Envelope
 
 Every Dilithium output is witness version 0, 32-byte program:

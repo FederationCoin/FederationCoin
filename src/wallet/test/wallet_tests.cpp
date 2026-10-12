@@ -612,7 +612,7 @@ public:
         CCoinControl dummy;
         {
             auto res = CreateTransaction(*wallet, {recipient}, /*change_pos=*/std::nullopt, dummy);
-            BOOST_CHECK(res);
+            BOOST_REQUIRE_MESSAGE(res, util::ErrorString(res).original);
             tx = res->tx;
         }
         wallet->CommitTransaction(tx, {}, {});

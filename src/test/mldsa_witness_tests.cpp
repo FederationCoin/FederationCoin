@@ -4,6 +4,7 @@
 
 #include <consensus/mldsa44_spend.h>
 #include <crypto/blake2b.h>
+#include <script/mldsa_merge.h>
 #include <script/script.h>
 #include <test/util/setup_common.h>
 #include <uint256.h>

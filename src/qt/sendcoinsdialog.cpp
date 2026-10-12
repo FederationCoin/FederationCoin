@@ -20,6 +20,7 @@
 #include <qt/sendcoinsentry.h>
 
 #include <chainparams.h>
+#include <consensus/settlement_fee.h>
 #include <interfaces/node.h>
 #include <key_io.h>
 #include <outputtype.h>
@@ -32,6 +33,7 @@
 #include <wallet/fees.h>
 #include <wallet/wallet.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <fstream>
@@ -201,7 +203,7 @@ void SendCoinsDialog::setModel(WalletModel *_model)
         connect(ui->optInRBF, &QCheckBox::stateChanged, this, &SendCoinsDialog::updateSmartFeeLabel);
         connect(ui->optInRBF, &QCheckBox::stateChanged, this, &SendCoinsDialog::coinControlUpdateLabels);
 #endif
-        CAmount requiredFee = model->wallet().getRequiredFee(1000);
+        CAmount requiredFee = std::max(model->wallet().getRequiredFee(1000), MinimumFee(1000));
         ui->customFee->SetMinValue(requiredFee);
         if (ui->customFee->value() < requiredFee) {
             ui->customFee->setValue(requiredFee);

@@ -26,8 +26,6 @@ namespace kernel {
 struct MemPoolOptions;
 };
 
-/** Heritage -blockmaxsize default. Template weight is DEFAULT_BLOCK_MAX_WEIGHT. **/
-static const unsigned int DEFAULT_BLOCK_MAX_SIZE = 300000;
 /** Default for -blockprioritysize, maximum space for zero/low-fee transactions **/
 static const unsigned int DEFAULT_BLOCK_PRIORITY_SIZE = 100000;
 /** Minimum priority for transactions to be accepted into the priority area **/
@@ -35,6 +33,8 @@ static const double MINIMUM_TX_PRIORITY = COIN * 144 / 250;
 /** Default for -blockmaxweight. Template tracks the genesis flex floor; a
  *  live cap after a grow is -blockmaxweight / the assembler clamp, not TRUC. */
 static constexpr unsigned int DEFAULT_BLOCK_MAX_WEIGHT{static_cast<unsigned int>(Consensus::MIN_FLEX_BLOCK_WEIGHT)};
+/** Default -blockmaxsize. 1:1 with DEFAULT_BLOCK_MAX_WEIGHT. */
+static const unsigned int DEFAULT_BLOCK_MAX_SIZE{DEFAULT_BLOCK_MAX_WEIGHT};
 /** Default for BlockCreateOptions.block_reserved_size **/
 static constexpr unsigned int DEFAULT_BLOCK_RESERVED_SIZE{1000};
 /** Default for -blockreservedweight **/

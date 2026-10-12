@@ -103,8 +103,9 @@ std::unique_ptr<WalletDatabase> MakeWalletDatabase(const std::string& name, cons
 
 //! -paytxfee default
 constexpr CAmount DEFAULT_PAY_TX_FEE = 0;
-//! -fallbackfee default
-static const CAmount DEFAULT_FALLBACK_FEE = 0;
+//! -fallbackfee default: 1 token / 12 vB as sat/kvB (ceil 1000/12).
+//! Consensus floor is applied in CreateTransactionInternal.
+static const CAmount DEFAULT_FALLBACK_FEE = 84;
 //! -discardfee default
 static const CAmount DEFAULT_DISCARD_FEE = 10000;
 //! -mintxfee default. Consensus MinimumFee is applied in GetMinimumFee.

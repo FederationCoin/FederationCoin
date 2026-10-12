@@ -10,17 +10,12 @@
 #include <deploymentstatus.h>
 #include <util/translation.h>
 
-void SetupSighashRulesArgs(ArgsManager& argsman)
+void SetupSighashRulesArgs(ArgsManager&)
 {
-    argsman.AddArg("-walletoldsigs",
-                   strprintf("Sign with the legacy signature hash rather than the hardfork one, which gives up replay protection (default: %u)",
-                             DEFAULT_WALLET_OLD_SIGS),
-                   ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
 }
 
-SighashRules SighashRulesForSigning(const ArgsManager& args, const Consensus::Params&)
+SighashRules SighashRulesForSigning(const ArgsManager&, const Consensus::Params&)
 {
-    if (args.GetBoolArg("-walletoldsigs", DEFAULT_WALLET_OLD_SIGS)) return SighashRules::LEGACY;
     return SighashRules::UNIFIED;
 }
 

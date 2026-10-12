@@ -45,7 +45,8 @@ struct MlDsaParsedSlots {
 template <typename Kind>
 MlDsaSlotItem ClassifyNext(std::span<const unsigned char> item)
 {
-    if (item.size() == 32) return MlDsaSlotItem::Skip;
+    // Skip is untyped 32 bytes; a 44 hash in an 87 walk is still a skip.
+    if (item.size() == MLDSA_SKIP_HASH_SIZE) return MlDsaSlotItem::Skip;
     if (item.size() == Kind::PUBKEY_SIZE) return MlDsaSlotItem::Pubkey;
     return MlDsaSlotItem::Invalid;
 }
@@ -70,8 +71,10 @@ bool TakeSigned(MlDsaParsedSlots<Kind>& parsed, const std::vector<std::vector<un
     const std::vector<unsigned char>& signature{witness[i + 1]};
     if (signature.size() != Kind::SIGNATURE_SIZE) return false;
     const std::vector<unsigned char>& pubkey{witness[i]};
+    const std::optional<uint256> hash{MlDsaTaggedKeyHash<Kind>(pubkey)};
+    if (!hash) return false;
     MlDsaParsedSlot<Kind> slot;
-    slot.hash = MlDsaTaggedKeyHash<Kind>(pubkey);
+    slot.hash = *hash;
     slot.signed_slot = true;
     slot.pubkey = pubkey;
     slot.signature = signature;
@@ -129,7 +132,8 @@ bool CheckSingleKeySpendOf(const uint256& program, const std::vector<std::vector
     if (witness.size() != 2) return false;
     if (witness[0].size() != Kind::PUBKEY_SIZE) return false;
     if (witness[1].size() != Kind::SIGNATURE_SIZE) return false;
-    if (MlDsaTaggedKeyHash<Kind>(witness[0]) != program) return false;
+    const std::optional<uint256> hash{MlDsaTaggedKeyHash<Kind>(witness[0])};
+    if (!hash || *hash != program) return false;
     return Kind::Verify(witness[0], witness[1], sighash);
 }
 
@@ -139,7 +143,7 @@ bool CheckSingleKeySpendOf(const uint256& program, const std::vector<std::vector
 template <typename Kind>
 bool CheckMultisigSpendOf(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash)
 {
-    const MlDsaParsedSlots<Kind> parsed{VerifyPolicySlots<Kind>(witness, sighash)};
+    const MlDsaParsedSlots<Kind> parsed{ParsePolicySlots<Kind>(witness)};
     if (!parsed.ok) return false;
     for (std::size_t h{1}; h < parsed.slots.size(); ++h) {
         if (!(parsed.slots[h - 1].hash < parsed.slots[h].hash)) return false;
@@ -148,13 +152,17 @@ bool CheckMultisigSpendOf(const uint256& program, const std::vector<std::vector<
     hashes.reserve(parsed.slots.size());
     for (const MlDsaParsedSlot<Kind>& slot : parsed.slots) hashes.push_back(slot.hash);
     const uint8_t count{static_cast<uint8_t>(hashes.size())};
-    for (uint8_t threshold{1}; threshold <= count; ++threshold) {
-        const std::optional<uint256> expected{MlDsaTaggedPolicyProgram<Kind>(threshold, hashes)};
+    std::optional<uint8_t> threshold;
+    for (uint8_t t{1}; t <= count; ++t) {
+        const std::optional<uint256> expected{MlDsaTaggedPolicyProgram<Kind>(t, hashes)};
         if (expected && *expected == program) {
-            return parsed.signed_ok >= threshold;
+            threshold = t;
+            break;
         }
     }
-    return false;
+    if (!threshold || parsed.signed_ok < *threshold) return false;
+    const MlDsaParsedSlots<Kind> verified{VerifyPolicySlots<Kind>(witness, sighash)};
+    return verified.ok;
 }
 
 /** Witness layout only. Single is exact two items of pubkey+sig sizes.
@@ -171,47 +179,6 @@ MlDsaWitnessLayout ClassifyMlDsaWitness(const std::vector<std::vector<unsigned c
     const MlDsaParsedSlots<Kind> parsed{ParsePolicySlots<Kind>(witness)};
     if (parsed.ok) return MlDsaWitnessLayout::Policy;
     return MlDsaWitnessLayout::Neither;
-}
-
-/** Combine partial policy stacks of this kind. Signed slots win over skip
- *  hashes. Every accepted stack must share the same ordered hash list.
- *  Requires a 32-byte sighash and verifies signed slots. Invalid stacks
- *  are skipped; no accepted stack → nullopt. */
-template <typename Kind>
-std::optional<std::vector<std::vector<unsigned char>>> MergeMlDsaWitnesses(
-    const std::vector<std::vector<std::vector<unsigned char>>>& stacks,
-    std::span<const unsigned char> sighash)
-{
-    if (sighash.size() != 32) return std::nullopt;
-    std::vector<MlDsaParsedSlot<Kind>> merged;
-    bool have{false};
-    for (const auto& stack : stacks) {
-        const MlDsaParsedSlots<Kind> parsed{VerifyPolicySlots<Kind>(stack, sighash)};
-        if (!parsed.ok) continue;
-        if (!have) {
-            merged = parsed.slots;
-            have = true;
-            continue;
-        }
-        if (merged.size() != parsed.slots.size()) return std::nullopt;
-        for (std::size_t i{0}; i < merged.size(); ++i) {
-            if (merged[i].hash != parsed.slots[i].hash) return std::nullopt;
-            if (!merged[i].signed_slot && parsed.slots[i].signed_slot) {
-                merged[i] = parsed.slots[i];
-            }
-        }
-    }
-    if (!have) return std::nullopt;
-    std::vector<std::vector<unsigned char>> out;
-    for (const MlDsaParsedSlot<Kind>& slot : merged) {
-        if (slot.signed_slot) {
-            out.push_back(slot.pubkey);
-            out.push_back(slot.signature);
-        } else {
-            out.emplace_back(slot.hash.begin(), slot.hash.end());
-        }
-    }
-    return out;
 }
 
 } // namespace Consensus

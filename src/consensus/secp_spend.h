@@ -21,7 +21,9 @@ static constexpr size_t BIP66_DER_SIGHASH_SIZE_MIN{9};
 /** BIP66 maximum DER (72 bytes) plus one sighash byte. Same bound as
  *  IsValidSignatureEncoding. */
 static constexpr size_t BIP66_DER_SIGHASH_SIZE_MAX{73};
-/** Unified sighash message length (Blake2b-256). Not a raw transaction. */
+/** Unified sighash message length. SHA256 tagged hash
+ *  TaggedHash("UnifiedSighash") / GetSHA256(), not Blake2b. See
+ *  doc/unified-sighash.md. Not a raw transaction. */
 static constexpr size_t UNIFIED_SIGHASH_SIZE{32};
 
 /** True iff this witness stack shape is a native SegWit single-key spend

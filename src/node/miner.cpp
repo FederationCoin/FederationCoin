@@ -122,17 +122,12 @@ void ApplyArgsManOptions(const ArgsManager& args, BlockAssembler::Options& optio
     // If neither -blockmaxsize or -blockmaxweight is given, limit to DEFAULT_BLOCK_MAX_*
     // If only one is given, only restrict the specified resource.
     // If both are given, restrict both.
-    bool fWeightSet = false;
     if (args.IsArgSet("-blockmaxweight")) {
         options.nBlockMaxWeight = args.GetIntArg("-blockmaxweight", DEFAULT_BLOCK_MAX_WEIGHT);
         options.nBlockMaxSize = static_cast<size_t>(std::min<uint64_t>(CONTEXT_FREE_BLOCK_BYTES, std::numeric_limits<size_t>::max()));
-        fWeightSet = true;
     }
     if (args.IsArgSet("-blockmaxsize")) {
         options.nBlockMaxSize = args.GetIntArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE);
-        if (!fWeightSet) {
-            options.nBlockMaxWeight = static_cast<size_t>(std::min<uint64_t>(Consensus::MAX_FLEX_BLOCK_WEIGHT, std::numeric_limits<size_t>::max()));
-        }
     }
     if (const auto blockmintxfee{args.GetArg("-blockmintxfee")}) {
         if (const auto parsed{ParseMoney(*blockmintxfee)}) options.blockMinFeeRate = CFeeRate{*parsed};

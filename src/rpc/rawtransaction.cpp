@@ -12,6 +12,7 @@
 #include <consensus/mldsa44_spend.h>
 #include <consensus/mldsa87_spend.h>
 #include <consensus/validation.h>
+#include <script/mldsa_merge.h>
 #include <core_io.h>
 #include <index/txindex.h>
 #include <key_io.h>

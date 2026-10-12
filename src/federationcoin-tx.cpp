@@ -687,19 +687,8 @@ static void MutateTxSign(CMutableTransaction& tx, const std::string& flagStr)
 
     bool fHashSingle = ((nHashType & ~SIGHASH_ANYONECANPAY) == SIGHASH_SINGLE);
 
-    // The same rule the node signs by, minus the chain it has no way to read:
-    // with no height to compare against, the fork being scheduled is the whole
-    // answer. -walletoldsigs says otherwise, and this tool reads only the command
-    // line, so that flag has to be given here even when the node's config file
-    // already sets it.
+    // Offline signing follows the node: UNIFIED is the only message.
     const SighashRules sighash_rules{SighashRulesForSigning(gArgs, Params().GetConsensus())};
-    if ((nHashType & SIGHASH_UNIFIED) && sighash_rules != SighashRules::UNIFIED) {
-        // Asked for by name, so say why it cannot be given rather than fail as
-        // an unsolvable input further down.
-        throw std::runtime_error("UNIFIED was asked for, but this signs the legacy message: "
-                                 "either the fork is not scheduled on this network, or "
-                                 "-walletoldsigs is set");
-    }
     // Built whenever every previous output is known, not only when signing for
     // the fork: reading an input that already carries an opt-in signature needs
     // the same commitments, and that happens under either rule set.
@@ -715,7 +704,7 @@ static void MutateTxSign(CMutableTransaction& tx, const std::string& flagStr)
         }
         have_spent_outputs = spent_outputs.size() == mergedTx.vin.size();
         if (sighash_rules == SighashRules::UNIFIED && !have_spent_outputs) {
-            throw std::runtime_error("the hardfork signature hash needs the previous output of every input; supply them all, or pass -walletoldsigs");
+            throw std::runtime_error("the hardfork signature hash needs the previous output of every input; supply them all");
         }
         if (have_spent_outputs) {
             txdata.Init(CTransaction(mergedTx), std::move(spent_outputs), /*force=*/true);
@@ -735,9 +724,7 @@ static void MutateTxSign(CMutableTransaction& tx, const std::string& flagStr)
         const CAmount& amount = coin.out.nValue;
 
         // Recognizing an existing opt-in signature needs the spent outputs it
-        // commits to. What is not recognized here is overwritten below, so a
-        // co-signer who did not pass -walletoldsigs would otherwise have their
-        // work destroyed.
+        // commits to. What is not recognized here is overwritten below.
         SignatureData sigdata = DataFromTransaction(mergedTx, i, coin.out,
                                                     have_spent_outputs ? &txdata : nullptr);
         // Only sign SIGHASH_SINGLE if there's a corresponding output:

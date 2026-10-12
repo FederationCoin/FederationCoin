@@ -973,8 +973,7 @@ class UnifiedSighashTest(BitcoinTestFramework):
         else:
             self.log.info("bitcoin-tx can sign for the fork when told to")
             # The offline tool has no chain access, so it decides from the chain
-            # parameters it is given. Where the fork is scheduled it opts in, and
-            # -walletoldsigs is what asks for the legacy message instead.
+            # parameters it is given. Where the fork is scheduled it opts in.
             op_bt, utxo_bt = self.make_utxo(3 * COIN, key_to_p2wpkh_script(self.pubkey))
             self.mine(1)
             bt_tx = self.build_witness_spend([op_bt], [utxo_bt])
@@ -1014,11 +1013,7 @@ class UnifiedSighashTest(BitcoinTestFramework):
             node.sendrawtransaction(named_hex)
             self.log.info("  bitcoin-tx took sign=ALL|UNIFIED by name")
 
-            # The same tool run again without the flag must not throw the
-            # signature away. It reads an input under the rules it is told to
-            # use, and what it fails to read it overwrites, so a second pass by
-            # a co-signer who did not pass the flag would destroy the first
-            # party's work.
+            # A second pass with no keys must keep the first signature.
             op_k, utxo_k = self.make_utxo(3 * COIN, key_to_p2wpkh_script(self.pubkey))
             self.mine(1)
             keep_tx = self.build_witness_spend([op_k], [utxo_k])
@@ -1029,14 +1024,21 @@ class UnifiedSighashTest(BitcoinTestFramework):
                 keep_tx.serialize_without_witness().hex(),
                 f"set=privatekeys:[\"{self.privkey_wif}\"]", prevtxs, "sign=ALL",
             ])
-            again_hex = self.run_bitcoin_tx(["-walletoldsigs", opted_hex, prevtxs,
-                                                              "set=privatekeys:[]", "sign=ALL"])
+            again_hex = self.run_bitcoin_tx([opted_hex, prevtxs,
+                                            "set=privatekeys:[]", "sign=ALL"])
             again = tx_from_hex(again_hex)
             assert again.wit.vtxinwit and again.wit.vtxinwit[0].scriptWitness.stack, \
-                "a pass with -walletoldsigs destroyed the opt-in signature"
+                "a second pass destroyed the opt-in signature"
             assert_equal(again.wit.vtxinwit[0].scriptWitness.stack[0][-1],
                          SIGHASH_ALL | SIGHASH_UNIFIED)
-            self.log.info("  and a later pass under the legacy rules leaves it alone")
+            self.log.info("  and a later pass leaves it alone")
+
+            unknown = subprocess.run(
+                [self.bitcoin_tx_path(), "-regtest", "-walletoldsigs",
+                 keep_tx.serialize_without_witness().hex()],
+                capture_output=True, text=True)
+            assert unknown.returncode != 0, "removed -walletoldsigs must not be a valid option"
+            self.log.info("  -walletoldsigs is not an option")
 
         self.log.info("combinerawtransaction merges opt-in signatures")
         # Each party signs the same transaction separately and the halves are
@@ -1409,28 +1411,9 @@ class UnifiedSighashTest(BitcoinTestFramework):
         assert signed["complete"], signed
         self.log.info("  refused without the amount, signs with it")
 
-        self.log.info("-walletoldsigs signs the legacy message instead")
-        # The escape hatch. Every signature opts in wherever the fork is scheduled,
-        # so a signer that has to interoperate with software which does not know
-        # the fork needs a way to ask for the old message. The bit is absent and
-        # the node takes it.
-        self.restart_node(0, extra_args=self.extra_args[0] + ["-walletoldsigs"])
-        op_old, utxo_old = self.make_p2pk_utxo(3 * COIN)
-        self.mine(1)
-        old_unsigned = self.build_spend([op_old], [utxo_old])
-        old_unsigned.vin[0].scriptSig = b""
-        old_signed = node.signrawtransactionwithkey(
-            old_unsigned.serialize().hex(), [self.privkey_wif],
-            [{"txid": f"{op_old.hash:064x}", "vout": op_old.n,
-              "scriptPubKey": utxo_old.scriptPubKey.hex(),
-              "amount": utxo_old.nValue / COIN}])
-        assert old_signed["complete"], old_signed.get("errors")
-        old_sig = list(CScript(tx_from_hex(old_signed["hex"]).vin[0].scriptSig))[0]
-        assert_equal(old_sig[-1], SIGHASH_ALL)
-        assert not old_sig[-1] & SIGHASH_UNIFIED
-        accepted_old = node.testmempoolaccept([old_signed["hex"]])[0]
-        assert accepted_old["allowed"], accepted_old
-        self.log.info("  -walletoldsigs produced a legacy signature the node accepts")
+        self.log.info("-walletoldsigs is not an option")
+        assert "walletoldsigs" not in node.help()
+        self.log.info("  help does not offer a legacy signing switch")
 
         self.log.info("A BIP322 message signature stays legacy")
         # Message signing is not a spend. It is verified against a hash type of
@@ -1445,10 +1428,9 @@ class UnifiedSighashTest(BitcoinTestFramework):
             "a message signature must not opt in, or the node cannot verify it"
         self.log.info("  signed and verified with the fork scheduled")
 
-        self.log.info("A co-signer's opt-in signature survives -walletoldsigs")
-        # Reading is keyed on the fork being scheduled, not on what this node
-        # signs, so a node told to sign legacy still recognizes the other
-        # party's opt-in signature instead of overwriting it.
+        self.log.info("A co-signer's opt-in signature survives a second UNIFIED pass")
+        # A second signer must recognize the first party's UNIFIED signature
+        # instead of overwriting it.
         key_b = ECKey()
         key_b.generate()
         redeem = CScript([OP_2, self.pubkey, key_b.get_pubkey().get_bytes(), OP_2, OP_CHECKMULTISIG])
@@ -1461,36 +1443,26 @@ class UnifiedSighashTest(BitcoinTestFramework):
         ms_prev = [{"txid": ms_funding["txid"], "vout": ms_funding["sent_vout"],
                     "scriptPubKey": ms_spk.hex(), "redeemScript": redeem.hex(), "amount": 5}]
 
-        self.restart_node(0, extra_args=self.extra_args[0])
         first = self.nodes[0].signrawtransactionwithkey(
             ms_tx.serialize().hex(), [self.privkey_wif], ms_prev)
         first_types = self.hash_types_in_scriptsig(tx_from_hex(first["hex"]).vin[0].scriptSig)
         assert SIGHASH_ALL | SIGHASH_UNIFIED in first_types, first_types
 
-        self.restart_node(0, extra_args=self.extra_args[0] + ["-walletoldsigs"])
         second = self.nodes[0].signrawtransactionwithkey(
             first["hex"], [bytes_to_wif(key_b.get_bytes())], ms_prev)
         second_types = self.hash_types_in_scriptsig(tx_from_hex(second["hex"]).vin[0].scriptSig)
         assert SIGHASH_ALL | SIGHASH_UNIFIED in second_types, \
             f"the co-signer's opt-in signature was dropped: {second_types}"
-        assert SIGHASH_ALL in second_types, f"this node's legacy signature is missing: {second_types}"
-        self.log.info("  both signatures kept, and the input verifies")
+        assert second_types.count(SIGHASH_ALL | SIGHASH_UNIFIED) >= 2, second_types
+        self.log.info("  both UNIFIED signatures kept")
 
         self.log.info("A PSBT that demands the opt-in is refused, not downgraded")
-        # Still on -walletoldsigs. A PSBT whose input declares the opt-in cannot be
-        # honoured by a node that will not produce one, and the request carrying a
-        # plain type must not turn that into a silent downgrade: the signature would
-        # be replayable while the PSBT went on advertising the protected type.
         self.nodes[0].createwallet(wallet_name="psbt_mismatch")
         psbt_wallet = self.nodes[0].get_wallet_rpc("psbt_mismatch")
         self.generatetoaddress(self.nodes[0], COINBASE_MATURITY + 1,
                                psbt_wallet.getnewaddress(), sync_fun=self.no_op)
         plain = psbt_wallet.walletcreatefundedpsbt(
             [], [{psbt_wallet.getnewaddress(): 1}], 0, {"feeRate": 0.0001})["psbt"]
-        # Declare the opt-in on the input without signing it, which is the state a
-        # co-signer leaves behind. The request is plain ALL, which differs from the
-        # declaration only by the opt-in bit: that is the case a wallet must refuse
-        # rather than quietly satisfy with a signature carrying no protection.
         declaring = PSBT.from_base64(plain)
         for psbt_in in declaring.i:
             psbt_in.map[PSBT_IN_SIGHASH_TYPE] = (SIGHASH_ALL | SIGHASH_UNIFIED).to_bytes(4, "little")
@@ -1498,18 +1470,9 @@ class UnifiedSighashTest(BitcoinTestFramework):
                                 psbt_wallet.walletprocesspsbt, declaring.to_base64(), True, "ALL")
         self.log.info("  a mismatched request fails rather than signing something else")
 
-        # Asking for the opt-in by name while the wallet will not produce one is
-        # answered by naming the conflict. Without that the signer returns nothing
-        # and the input carries whatever script error the empty result raised,
-        # which points nowhere near the cause.
-        named_raw = self.nodes[0].createrawtransaction(
-            [{"txid": f"{op_old.hash:064x}", "vout": op_old.n}],
-            [{self.wallet.get_address(): 2}])
-        refused = psbt_wallet.signrawtransactionwithwallet(named_raw, None, "ALL|UNIFIED")
-        assert not refused["complete"]
-        assert any("UNIFIED was asked for" in e.get("error", "") for e in refused["errors"]), \
-            refused["errors"]
-        self.log.info("  and naming UNIFIED under -walletoldsigs says why, not a script error")
+        named = psbt_wallet.walletprocesspsbt(plain, True, "ALL|UNIFIED")
+        assert named["complete"], named
+        self.log.info("  naming UNIFIED signs the unified message")
 
 
 if __name__ == "__main__":

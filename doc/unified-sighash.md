@@ -229,10 +229,18 @@ be added later. Height and time are not distinguished here: the message commits
 to the value, and `LOCKTIME_THRESHOLD` decides which it means during validation,
 which leaves that split untouched by the wider field.
 
-`scriptCode` is what the legacy rules already use: the scriptPubKey for a bare
-input, the redeemScript for P2SH, the witnessScript for P2WSH, and for P2WPKH the
-implied P2PKH script as in BIP143. Where `OP_CODESEPARATOR` has executed, it is
-the portion of the script following it, exactly as today.
+For every product **witness v0** spend (native P2WPKH, Dilithium 44/87
+single-key, Dilithium t-of-n) `scriptCode` is the **empty script**. The
+message already commits to every spent `scriptPubKey` via the spent-scripts
+aggregate, so repeating an implied P2PKH (BIP143) or the Dilithium
+fingerprint as `scriptCode` would not add a check the verifier can use.
+Hashtype is `0x21` (`SIGHASH_ALL | SIGHASH_UNIFIED`). Hasher is SHA256
+BIP-340 `TaggedHash("UnifiedSighash")` then `GetSHA256()`, not Blake2b.
+
+For script types that are not product v0, `scriptCode` is what the legacy
+rules already use: the scriptPubKey for a bare input, the redeemScript for
+P2SH, the witnessScript for P2WSH, and where `OP_CODESEPARATOR` has
+executed, the portion of the script following it.
 
 For script type 0 this includes the legacy removal of the signature from the
 script before hashing, the operation the original algorithm performs and BIP143
@@ -468,32 +476,18 @@ Where the fork is not scheduled there is nothing to opt into, and such a
 signature is refused as too early rather than as malformed, so a caller can tell
 the two apart.
 
-`-walletoldsigs` signs the legacy message instead. A signer that has to
-interoperate with software which does not know the fork needs it, and so does a
-test that wants a legacy signature. It is the only way to produce one where the
-fork is scheduled, so it is also the only way to give up replay protection, which
-is why it is not the default.
-
-On a chain where the fork is not scheduled at all there is no opt-in to make and
-signing is legacy throughout.
+There is no `-walletoldsigs`. Signing is UNIFIED wherever the fork is
+scheduled. A legacy signature is not produced and is not accepted as a
+spend.
 
 Everything that spends uses that one rule: the wallet,
 `signrawtransactionwithkey`, the PSBT RPCs, `combinerawtransaction`, the GUI,
-and `bitcoin-tx`. The mempool follows the same rule, so what a node signs is
-what it will relay. Only consensus reads the height, because only a block has
-one.
+and `federationcoin-tx`. The mempool follows the same rule, so what a node signs is
+what it will relay.
 
 Message signing is the exception, and stays legacy. A message signature is
 verified against a hash type of exactly `SIGHASH_ALL`, so opting in would
 produce one this node's own verifier rejects.
-
-Reading is separate from signing, and is not narrowed by `-walletoldsigs`.
-Verifying under the fork's rules accepts a legacy signature too, since one that
-does not set the bit takes the legacy message either way, so a node told to sign
-the old message still recognizes a co-signer's opted-in signature rather than
-replacing it. What a node signs is its own choice; what it can read from someone
-else is not. One consequence for multisig: an input can carry a legacy signature
-from one party and an opted-in one from another, and both verify.
 
 A PSBT input's declared hash type moves to the type the signature actually used,
 but only for the call that produced it. Where two parties sign under different

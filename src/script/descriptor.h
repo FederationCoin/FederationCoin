@@ -9,11 +9,19 @@
 #include <script/script.h>
 #include <script/sign.h>
 #include <script/signingprovider.h>
+#include <uint256.h>
 
+#include <cstdint>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 using ExtPubKeyMap = std::unordered_map<uint32_t, CExtPubKey>;
+
+struct CachedMldsaProgram {
+    uint256 program;
+    uint8_t kind; //!< 87 or 44
+};
 
 /** Cache for single descriptor's derived extended pubkeys */
 class DescriptorCache {
@@ -24,6 +32,9 @@ private:
     ExtPubKeyMap m_parent_xpubs;
     /** Map key expression index -> last hardened xpub */
     ExtPubKeyMap m_last_hardened_xpubs;
+    /** Map derivation index -> Dilithium program and kind. ExpandFromCache
+     *  cannot keygen from an xpub. */
+    std::unordered_map<uint32_t, CachedMldsaProgram> m_mldsa_programs;
 
 public:
     /** Cache a parent xpub
@@ -71,6 +82,10 @@ public:
     std::unordered_map<uint32_t, ExtPubKeyMap> GetCachedDerivedExtPubKeys() const;
     /** Retrieve all cached last hardened xpubs */
     ExtPubKeyMap GetCachedLastHardenedExtPubKeys() const;
+
+    void CacheMldsaProgram(uint32_t der_index, const uint256& program, uint8_t kind);
+    bool GetCachedMldsaProgram(uint32_t der_index, uint256& program, uint8_t& kind) const;
+    std::unordered_map<uint32_t, CachedMldsaProgram> GetCachedMldsaPrograms() const;
 
     /** Combine another DescriptorCache into this one.
      * Returns a cache containing the items from the other cache unknown to current cache

@@ -1374,8 +1374,60 @@ public:
 
 } // namespace
 
+BOOST_AUTO_TEST_CASE(command_receive_limits)
+{
+    const uint64_t saved{Consensus::BlockMessageAdmitWeight()};
+    Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    BOOST_CHECK_EQUAL(MAX_PROTOCOL_MESSAGE_LENGTH, 4'000'000U);
+    BOOST_CHECK_EQUAL(CommandReceiveLimit("tx"), 4'000'000ULL);
+    BOOST_CHECK_EQUAL(CommandReceiveLimit("headers"), 4'000'000ULL);
+    BOOST_CHECK_EQUAL(CommandReceiveLimit("inv"), 4'000'000ULL);
+    BOOST_CHECK_EQUAL(CommandReceiveLimit("block"), Consensus::BlockMessageReceiveLimit());
+    BOOST_CHECK_EQUAL(CommandReceiveLimit("cmpctblock"), Consensus::BlockMessageReceiveLimit());
+    BOOST_CHECK_EQUAL(CommandReceiveLimit("blocktxn"), Consensus::BlockMessageReceiveLimit());
+    BOOST_CHECK(V2CanCarryAdmitCap());
+    Consensus::SetBlockMessageAdmitWeight(BIP324Cipher::MAX_CONTENTS_LEN);
+    BOOST_CHECK(!V2CanCarryAdmitCap());
+    Consensus::SetBlockMessageAdmitWeight(saved);
+}
+
+BOOST_AUTO_TEST_CASE(v1_message_size_limits)
+{
+    const uint64_t saved{Consensus::BlockMessageAdmitWeight()};
+    Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    const auto feed = [](const char* type, unsigned size) {
+        V1Transport transport{/*node_id=*/0};
+        CMessageHeader hdr(Params().MessageStart(), type, size);
+        DataStream ser{};
+        ser << hdr;
+        Span<const uint8_t> bytes{UCharCast(ser.data()), ser.size()};
+        return transport.ReceivedBytes(bytes);
+    };
+    const unsigned block_limit{static_cast<unsigned>(CommandReceiveLimit("block"))};
+    BOOST_CHECK(feed("block", block_limit));
+    BOOST_CHECK(!feed("block", block_limit + 1));
+    BOOST_CHECK(feed("tx", MAX_PROTOCOL_MESSAGE_LENGTH));
+    BOOST_CHECK(!feed("tx", MAX_PROTOCOL_MESSAGE_LENGTH + 1));
+    Consensus::SetBlockMessageAdmitWeight(saved);
+}
+
+BOOST_AUTO_TEST_CASE(v2_message_too_large_to_send)
+{
+    V2Transport transport{/*nodeid=*/0, /*initiating=*/true};
+    CSerializedNetMsg ok;
+    ok.m_type = "block";
+    ok.data.resize(100);
+    BOOST_CHECK(!transport.MessageTooLargeToSend(ok));
+    CSerializedNetMsg huge;
+    huge.m_type = "block";
+    huge.data.resize(BIP324Cipher::MAX_CONTENTS_LEN);
+    BOOST_CHECK(transport.MessageTooLargeToSend(huge));
+}
+
 BOOST_AUTO_TEST_CASE(v2transport_test)
 {
+    const uint64_t saved_admit{Consensus::BlockMessageAdmitWeight()};
+    Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
     // A mostly normal scenario, testing a transport in initiator mode.
     for (int i = 0; i < 10; ++i) {
         V2TransportTester tester(m_rng, true);
@@ -1441,12 +1493,14 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         BOOST_CHECK((*ret)[0] && (*ret)[0]->m_type == "inv" && std::ranges::equal((*ret)[0]->m_recv, MakeByteSpan(msg_data_1)));
         BOOST_CHECK((*ret)[1] && (*ret)[1]->m_type == "pong" && std::ranges::equal((*ret)[1]->m_recv, MakeByteSpan(msg_data_2)));
 
-        // A 32MB v1 payload cannot be named in BIP324's 3-byte length field.
-        // Encrypting one would truncate the length (and now asserts). The v2
-        // too-large check is therefore not reachable with the current cap.
-        BOOST_CHECK(1 + CMessageHeader::MESSAGE_TYPE_SIZE +
-                    std::min<size_t>(MAX_SIZE, MAX_PROTOCOL_MESSAGE_LENGTH) >
-                    BIP324Cipher::MAX_CONTENTS_LEN);
+        const uint64_t saved_admit{Consensus::BlockMessageAdmitWeight()};
+        Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+        auto too_large = m_rng.randbytes<uint8_t>(CommandReceiveLimit("block") + 1);
+        tester.SendMessage(uint8_t(2), too_large); // "block" short id, one byte over the admit cap
+        ret = tester.Interact();
+        Consensus::SetBlockMessageAdmitWeight(saved_admit);
+        BOOST_REQUIRE(ret && ret->size() == 1);
+        BOOST_CHECK(!(*ret)[0]);
         auto msg_data_3 = m_rng.randbytes<uint8_t>(m_rng.randrange(10000));
         tester.SendMessage(uint8_t(11), msg_data_3); // getdata short id
         ret = tester.Interact();
@@ -1599,6 +1653,7 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         auto ret = tester.Interact();
         BOOST_CHECK(!ret);
     }
+    Consensus::SetBlockMessageAdmitWeight(saved_admit);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

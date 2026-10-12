@@ -51,6 +51,7 @@
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <random.h>
+#include <script/interpreter.h>
 #include <script/script.h>
 #include <script/sigcache.h>
 #include <signet.h>
@@ -159,8 +160,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
                        const CCoinsViewCache& inputs, unsigned int flags, bool cacheSigStore,
                        bool cacheFullScriptStore, PrecomputedTransactionData& txdata,
                        ValidationCache& validation_cache,
-                       std::vector<CScriptCheck>* pvChecks = nullptr,
-                       const std::vector<unsigned int>& flags_per_input = {})
+                       std::vector<CScriptCheck>* pvChecks = nullptr)
                        EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 bool CheckFinalTxAtTip(const CBlockIndex& active_chain_tip, const CTransaction& tx)
@@ -2457,28 +2457,8 @@ std::optional<std::pair<ScriptError, std::string>> CScriptCheck::operator()() {
     if (!scriptSig.empty()) {
         return std::make_pair(SCRIPT_ERR_WITNESS_MALLEATED, std::move(debug_str));
     }
-    int witness_version{0};
-    std::vector<unsigned char> witness_program;
-    if (m_tx_out.scriptPubKey.IsWitnessProgram(witness_version, witness_program) && witness_version == 0 && witness_program.size() == 20) {
-        uint256 sighash;
-        const bool hashed{txdata != nullptr && SignatureHashUnified(sighash, CScript{}, *ptxTo, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, *txdata)};
-        const uint160 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
-        const std::span<const unsigned char> message{sighash.begin(), 32};
-        if (hashed && Consensus::CheckSecpSingleKeySpend(program, witness->stack, message)) return std::nullopt;
-        return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
-    }
-    if (m_tx_out.scriptPubKey.IsWitnessProgram(witness_version, witness_program) && witness_version == 0 && witness_program.size() == 32) {
-        uint256 sighash;
-        const bool hashed{txdata != nullptr && SignatureHashUnified(sighash, CScript{}, *ptxTo, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, *txdata)};
-        const uint256 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
-        const std::span<const unsigned char> message{sighash.begin(), 32};
-        const bool ok{hashed && (
-            Consensus::CheckSingleKey44Spend(program, witness->stack, message) ||
-            Consensus::CheckMultisig44Spend(program, witness->stack, message) ||
-            Consensus::CheckSingleKey87Spend(program, witness->stack, message) ||
-            Consensus::CheckMultisig87Spend(program, witness->stack, message))};
-        if (ok) return std::nullopt;
-        return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
+    if (txdata && Consensus::CheckWitnessV0Spend(scriptSig, m_tx_out.scriptPubKey, *witness, *ptxTo, nIn, *txdata)) {
+        return std::nullopt;
     }
     return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
 }
@@ -2505,9 +2485,7 @@ ValidationCache::ValidationCache(const size_t script_execution_cache_bytes, cons
  * This involves ECDSA signature checks so can be computationally intensive. This function should
  * only be called after the cheap sanity checks in CheckTxInputs passed.
  *
- * WARNING: flags_per_input deviations from flags must be handled with care. It should only be more
- * relaxed than flags, never stricter (or a cached result could be wrong). Do not provide
- * flags_per_input if every input uses the same flags, or the result will not be cached.
+ * RDTS is on from height 0. There is no per-input flag walk.
  *
  * If pvChecks is not nullptr, script checks are pushed onto it instead of being performed inline. Any
  * script checks which are not necessary (eg due to script execution cache hits) are, obviously,
@@ -2526,8 +2504,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
                        const CCoinsViewCache& inputs, unsigned int flags, [[maybe_unused]] bool cacheSigStore,
                        bool cacheFullScriptStore, PrecomputedTransactionData& txdata,
                        ValidationCache& validation_cache,
-                       std::vector<CScriptCheck>* pvChecks,
-                       const std::vector<unsigned int>& flags_per_input)
+                       std::vector<CScriptCheck>* pvChecks)
 {
     if (tx.IsCoinBase()) return true;
 
@@ -2564,10 +2541,8 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
         txdata.Init(tx, std::move(spent_outputs), /*force=*/!!(flags & SCRIPT_VERIFY_UNIFIED_SIGHASH));
     }
     assert(txdata.m_spent_outputs.size() == tx.vin.size());
-    assert(flags_per_input.empty() || flags_per_input.size() == tx.vin.size());
 
     for (unsigned int i = 0; i < tx.vin.size(); i++) {
-        if (!flags_per_input.empty()) flags = flags_per_input[i];
 
         // We very carefully only pass in things to CScriptCheck which
         // are clearly committed to by tx' witness hash. This provides
@@ -2594,7 +2569,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
         }
     }
 
-    if (cacheFullScriptStore && (!pvChecks) && flags_per_input.empty()) {
+    if (cacheFullScriptStore && (!pvChecks)) {
         // We executed all of the provided scripts, and were told to
         // cache the result. Do so now.
         validation_cache.m_script_execution_cache.insert(hashCacheEntry);
@@ -2798,27 +2773,51 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
 
 static bool ContextualCheckBlockHeaderVolatile(const CBlockHeader& block, BlockValidationState& state, const ChainstateManager& chainman, const CBlockIndex* pindexPrev) EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
 
-/** Apply the effects of this block (with given index) on the UTXO set represented by coins.
- *  Validity checks that depend on the UTXO set are also done; ConnectBlock()
- *  can fail if those validity checks fail (among other reasons). */
-static void ApplyFlexWatermark(CBlockIndex& index, uint64_t block_weight, const Consensus::Params& params)
+struct FlexWatermarkComputed {
+    uint64_t nFlexCap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
+    Consensus::EpochWatermark nEpochWatermark{};
+};
+
+/** Cap and epoch counts this block would write. Does not mutate the index or the admit bound. */
+static FlexWatermarkComputed ComputeFlexWatermark(const CBlockIndex* pprev, int nHeight, uint64_t block_weight, const Consensus::Params& params)
 {
+    FlexWatermarkComputed out;
     const int interval{params.nSubsidyHalvingInterval};
-    if (index.pprev == nullptr || index.nHeight <= 0) {
-        index.nFlexCap = Consensus::MIN_FLEX_BLOCK_WEIGHT;
-        index.nEpochWatermark.Clear();
-        index.nEpochWatermark.AddBlock(block_weight, index.nFlexCap, index.nHeight);
-    } else {
-        index.nFlexCap = Consensus::CapForBlock(index.pprev->nFlexCap, index.pprev->nEpochWatermark, index.nHeight, interval);
-        if (index.nHeight % interval == 0) {
-            index.nEpochWatermark.Clear();
-        } else {
-            index.nEpochWatermark = index.pprev->nEpochWatermark;
-        }
-        index.nEpochWatermark.AddBlock(block_weight, index.nFlexCap, index.nHeight);
+    if (pprev == nullptr || nHeight <= 0) {
+        out.nFlexCap = Consensus::MIN_FLEX_BLOCK_WEIGHT;
+        out.nEpochWatermark.Clear();
+        out.nEpochWatermark.AddBlock(block_weight, out.nFlexCap, nHeight);
+        return out;
     }
-    const uint64_t next_cap{Consensus::CapForBlock(index.nFlexCap, index.nEpochWatermark, index.nHeight + 1, interval)};
-    Consensus::SetBlockMessageReceiveLimit(Consensus::LimitsForCap(next_cap).block_message_bytes);
+    out.nFlexCap = Consensus::CapForBlock(pprev->nFlexCap, pprev->nEpochWatermark, nHeight, interval);
+    if (nHeight % interval == 0) {
+        out.nEpochWatermark.Clear();
+    } else {
+        out.nEpochWatermark = pprev->nEpochWatermark;
+    }
+    out.nEpochWatermark.AddBlock(block_weight, out.nFlexCap, nHeight);
+    return out;
+}
+
+static void CommitFlexWatermark(CBlockIndex& index, const FlexWatermarkComputed& wm)
+{
+    index.nFlexCap = wm.nFlexCap;
+    index.nEpochWatermark = wm.nEpochWatermark;
+}
+
+/** Gossip admit bound from the active tip only. Background assumeutxo must not publish. */
+static void PublishActiveBlockAdmitLimit(const Chainstate& chainstate)
+{
+    AssertLockHeld(::cs_main);
+    if (chainstate.GetRole() == ChainstateRole::BACKGROUND) return;
+    const CBlockIndex* tip{chainstate.m_chain.Tip()};
+    uint64_t admit{Consensus::MIN_FLEX_BLOCK_WEIGHT};
+    if (tip) {
+        admit = Consensus::AdmitWeightForWindow(tip->nFlexCap, tip->nEpochWatermark, tip->nHeight,
+                                                chainstate.m_chainman.GetConsensus().nSubsidyHalvingInterval,
+                                                Consensus::BLOCK_MESSAGE_ADMIT_WINDOW);
+    }
+    Consensus::SetBlockMessageAdmitWeight(admit);
 }
 
 bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, CBlockIndex* pindex,
@@ -2877,7 +2876,10 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", "flex weight limit failed");
         }
         if (!fJustCheck) {
-            ApplyFlexWatermark(*pindex, static_cast<uint64_t>(genesis_weight), params.GetConsensus());
+            CommitFlexWatermark(*pindex, ComputeFlexWatermark(pindex->pprev, pindex->nHeight,
+                                                              static_cast<uint64_t>(genesis_weight),
+                                                              params.GetConsensus()));
+            m_blockman.m_dirty_blockindex.insert(pindex);
             view.SetBestBlock(pindex->GetBlockHash());
         }
         return true;
@@ -3036,7 +3038,6 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     // RDTS is on from the first block. Start height 0: no input is treated
     // as pre-activation.
     const bool reduced_data_active{true};
-    const auto reduced_data_start_height = 0;
 
     // The reduced weight limit is checked by ContextualCheckBlock for blocks
     // arriving from the network; re-check it here so that a chainstate
@@ -3045,8 +3046,10 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     // Malleation is not a concern at this point: the witness commitment was
     // verified before the block was stored.
     const int64_t connect_weight{GetBlockWeight(block)};
-    ApplyFlexWatermark(*pindex, connect_weight < 0 ? 0 : static_cast<uint64_t>(connect_weight), params.GetConsensus());
-    if (connect_weight < 0 || static_cast<uint64_t>(connect_weight) > pindex->nFlexCap) {
+    const FlexWatermarkComputed flex_wm{ComputeFlexWatermark(pindex->pprev, pindex->nHeight,
+                                                             connect_weight < 0 ? 0 : static_cast<uint64_t>(connect_weight),
+                                                             params.GetConsensus())};
+    if (connect_weight < 0 || static_cast<uint64_t>(connect_weight) > flex_wm.nFlexCap) {
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : flex weight limit failed", __func__));
     }
 
@@ -3075,7 +3078,6 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     int nInputs = 0;
     int64_t nSigOpsCost = 0;
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
-    std::vector<unsigned int> flags_per_input;
     for (unsigned int i = 0; i < block.vtx.size(); i++)
     {
         if (!state.IsValid()) break;
@@ -3106,7 +3108,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
                               "accumulated fee in the block out of range");
                 break;
             }
-            const int64_t min_fee_vbytes{static_cast<int64_t>(GetTransactionWeight(tx) / WITNESS_SCALE_FACTOR)};
+            const int64_t min_fee_vbytes{ConsensusVsize(GetTransactionWeight(tx))};
             if (!FeeMeetsMinimumRate(txfee, min_fee_vbytes)) {
                 state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-min-fee",
                               strprintf("fee %d is below the minimum %d", txfee, MinimumFee(min_fee_vbytes)));
@@ -3117,13 +3119,8 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             // BIP68 lock checks (as opposed to nLockTime checks) must
             // be in ConnectBlock because they require the UTXO set
             prevheights.resize(tx.vin.size());
-            flags_per_input.clear();
             for (size_t j = 0; j < tx.vin.size(); j++) {
                 prevheights[j] = view.AccessCoin(tx.vin[j].prevout).nHeight;
-                if (prevheights[j] < reduced_data_start_height) {
-                    flags_per_input.resize(tx.vin.size(), flags);
-                    flags_per_input[j] = flags & ~REDUCED_DATA_MANDATORY_VERIFY_FLAGS;
-                }
             }
 
             if (!SequenceLocks(tx, nLockTimeFlags, prevheights, *pindex)) {
@@ -3138,7 +3135,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         // * p2sh (when P2SH enabled in flags and excludes coinbase)
         // * witness (when witness enabled in flags and excludes coinbase)
         nSigOpsCost += GetTransactionSigOpCost(tx, view, flags);
-        if (nSigOpsCost > Consensus::LimitsForCap(pindex->nFlexCap).sigops_cost) {
+        if (nSigOpsCost > Consensus::LimitsForCap(flex_wm.nFlexCap).sigops_cost) {
             state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "too many sigops");
             break;
         }
@@ -3148,7 +3145,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             std::vector<CScriptCheck> vChecks;
             bool fCacheResults = fJustCheck; /* Don't cache results if we're actually connecting blocks (still consult the cache, though) */
             TxValidationState tx_state;
-            if (fScriptChecks && !CheckInputScripts(tx, tx_state, view, flags, fCacheResults, fCacheResults, txsdata[i], m_chainman.m_validation_cache, parallel_script_checks ? &vChecks : nullptr, flags_per_input)) {
+            if (fScriptChecks && !CheckInputScripts(tx, tx_state, view, flags, fCacheResults, fCacheResults, txsdata[i], m_chainman.m_validation_cache, parallel_script_checks ? &vChecks : nullptr)) {
                 // Any transaction validation failure in ConnectBlock is a block consensus failure
                 state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                               tx_state.GetRejectReason(), tx_state.GetDebugMessage());
@@ -3196,6 +3193,9 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     if (fJustCheck) {
         return true;
     }
+
+    CommitFlexWatermark(*pindex, flex_wm);
+    m_blockman.m_dirty_blockindex.insert(pindex);
 
     if (!m_blockman.WriteBlockUndo(blockundo, state, *pindex)) {
         return false;
@@ -3620,6 +3620,7 @@ bool Chainstate::DisconnectTip(BlockValidationState& state, DisconnectedBlockTra
     }
 
     m_chain.SetTip(*pindexDelete->pprev);
+    PublishActiveBlockAdmitLimit(*this);
     m_chainman.UpdateIBDStatus();
 
     UpdateTip(pindexDelete->pprev);
@@ -3756,6 +3757,7 @@ bool Chainstate::ConnectTip(BlockValidationState& state, CBlockIndex* pindexNew,
     }
     // Update m_chain & related variables.
     m_chain.SetTip(*pindexNew);
+    PublishActiveBlockAdmitLimit(*this);
     m_chainman.UpdateIBDStatus();
     UpdateTip(pindexNew);
 
@@ -4936,25 +4938,30 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
     // the block hash, so we couldn't mark the block as permanently
     // failed).
     const int64_t block_weight{GetBlockWeight(block)};
-    const int interval{chainman.GetConsensus().nSubsidyHalvingInterval};
-    uint64_t flex_cap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
-    if (pindexPrev != nullptr) {
-        flex_cap = Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, nHeight, interval);
-    }
-    const Consensus::BlockLimits limits{Consensus::LimitsForCap(flex_cap)};
-    if (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > limits.serialized_size) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
-    }
-    unsigned int legacy_sigops{0};
-    for (const auto& tx : block.vtx) {
-        legacy_sigops += GetLegacySigOpCount(*tx);
-    }
-    if (legacy_sigops > std::numeric_limits<uint64_t>::max() / WITNESS_SCALE_FACTOR ||
-        static_cast<uint64_t>(legacy_sigops) * WITNESS_SCALE_FACTOR > static_cast<uint64_t>(limits.sigops_cost)) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "out-of-bounds SigOpCount");
-    }
-    if (block_weight < 0 || static_cast<uint64_t>(block_weight) > flex_cap) {
-        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : flex weight limit failed", __func__));
+    // Headers-first / reindex / submitblock of a child whose parent is not
+    // connected have constructor-default nFlexCap. Leave the live cap to
+    // ConnectBlock, which runs only when the parent is the UTXO tip.
+    if (pindexPrev == nullptr || pindexPrev->IsValid(BLOCK_VALID_SCRIPTS)) {
+        const int interval{chainman.GetConsensus().nSubsidyHalvingInterval};
+        uint64_t flex_cap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
+        if (pindexPrev != nullptr) {
+            flex_cap = Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, nHeight, interval);
+        }
+        const Consensus::BlockLimits limits{Consensus::LimitsForCap(flex_cap)};
+        if (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > limits.serialized_size) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
+        }
+        unsigned int legacy_sigops{0};
+        for (const auto& tx : block.vtx) {
+            legacy_sigops += GetLegacySigOpCount(*tx);
+        }
+        if (legacy_sigops > std::numeric_limits<uint64_t>::max() / WITNESS_SCALE_FACTOR ||
+            static_cast<uint64_t>(legacy_sigops) * WITNESS_SCALE_FACTOR > static_cast<uint64_t>(limits.sigops_cost)) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "out-of-bounds SigOpCount");
+        }
+        if (block_weight < 0 || static_cast<uint64_t>(block_weight) > flex_cap) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : flex weight limit failed", __func__));
+        }
     }
 
     return true;
@@ -5348,6 +5355,7 @@ bool Chainstate::LoadChainTip()
     CBlockIndex* tip = m_chain.Tip();
 
     if (tip && tip->GetBlockHash() == coins_cache.GetBestBlock()) {
+        PublishActiveBlockAdmitLimit(*this);
         return true;
     }
 
@@ -5409,6 +5417,7 @@ bool Chainstate::LoadChainTip()
         (void)m_chainman.GetNotifications().blockTip(GetSynchronizationState(/*init=*/true, m_chainman.m_blockman.m_blockfiles_indexed), *pindex);
     }
 
+    PublishActiveBlockAdmitLimit(*this);
     return true;
 }
 

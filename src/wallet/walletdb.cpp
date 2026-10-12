@@ -27,6 +27,7 @@
 #endif
 #include <wallet/wallet.h>
 
+#include <algorithm>
 #include <atomic>
 #include <optional>
 #include <string>
@@ -60,6 +61,7 @@ const std::string VERSION{"version"};
 const std::string WALLETDESCRIPTOR{"walletdescriptor"};
 const std::string WALLETDESCRIPTORCACHE{"walletdescriptorcache"};
 const std::string WALLETDESCRIPTORLHCACHE{"walletdescriptorlhcache"};
+const std::string WALLETDESCRIPTORMLDSACACHE{"walletdescriptormldsacache"};
 const std::string WALLETDESCRIPTORCKEY{"walletdescriptorckey"};
 const std::string WALLETDESCRIPTORKEY{"walletdescriptorkey"};
 const std::string WATCHMETA{"watchmeta"};
@@ -286,6 +288,14 @@ bool WalletBatch::WriteDescriptorLastHardenedCache(const CExtPubKey& xpub, const
     return WriteIC(std::make_pair(std::make_pair(DBKeys::WALLETDESCRIPTORLHCACHE, desc_id), key_exp_index), ser_xpub);
 }
 
+bool WalletBatch::WriteDescriptorMldsaCache(const uint256& desc_id, uint32_t der_index, const uint256& program, uint8_t kind)
+{
+    std::vector<unsigned char> ser(33);
+    std::copy(program.begin(), program.end(), ser.begin());
+    ser[32] = kind;
+    return WriteIC(std::make_pair(std::make_pair(DBKeys::WALLETDESCRIPTORMLDSACACHE, desc_id), der_index), ser);
+}
+
 bool WalletBatch::WriteDescriptorCacheItems(const uint256& desc_id, const DescriptorCache& cache)
 {
     for (const auto& parent_xpub_pair : cache.GetCachedParentExtPubKeys()) {
@@ -302,6 +312,11 @@ bool WalletBatch::WriteDescriptorCacheItems(const uint256& desc_id, const Descri
     }
     for (const auto& lh_xpub_pair : cache.GetCachedLastHardenedExtPubKeys()) {
         if (!WriteDescriptorLastHardenedCache(lh_xpub_pair.second, desc_id, lh_xpub_pair.first)) {
+            return false;
+        }
+    }
+    for (const auto& [der_index, rec] : cache.GetCachedMldsaPrograms()) {
+        if (!WriteDescriptorMldsaCache(desc_id, der_index, rec.program, rec.kind)) {
             return false;
         }
     }
@@ -885,6 +900,26 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
             return DBErrors::LOAD_OK;
         });
         result = std::max(result, lh_cache_res.m_result);
+
+        prefix = PrefixStream(DBKeys::WALLETDESCRIPTORMLDSACACHE, id);
+        LoadResult mldsa_cache_res = LoadRecords(pwallet, batch, DBKeys::WALLETDESCRIPTORMLDSACACHE, prefix,
+            [&id, &cache] (CWallet* pwallet, DataStream& key, DataStream& value, std::string& err) {
+            uint256 desc_id;
+            uint32_t der_index;
+            key >> desc_id;
+            assert(desc_id == id);
+            key >> der_index;
+            std::vector<unsigned char> ser;
+            value >> ser;
+            if (ser.size() != 33) {
+                err = "Error reading wallet database: Dilithium descriptor cache record is the wrong size";
+                return DBErrors::CORRUPT;
+            }
+            const uint256 program{Span<const unsigned char>{ser.data(), 32}};
+            cache.CacheMldsaProgram(der_index, program, ser[32]);
+            return DBErrors::LOAD_OK;
+        });
+        result = std::max(result, mldsa_cache_res.m_result);
 
         // Set the cache for this descriptor
         auto spk_man = (DescriptorScriptPubKeyMan*)pwallet->GetScriptPubKeyMan(id);

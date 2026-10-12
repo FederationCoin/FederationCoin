@@ -6,11 +6,16 @@
 #define BITCOIN_CONSENSUS_BLOCK_LIMITS_H
 
 #include <consensus/consensus.h>
+#include <consensus/epoch_watermark.h>
 #include <consensus/flex_weight.h>
 
 #include <cstdint>
 
 namespace Consensus {
+
+/** How far ahead of the tip an honest peer may still send a block message.
+ *  Must stay equal to BLOCK_DOWNLOAD_WINDOW in net_processing.cpp. */
+static constexpr unsigned BLOCK_MESSAGE_ADMIT_WINDOW{1024};
 
 /** One signature-cost unit per this many weight units. Floor toward zero.
  *  Bitcoin's 80,000 cost per 4,000,000 weight is the same ratio (1 per 50). */
@@ -38,8 +43,18 @@ struct BlockLimits {
  *  compact_tx_count uses MIN_SERIALIZABLE_TRANSACTION_WEIGHT. */
 BlockLimits LimitsForCap(uint64_t cap);
 
-/** Next block's serialized-size ceiling. Starts at the 2,400,000 floor.
- *  Updated when a block is connected. Not MAX_FLEX_BLOCK_WEIGHT. */
+/** Worst-case honest weight in (tip_height, tip_height + window]. Starts at
+ *  CapForBlock for tip_height+1, then GrowCap at every later epoch boundary
+ *  in that window. Shrink is smaller, so it is not the admit case. */
+uint64_t AdmitWeightForWindow(uint64_t tip_cap, const EpochWatermark& tip_mark, int tip_height, int interval, unsigned window);
+
+/** Live admit weight for compact / merkle ceilings. Receive bytes are
+ *  LimitsForCap of this weight. Starts at MIN_FLEX_BLOCK_WEIGHT. */
+uint64_t BlockMessageAdmitWeight();
+void SetBlockMessageAdmitWeight(uint64_t weight);
+
+/** Serialized-size ceiling for block / cmpctblock / blocktxn. Derived from
+ *  BlockMessageAdmitWeight(); not MAX_FLEX_BLOCK_WEIGHT. */
 uint64_t BlockMessageReceiveLimit();
 void SetBlockMessageReceiveLimit(uint64_t bytes);
 

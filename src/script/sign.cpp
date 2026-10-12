@@ -27,66 +27,31 @@
 
 typedef std::vector<unsigned char> valtype;
 
-static const FlatSigningProvider* FlatKeysOf(const SigningProvider& provider)
+static bool SignWitnessV0Input(const SigningProvider& provider, const uint256& program, std::span<const unsigned char> message, CScriptWitness& witness_out)
 {
-    const SigningProvider* cur = &provider;
-    while (cur) {
-        if (const auto* flat = dynamic_cast<const FlatSigningProvider*>(cur)) return flat;
-        if (const auto* hide = dynamic_cast<const HidingSigningProvider*>(cur)) {
-            cur = hide->Unhidden();
-            continue;
-        }
-        break;
+    uint8_t kind{0};
+    CKeyID key_id;
+    if (!provider.GetMldsaProgram(program, kind, key_id)) return false;
+    CKey key;
+    if (!provider.GetKey(key_id, key) || key.size() != 32) return false;
+    const std::span<const unsigned char> seed{reinterpret_cast<const unsigned char*>(key.begin()), 32};
+    if (kind == 87) {
+        Consensus::MlDsa87Keypair kp;
+        if (!Consensus::MlDsa87Keygen(seed, kp)) return false;
+        if (Consensus::MlDsa87SingleKeyProgram(kp.pubkey) != program) return false;
+        std::vector<unsigned char> sig(Consensus::MLDSA87_SIGNATURE_SIZE);
+        if (!Consensus::MlDsa87Sign(kp, message, sig)) return false;
+        witness_out.stack = {std::vector<unsigned char>(kp.pubkey.begin(), kp.pubkey.end()), std::move(sig)};
+        return true;
     }
-    return nullptr;
-}
-
-static bool SignMldsaFromKeys(const SigningProvider& provider, const uint256& program, std::span<const unsigned char> message, CScriptWitness& witness_out)
-{
-    const FlatSigningProvider* flat = FlatKeysOf(provider);
-    if (!flat) return false;
-    for (const auto& key_pair : flat->keys) {
-        const CKey& key = key_pair.second;
-        if (key.size() != 32) continue;
-        const std::span<const unsigned char> seed{reinterpret_cast<const unsigned char*>(key.begin()), 32};
-        Consensus::MlDsa87Keypair kp87;
-        if (Consensus::MlDsa87Keygen(seed, kp87) && Consensus::MlDsa87SingleKeyProgram(kp87.pubkey) == program) {
-            std::vector<unsigned char> sig(Consensus::MLDSA87_SIGNATURE_SIZE);
-            if (Consensus::MlDsa87Sign(kp87, message, sig)) {
-                witness_out.stack = {std::vector<unsigned char>(kp87.pubkey.begin(), kp87.pubkey.end()), std::move(sig)};
-                return true;
-            }
-        }
-        Consensus::MlDsa44Keypair kp44;
-        if (Consensus::MlDsa44Keygen(seed, kp44) && Consensus::MlDsa44SingleKeyProgram(kp44.pubkey) == program) {
-            std::vector<unsigned char> sig(Consensus::MLDSA44_SIGNATURE_SIZE);
-            if (Consensus::MlDsa44Sign(kp44, message, sig)) {
-                witness_out.stack = {std::vector<unsigned char>(kp44.pubkey.begin(), kp44.pubkey.end()), std::move(sig)};
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-bool CheckWitnessV0Spend(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness& witness, const CTransaction& tx, unsigned int nIn, const PrecomputedTransactionData& txdata)
-{
-    if (!scriptSig.empty()) return false;
-    int witness_version{0};
-    std::vector<unsigned char> witness_program;
-    if (!scriptPubKey.IsWitnessProgram(witness_version, witness_program) || witness_version != 0) return false;
-    uint256 sighash;
-    if (!SignatureHashUnified(sighash, CScript{}, tx, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata)) return false;
-    const std::span<const unsigned char> message{sighash.begin(), 32};
-    if (witness_program.size() == 20) {
-        return Consensus::CheckSecpSingleKeySpend(uint160{Span<const unsigned char>{witness_program.data(), witness_program.size()}}, witness.stack, message);
-    }
-    if (witness_program.size() == 32) {
-        const uint256 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
-        return Consensus::CheckSingleKey44Spend(program, witness.stack, message) ||
-               Consensus::CheckMultisig44Spend(program, witness.stack, message) ||
-               Consensus::CheckSingleKey87Spend(program, witness.stack, message) ||
-               Consensus::CheckMultisig87Spend(program, witness.stack, message);
+    if (kind == 44) {
+        Consensus::MlDsa44Keypair kp;
+        if (!Consensus::MlDsa44Keygen(seed, kp)) return false;
+        if (Consensus::MlDsa44SingleKeyProgram(kp.pubkey) != program) return false;
+        std::vector<unsigned char> sig(Consensus::MLDSA44_SIGNATURE_SIZE);
+        if (!Consensus::MlDsa44Sign(kp, message, sig)) return false;
+        witness_out.stack = {std::vector<unsigned char>(kp.pubkey.begin(), kp.pubkey.end()), std::move(sig)};
+        return true;
     }
     return false;
 }
@@ -133,11 +98,7 @@ bool MutableTransactionSignatureCreator::CreateSig(const SigningProvider& provid
     uint256 hash;
     if (m_sighash_rules == SighashRules::UNIFIED) {
         if (!m_txdata) return false;
-        // Opting in is expressed in the hash type byte, and is what the
-        // signature commits to, so it must be set before the message is built.
         hashtype |= SIGHASH_UNIFIED;
-        // Needs every spent output, so it can only be produced once the caller
-        // has supplied them; refuse to sign rather than sign the wrong message.
         if (!SignatureHashUnified(hash, scriptCode, m_txto, nIn, hashtype, sigversion, *m_txdata)) return false;
     } else {
         hash = SignatureHash(scriptCode, m_txto, nIn, hashtype, amount, sigversion, m_txdata);
@@ -618,10 +579,10 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
                 const uint256 program{Span<const unsigned char>{witprog.data(), witprog.size()}};
                 if (SignatureHashUnified(sighash, CScript{}, txConst, mtx_creator->GetInputIndex(), SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, *txdata)) {
                     const std::span<const unsigned char> message{sighash.begin(), 32};
-                    if (SignMldsaFromKeys(provider, program, message, sigdata.scriptWitness)) {
+                    if (SignWitnessV0Input(provider, program, message, sigdata.scriptWitness)) {
                         sigdata.witness = true;
                         sigdata.scriptSig.clear();
-                        sigdata.complete = CheckWitnessV0Spend(sigdata.scriptSig, fromPubKey, sigdata.scriptWitness, txConst, mtx_creator->GetInputIndex(), *txdata);
+                        sigdata.complete = Consensus::CheckWitnessV0Spend(sigdata.scriptSig, fromPubKey, sigdata.scriptWitness, txConst, mtx_creator->GetInputIndex(), *txdata);
                         return sigdata.complete;
                     }
                 }
@@ -715,14 +676,7 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
         sigdata.scriptSig = PushAll(result);
     }
 
-    // Test solution
-    // Completeness asks whether the signatures now on this input solve it, which
-    // covers a co-signer's as well as any just made. Reading under the fork's
-    // rules accepts a legacy signature too, so the flag goes on if either the
-    // creator produced opted-in signatures or the chain would read them: by the
-    // creator's rule alone, -walletoldsigs could not finalize a co-signer's valid
-    // opted-in signature, and by the chain's alone, a caller that forced the
-    // fork's rules could not verify what it had just signed.
+    // Completeness covers a co-signer's signatures as well as any just made.
     const bool read_opted_in{creator.GetSighashRules() == SighashRules::UNIFIED ||
                              SighashRulesForVerifying() == SighashRules::UNIFIED};
     const unsigned int verify_flags{STANDARD_SCRIPT_VERIFY_FLAGS | (read_opted_in ? uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH} : uint32_t{0})};
@@ -731,7 +685,7 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
         const PrecomputedTransactionData* txdata = mtx_creator->GetTxData();
         if (txdata && txdata->m_spent_outputs_ready) {
             const CTransaction txConst(mtx_creator->GetTransaction());
-            v0_ok = CheckWitnessV0Spend(sigdata.scriptSig, fromPubKey, sigdata.scriptWitness, txConst, mtx_creator->GetInputIndex(), *txdata);
+            v0_ok = Consensus::CheckWitnessV0Spend(sigdata.scriptSig, fromPubKey, sigdata.scriptWitness, txConst, mtx_creator->GetInputIndex(), *txdata);
         }
     }
     sigdata.complete = v0_ok || (solved && VerifyScript(sigdata.scriptSig, fromPubKey, &sigdata.scriptWitness, verify_flags, creator.Checker()));
@@ -943,19 +897,6 @@ bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, 
 {
     bool fHashSingle = ((nHashType & ~SIGHASH_ANYONECANPAY) == SIGHASH_SINGLE);
 
-    // Asked for by name, so say why it cannot be given. Without this the signer
-    // simply produces nothing and the input is reported with whatever script
-    // error the empty result happens to raise, which points nowhere near the
-    // actual conflict. bitcoin-tx refuses the same request the same way.
-    if ((nHashType & SIGHASH_UNIFIED) && sighash_rules != SighashRules::UNIFIED) {
-        for (unsigned int i = 0; i < mtx.vin.size(); ++i) {
-            input_errors[i] = _("UNIFIED was asked for, but this signs the legacy message: "
-                                "either the fork is not scheduled on this network, or "
-                                "-walletoldsigs is set");
-        }
-        return false;
-    }
-
     // Use CTransaction for the constant parts of the
     // transaction to avoid rehashing.
     const CTransaction txConst(mtx);
@@ -1041,7 +982,7 @@ bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, 
 
         ScriptError serror = SCRIPT_ERR_OK;
         const unsigned int check_flags{STANDARD_SCRIPT_VERIFY_FLAGS | (SighashRulesForVerifying() == SighashRules::UNIFIED ? uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH} : uint32_t{0})};
-        if (txdata.m_spent_outputs_ready && CheckWitnessV0Spend(txin.scriptSig, prevPubKey, txin.scriptWitness, txConst, i, txdata)) {
+        if (txdata.m_spent_outputs_ready && Consensus::CheckWitnessV0Spend(txin.scriptSig, prevPubKey, txin.scriptWitness, txConst, i, txdata)) {
             txin.scriptSig.clear();
             input_errors.erase(i);
             continue;
@@ -1053,7 +994,7 @@ bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, 
             uint256 sighash;
             const uint256 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
             if (keystore && SignatureHashUnified(sighash, CScript{}, txConst, i, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata) &&
-                SignMldsaFromKeys(*keystore, program, {sighash.begin(), sighash.size()}, txin.scriptWitness)) {
+                SignWitnessV0Input(*keystore, program, {sighash.begin(), sighash.size()}, txin.scriptWitness)) {
                 txin.scriptSig.clear();
                 input_errors.erase(i);
                 continue;

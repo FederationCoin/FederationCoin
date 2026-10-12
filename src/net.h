@@ -63,7 +63,10 @@ static constexpr auto FEELER_INTERVAL = 2min;
 static constexpr auto EXTRA_BLOCK_RELAY_ONLY_PEER_INTERVAL = 5min;
 /** Maximum length of a non-block protocol message.
  *  block, cmpctblock, and blocktxn use BlockMessageReceiveLimit(). */
-static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 32 * 1000 * 1000;
+static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 4'000'000;
+
+/** True when a v2 packet can still name a block at the live admit cap. */
+bool V2CanCarryAdmitCap() noexcept;
 /** Maximum length of the user agent string in `version` message */
 static const unsigned int MAX_SUBVERSION_LENGTH = 256;
 /** Maximum number of automatic outgoing nodes over which we'll relay everything (blocks, tx, addrs, etc) */
@@ -310,6 +313,9 @@ public:
      * possibly moved-from) and true is returned.
      */
     virtual bool SetMessageToSend(CSerializedNetMsg& msg) noexcept = 0;
+
+    /** True when this transport cannot encode msg even when idle (payload exceeds the cipher). */
+    virtual bool MessageTooLargeToSend(const CSerializedNetMsg& msg) const noexcept { return false; }
 
     /** Return type for GetBytesToSend, consisting of:
      *  - Span<const uint8_t> to_send: span of bytes to be sent over the wire (possibly empty).
@@ -664,6 +670,7 @@ public:
 
     // Send side functions.
     bool SetMessageToSend(CSerializedNetMsg& msg) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
+    bool MessageTooLargeToSend(const CSerializedNetMsg& msg) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     BytesToSend GetBytesToSend(bool have_next_message) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     void MarkBytesSent(size_t bytes_sent) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     size_t GetSendMemoryUsage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);

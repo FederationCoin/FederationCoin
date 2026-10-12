@@ -64,11 +64,6 @@ bool CheckSingleKey44Spend(const uint256& program, const std::vector<std::vector
 /** True when this witness spends program as an ML-DSA-44 policy: 44 sizes
  *  only, hashes strictly increasing, recovered t, signed_ok >= t. */
 bool CheckMultisig44Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
-/** Merge 44 policy slot witnesses. A signed slot wins over a skip hash.
- *  Hash lists must match. Requires a 32-byte sighash and verifies. */
-std::optional<std::vector<std::vector<unsigned char>>> MergeMlDsa44Witnesses(
-    const std::vector<std::vector<std::vector<unsigned char>>>& stacks,
-    std::span<const unsigned char> sighash);
 
 using MlDsa44WitnessLayout = MlDsaWitnessLayout;
 /** Shape only: Single, Policy, or Neither. Validity is CheckSingleKey44Spend

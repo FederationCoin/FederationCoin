@@ -796,7 +796,7 @@ int V1Transport::readHeader(Span<const uint8_t> msg_bytes)
         return -1;
     }
 
-    // Block messages follow the live cap. Other commands keep the 32,000,000 byte ceiling.
+    // Block messages follow the live admit cap. Other commands keep the 4,000,000 byte ceiling.
     if (hdr.nMessageSize > CommandReceiveLimit(hdr.GetMessageType())) {
         LogDebug(BCLog::NET, "Header error: Size too large (%s, %u bytes), peer=%d\n", SanitizeString(hdr.GetMessageType()), hdr.nMessageSize, m_node_id);
         return -1;
@@ -1501,12 +1501,18 @@ CNetMessage V2Transport::GetReceivedMessage(std::chrono::microseconds time, bool
     // Note that BIP324Cipher::EXPANSION also includes the length descriptor size.
     msg.m_raw_message_size = m_recv_decode_buffer.size() + BIP324Cipher::EXPANSION;
     if (msg_type) {
-        reject_message = false;
-        msg.m_type = std::move(*msg_type);
-        msg.m_time = time;
-        msg.m_message_size = contents.size();
-        msg.m_recv.resize(contents.size());
-        std::copy(contents.begin(), contents.end(), UCharCast(msg.m_recv.data()));
+        if (contents.size() > CommandReceiveLimit(*msg_type)) {
+            LogDebug(BCLog::NET, "V2 transport error: %s message too large (%u bytes), peer=%d\n",
+                     SanitizeString(*msg_type), contents.size(), m_nodeid);
+            reject_message = true;
+        } else {
+            reject_message = false;
+            msg.m_type = std::move(*msg_type);
+            msg.m_time = time;
+            msg.m_message_size = contents.size();
+            msg.m_recv.resize(contents.size());
+            std::copy(contents.begin(), contents.end(), UCharCast(msg.m_recv.data()));
+        }
     } else {
         LogDebug(BCLog::NET, "V2 transport error: invalid message type (%u bytes contents), peer=%d\n", m_recv_decode_buffer.size(), m_nodeid);
         reject_message = true;
@@ -1548,6 +1554,17 @@ bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
     // Release memory
     ClearShrink(msg.data);
     return true;
+}
+
+bool V2Transport::MessageTooLargeToSend(const CSerializedNetMsg& msg) const noexcept
+{
+    AssertLockNotHeld(m_send_mutex);
+    LOCK(m_send_mutex);
+    if (m_send_state == SendState::V1) return false;
+    const size_t contents_len{V2_MESSAGE_MAP(msg.m_type)
+                                  ? 1 + msg.data.size()
+                                  : 1 + CMessageHeader::MESSAGE_TYPE_SIZE + msg.data.size()};
+    return contents_len > BIP324Cipher::MAX_CONTENTS_LEN;
 }
 
 Transport::BytesToSend V2Transport::GetBytesToSend(bool have_next_message) const noexcept
@@ -1651,6 +1668,11 @@ std::pair<size_t, bool> CConnman::SocketSendData(CNode& node) const
             size_t memusage = it->GetMemoryUsage();
             if (node.m_transport->SetMessageToSend(*it)) {
                 // Update memory usage of send buffer (as *it will be deleted).
+                node.m_send_memusage -= memusage;
+                ++it;
+            } else if (node.m_transport->MessageTooLargeToSend(*it)) {
+                LogDebug(BCLog::NET, "dropping oversized %s (%u bytes) for peer=%d\n",
+                         SanitizeString(it->m_type), it->data.size(), node.GetId());
                 node.m_send_memusage -= memusage;
                 ++it;
             }
@@ -3952,9 +3974,13 @@ bool CConnman::OutboundTargetReached(bool historicalBlockServingLimit) const
 
     if (historicalBlockServingLimit)
     {
-        // keep a large enough buffer to at least relay each block once
+        // keep a large enough buffer to at least relay each block once.
+        // Window admit is a download bound (tip plus 1024, grown); it is not
+        // the size of blocks this node serves today. Reserving the window
+        // turned historical serving off as soon as the cycle started.
         const std::chrono::seconds timeLeftInCycle = GetMaxOutboundTimeLeftInCycle_();
-        const uint64_t buffer = timeLeftInCycle / std::chrono::minutes{10} * Consensus::BlockMessageReceiveLimit();
+        const uint64_t one_block{Consensus::LimitsForCap(Consensus::MIN_FLEX_BLOCK_WEIGHT).block_message_bytes};
+        const uint64_t buffer = timeLeftInCycle / std::chrono::seconds{m_params.GetConsensus().nPowTargetSpacing} * one_block;
         if (buffer >= nMaxOutboundLimit || nMaxOutboundTotalBytesSentInCycle >= nMaxOutboundLimit - buffer)
             return true;
     }
@@ -3991,13 +4017,23 @@ ServiceFlags CConnman::GetLocalServices() const
     return m_local_services;
 }
 
+bool V2CanCarryAdmitCap() noexcept
+{
+    constexpr uint64_t overhead{1 + CMessageHeader::MESSAGE_TYPE_SIZE};
+    const uint64_t admit{Consensus::BlockMessageReceiveLimit()};
+    return admit <= BIP324Cipher::MAX_CONTENTS_LEN &&
+           BIP324Cipher::MAX_CONTENTS_LEN - admit >= overhead;
+}
+
 static std::unique_ptr<Transport> MakeTransport(NodeId id, bool use_v2transport, bool inbound) noexcept
 {
+    // Window admit can exceed BIP324's 16 MiB cipher max. Falling back to v1
+    // for the whole connection made --v2transport peers miss the handshake.
+    // Oversized blocks still fail MessageTooLargeToSend on v2.
     if (use_v2transport) {
         return std::make_unique<V2Transport>(id, /*initiating=*/!inbound);
-    } else {
-        return std::make_unique<V1Transport>(id);
     }
+    return std::make_unique<V1Transport>(id);
 }
 
 CNode::CNode(NodeId idIn,

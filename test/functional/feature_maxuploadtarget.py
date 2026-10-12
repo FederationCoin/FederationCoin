@@ -36,8 +36,8 @@ UPLOAD_TARGET_MB = 6400
 # Knots counted on a ~1MB block. These are those iteration counts.
 HISTORICAL_DOWNLOADS = 235
 NEW_BLOCK_DOWNLOADS = 800
-# OutboundTargetReached reserves (time left / 10 minutes) * the live block
-# message limit. At the flex floor that is 2,400,000 bytes.
+# OutboundTargetReached reserves (time left / 12 minutes) * one floor-sized
+# block. At the flex floor that is 2,400,000 bytes.
 MAX_BLOCK_SERIALIZED_SIZE = 2_400_000
 
 
@@ -134,7 +134,7 @@ class MaxUploadTest(BitcoinTestFramework):
         self.nodes[0].setmocktime(cycle_start)
         probe = self.nodes[0].add_p2p_connection(TestP2PConn(), supports_v2_p2p=False)
         probe.sync_with_ping()
-        self.nodes[0].setmocktime(cycle_start + 24 * 60 * 60 - periods * 10 * 60)
+        self.nodes[0].setmocktime(cycle_start + 24 * 60 * 60 - periods * 12 * 60)
         self.nodes[0].disconnect_p2ps()
 
         # p2p_conns[0] requests old blocks, [1] requests the new block,
@@ -201,7 +201,7 @@ class MaxUploadTest(BitcoinTestFramework):
         reset_start = cycle_start + 24 * 60 * 60 + 1
         self.nodes[0].setmocktime(reset_start)
         p2p_conns[2].sync_with_ping()
-        self.nodes[0].setmocktime(reset_start + 24 * 60 * 60 - periods * 10 * 60)
+        self.nodes[0].setmocktime(reset_start + 24 * 60 * 60 - periods * 12 * 60)
         p2p_conns[2].sync_with_ping()
         self.assert_uploadtarget_state(target_reached=False, serve_historical_blocks=True)
         p2p_conns[2].send_and_ping(getdata_request)

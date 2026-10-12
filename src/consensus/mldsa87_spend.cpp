@@ -19,8 +19,9 @@ bool MlDsa87Keygen(std::span<const unsigned char> seed, MlDsa87Keypair& out)
     if (seed.size() != MLDSA87_SEED_SIZE) return false;
     mldsa87_use_seed(seed.data(), seed.size());
     const int rc{PQCLEAN_MLDSA87_CLEAN_crypto_sign_keypair(out.pubkey.data(), out.secret.data())};
+    const size_t left{mldsa44_seed_remaining()};
     mldsa87_use_seed(nullptr, 0);
-    return rc == 0;
+    return rc == 0 && left == 0;
 }
 
 bool MlDsa87Sign(const MlDsa87Keypair& key, std::span<const unsigned char> message, std::span<unsigned char> signature)
@@ -47,7 +48,7 @@ bool MlDsa87Kind::Verify(std::span<const unsigned char> pubkey, std::span<const 
 
 uint256 MlDsa87KeyHash(std::span<const unsigned char> pubkey)
 {
-    return MlDsaTaggedKeyHash<MlDsa87Kind>(pubkey);
+    return MlDsaTaggedKeyHash<MlDsa87Kind>(pubkey).value_or(uint256{});
 }
 
 uint256 MlDsa87SingleKeyProgram(std::span<const unsigned char> pubkey)
@@ -68,13 +69,6 @@ bool CheckSingleKey87Spend(const uint256& program, const std::vector<std::vector
 bool CheckMultisig87Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash)
 {
     return CheckMultisigSpendOf<MlDsa87Kind>(program, witness, sighash);
-}
-
-std::optional<std::vector<std::vector<unsigned char>>> MergeMlDsa87Witnesses(
-    const std::vector<std::vector<std::vector<unsigned char>>>& stacks,
-    std::span<const unsigned char> sighash)
-{
-    return MergeMlDsaWitnesses<MlDsa87Kind>(stacks, sighash);
 }
 
 MlDsa87WitnessLayout ClassifyMlDsa87Witness(const std::vector<std::vector<unsigned char>>& witness)

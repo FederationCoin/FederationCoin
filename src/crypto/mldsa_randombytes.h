@@ -17,6 +17,7 @@ extern "C" {
 
 void mldsa44_use_seed(const uint8_t* seed, size_t len);
 void mldsa87_use_seed(const uint8_t* seed, size_t len);
+size_t mldsa44_seed_remaining(void);
 
 #ifdef __cplusplus
 }

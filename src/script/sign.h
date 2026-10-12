@@ -112,9 +112,6 @@ struct SignatureData {
     void MergeSignatureData(SignatureData sigdata);
 };
 
-/** Consensus v0 spend: empty scriptSig plus secp or Dilithium witness. */
-bool CheckWitnessV0Spend(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness& witness, const CTransaction& tx, unsigned int nIn, const PrecomputedTransactionData& txdata);
-
 /** Produce a script signature using a generic signature creator. */
 bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreator& creator, const CScript& scriptPubKey, SignatureData& sigdata);
 

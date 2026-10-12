@@ -8,21 +8,17 @@
 
 #include <atomic>
 #include <limits>
+#include <variant>
 
 namespace Consensus {
 namespace {
-std::atomic<uint64_t> g_block_message_bytes{MIN_FLEX_BLOCK_WEIGHT};
+std::atomic<uint64_t> g_admit_weight{MIN_FLEX_BLOCK_WEIGHT};
+
+static_assert(SIGOPS_WEIGHT_DIVISOR != 0);
+static_assert(STANDARD_TX_SIGOPS_DIVISOR != 0);
+static_assert(std::numeric_limits<uint64_t>::max() / SIGOPS_WEIGHT_DIVISOR <=
+              static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
 } // namespace
-
-uint64_t BlockMessageReceiveLimit()
-{
-    return g_block_message_bytes.load();
-}
-
-void SetBlockMessageReceiveLimit(uint64_t bytes)
-{
-    g_block_message_bytes.store(bytes);
-}
 
 BlockLimits LimitsForCap(uint64_t cap)
 {
@@ -31,16 +27,8 @@ BlockLimits LimitsForCap(uint64_t cap)
     // 1:1 ceiling. Bytes on the wire are base + witness, weight is 4*base + witness.
     out.serialized_size = cap;
     out.block_message_bytes = cap;
-
-    uint64_t sigops{0};
-    if (!FloorDiv(cap, SIGOPS_WEIGHT_DIVISOR, sigops)) sigops = 0;
-    out.sigops_cost = sigops > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())
-                          ? std::numeric_limits<int64_t>::max()
-                          : static_cast<int64_t>(sigops);
-
-    uint64_t standard{0};
-    if (!FloorDiv(static_cast<uint64_t>(out.sigops_cost), STANDARD_TX_SIGOPS_DIVISOR, standard)) standard = 0;
-    out.standard_tx_sigops_cost = static_cast<int64_t>(standard);
+    out.sigops_cost = static_cast<int64_t>(cap / SIGOPS_WEIGHT_DIVISOR);
+    out.standard_tx_sigops_cost = out.sigops_cost / static_cast<int64_t>(STANDARD_TX_SIGOPS_DIVISOR);
 
     const uint64_t output_weight{static_cast<uint64_t>(WITNESS_SCALE_FACTOR) * static_cast<uint64_t>(::GetSerializeSize(CTxOut()))};
     uint64_t outputs{0};
@@ -57,6 +45,45 @@ BlockLimits LimitsForCap(uint64_t cap)
         out.max_transactions = txs;
     }
     return out;
+}
+
+uint64_t AdmitWeightForWindow(uint64_t tip_cap, const EpochWatermark& tip_mark, int tip_height, int interval, unsigned window)
+{
+    uint64_t cap{CapForBlock(tip_cap, tip_mark, tip_height + 1, interval)};
+    if (interval <= 0 || window == 0) return cap;
+    const int64_t last{static_cast<int64_t>(tip_height) + static_cast<int64_t>(window)};
+    for (int64_t h{static_cast<int64_t>(tip_height) + 2}; h <= last; ++h) {
+        if (h > 0 && h % interval == 0) {
+            const GrowCapResult grown{GrowCap(cap)};
+            if (const Grew* g = std::get_if<Grew>(&grown)) {
+                cap = g->cap;
+            } else if (const AtCeiling* c = std::get_if<AtCeiling>(&grown)) {
+                cap = c->cap;
+            }
+        }
+    }
+    return cap;
+}
+
+uint64_t BlockMessageAdmitWeight()
+{
+    return g_admit_weight.load();
+}
+
+void SetBlockMessageAdmitWeight(uint64_t weight)
+{
+    g_admit_weight.store(weight);
+}
+
+uint64_t BlockMessageReceiveLimit()
+{
+    return LimitsForCap(BlockMessageAdmitWeight()).block_message_bytes;
+}
+
+void SetBlockMessageReceiveLimit(uint64_t bytes)
+{
+    // Tests pass LimitsForCap(cap).block_message_bytes; at 1:1 that is the weight.
+    SetBlockMessageAdmitWeight(bytes);
 }
 
 } // namespace Consensus

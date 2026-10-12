@@ -165,6 +165,8 @@ bool BlockTreeDB::LoadBlockIndexGuts(const Consensus::Params& consensusParams, s
                 static_cast<CompressedHeader&>(*pindexNew) = diskindex;
                 pindexNew->nStatus        = diskindex.nStatus;
                 pindexNew->nTx            = diskindex.nTx;
+                pindexNew->nFlexCap       = diskindex.nFlexCap;
+                pindexNew->nEpochWatermark = diskindex.nEpochWatermark;
 
                 if (!CheckProofOfWork(pindexNew->GetBlockHash(), pindexNew->nBits, consensusParams)) {
                     LogError("%s: CheckProofOfWork failed: %s\n", __func__, pindexNew->ToString());

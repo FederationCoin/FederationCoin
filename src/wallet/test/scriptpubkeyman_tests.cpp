@@ -4,8 +4,10 @@
 
 #include <key.h>
 #include <key_io.h>
+#include <outputtype.h>
 #include <test/util/setup_common.h>
 #include <script/solver.h>
+#include <wallet/crypter.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/wallet.h>
 #include <wallet/test/util.h>
@@ -230,6 +232,29 @@ BOOST_AUTO_TEST_CASE(Descriptor_IsKeyActive)
         }
     }
     BOOST_CHECK_EQUAL(num_script_keys_not_found, 16);
+}
+
+BOOST_FIXTURE_TEST_CASE(dilithium_locked_providers_have_no_keys, TestingSetup)
+{
+    auto wallet{CreateProductWallet(*m_node.chain)};
+    SecureString pass;
+    pass = "test-passphrase";
+    BOOST_REQUIRE(wallet->EncryptWallet(pass));
+    BOOST_REQUIRE(wallet->Unlock(pass));
+    const CTxDestination dest87{ProductReceiveDest(*wallet, OutputType::DILITHIUM87)};
+    const CTxDestination dest44{ProductReceiveDest(*wallet, OutputType::DILITHIUM44)};
+    wallet->Lock();
+    LOCK(wallet->cs_wallet);
+    for (const auto& dest : {dest87, dest44}) {
+        const CScript script{GetScriptForDestination(dest)};
+        const auto mans{wallet->GetScriptPubKeyMans(script)};
+        BOOST_REQUIRE_EQUAL(mans.size(), 1U);
+        auto* spkm{dynamic_cast<DescriptorScriptPubKeyMan*>(*mans.begin())};
+        BOOST_REQUIRE(spkm);
+        auto prov{spkm->GetSigningProviderForScript(script, /*include_private=*/false)};
+        BOOST_REQUIRE(prov);
+        BOOST_CHECK(prov->keys.empty());
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

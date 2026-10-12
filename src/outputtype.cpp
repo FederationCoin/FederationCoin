@@ -83,10 +83,9 @@ CTxDestination GetDestinationForKey(const CPubKey& key, OutputType type)
     }
     case OutputType::DILITHIUM87:
     case OutputType::DILITHIUM44:
+        return CNoDestination{};
     case OutputType::BECH32M:
     case OutputType::UNKNOWN:
-        // Dilithium receive is not a secp256k1 wrap. Dump/legacy paths that still
-        // pass a CPubKey get compressed P2WPKH.
         if (!key.IsCompressed()) return PKHash(key);
         return WitnessV0KeyHash(key);
     } // no default case, so the compiler can warn about missing cases
@@ -136,7 +135,7 @@ std::optional<OutputType> OutputTypeFromDestination(const CTxDestination& dest) 
     }
     if (std::holds_alternative<WitnessV0ScriptHash>(dest) ||
         std::holds_alternative<WitnessUnknown>(dest)) {
-        return OutputType::DILITHIUM87;
+        return std::nullopt;
     }
     if (std::holds_alternative<PKHash>(dest) ||
         std::holds_alternative<ScriptHash>(dest)) {

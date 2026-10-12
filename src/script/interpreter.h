@@ -445,4 +445,10 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
 
 int FindAndDelete(CScript& script, const CScript& b);
 
+namespace Consensus {
+/** Native witness v0: empty scriptSig, UNIFIED message over empty scriptCode,
+ *  secp P2WPKH or Dilithium 44/87 (single or policy). */
+bool CheckWitnessV0Spend(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness& witness, const CTransaction& tx, unsigned int nIn, const PrecomputedTransactionData& txdata);
+} // namespace Consensus
+
 #endif // BITCOIN_SCRIPT_INTERPRETER_H

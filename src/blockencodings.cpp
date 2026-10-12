@@ -51,7 +51,7 @@ uint64_t CBlockHeaderAndShortTxIDs::GetShortID(const Wtxid& wtxid) const {
 ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& cmpctblock, const std::vector<CTransactionRef>& extra_txn) {
     if (cmpctblock.header.IsNull() || (cmpctblock.shorttxids.empty() && cmpctblock.prefilledtxn.empty()))
         return READ_STATUS_INVALID;
-    const uint64_t tx_slots{Consensus::LimitsForCap(Consensus::BlockMessageReceiveLimit()).compact_tx_count};
+    const uint64_t tx_slots{Consensus::LimitsForCap(Consensus::BlockMessageAdmitWeight()).compact_tx_count};
     if (static_cast<uint64_t>(cmpctblock.shorttxids.size()) > tx_slots ||
         static_cast<uint64_t>(cmpctblock.prefilledtxn.size()) > tx_slots - static_cast<uint64_t>(cmpctblock.shorttxids.size()))
         return READ_STATUS_INVALID;

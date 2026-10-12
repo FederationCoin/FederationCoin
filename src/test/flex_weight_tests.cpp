@@ -224,6 +224,34 @@ BOOST_AUTO_TEST_CASE(limits_follow_the_cap)
     BOOST_CHECK(wide.compact_tx_count > floor.compact_tx_count);
 }
 
+BOOST_AUTO_TEST_CASE(admit_weight_for_window)
+{
+    BOOST_CHECK_EQUAL(Consensus::BLOCK_MESSAGE_ADMIT_WINDOW, 1024U);
+    const Consensus::EpochWatermark empty{};
+    const uint64_t floor{Consensus::MIN_FLEX_BLOCK_WEIGHT};
+    // MAIN / testnet: a 1024 window from genesis never reaches 210000.
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 0, 210000, 1024), floor);
+    // One remaining MAIN boundary in the window is one GrowCap.
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 209000, 210000, 1024), 3600000ULL);
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 209999, 210000, 1024), floor);
+
+    Consensus::EpochWatermark pegged;
+    for (int h{0}; h < 168000; ++h) {
+        pegged.AddBlock(floor - 502, floor, h);
+    }
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, pegged, 209999, 210000, 1024), 3600000ULL);
+
+    // Regtest interval 160: the next block may already grow, then five more
+    // boundaries sit in a 1024 window. Admit is not "next cap only".
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 0, 160, 160), 3600000ULL);
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 0, 160, 1024), 27337500ULL);
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 159, 160, 1024), 27337500ULL);
+    BOOST_CHECK_GT(Consensus::LimitsForCap(27337500ULL).compact_tx_count,
+                   Consensus::LimitsForCap(floor).compact_tx_count);
+    BOOST_CHECK_GT(Consensus::LimitsForCap(27337500ULL).max_transactions,
+                   Consensus::LimitsForCap(floor).max_transactions);
+}
+
 BOOST_AUTO_TEST_CASE(checked_arith_bounds)
 {
     uint64_t sum{1};

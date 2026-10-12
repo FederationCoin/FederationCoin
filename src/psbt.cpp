@@ -6,6 +6,7 @@
 #include <psbt.h>
 
 #include <node/types.h>
+#include <script/interpreter.h>
 #include <policy/policy.h>
 #include <script/signingprovider.h>
 #include <util/check.h>
@@ -323,7 +324,7 @@ bool PSBTInputSignedAndVerified(const PartiallySignedTransaction psbt, unsigned 
 
     if (txdata) {
         const CTransaction txConst{*psbt.tx};
-        if (CheckWitnessV0Spend(input.final_script_sig, utxo.scriptPubKey, input.final_script_witness, txConst, input_index, *txdata)) {
+        if (Consensus::CheckWitnessV0Spend(input.final_script_sig, utxo.scriptPubKey, input.final_script_witness, txConst, input_index, *txdata)) {
             return true;
         }
         const unsigned int flags{STANDARD_SCRIPT_VERIFY_FLAGS | (SighashRulesForVerifying() == SighashRules::UNIFIED ? uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH} : uint32_t{0})};

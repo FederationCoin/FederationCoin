@@ -379,6 +379,7 @@ BASE_SCRIPTS = [
     # 'wallet_create_tx.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     # 'wallet_send.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_send.py --descriptors',
+    'wallet_settlement_fee.py --descriptors',
     # 'wallet_sendall.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_sendall.py --descriptors',
     'wallet_sendmany.py --descriptors',

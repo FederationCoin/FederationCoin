@@ -31,7 +31,10 @@ from test_framework.util import (
     assert_equal,
 )
 
-VALID_DATA_LIMIT = MAX_PROTOCOL_MESSAGE_LENGTH - 5  # Account for the 5-byte length prefix
+# Non-block CommandReceiveLimit is net.h MAX_PROTOCOL_MESSAGE_LENGTH (4_000_000).
+# messages.MAX_PROTOCOL_MESSAGE_LENGTH is the 32MB v1 header / disk buffer.
+NONBLOCK_RECEIVE_LIMIT = 4_000_000
+VALID_DATA_LIMIT = NONBLOCK_RECEIVE_LIMIT - 5  # Account for the 5-byte length prefix
 
 
 class msg_unrecognized:
@@ -146,7 +149,7 @@ class InvalidMessagesTest(BitcoinTestFramework):
         # exercise the v1 header reject, including under --v2transport.
         v1 = self.nodes[0].add_p2p_connection(P2PDataStore(), supports_v2_p2p=False)
         with self.nodes[0].assert_debug_log(
-            [f'Header error: Size too large (badmsg, {MAX_PROTOCOL_MESSAGE_LENGTH + 1} bytes)']
+            [f'Header error: Size too large (badmsg, {NONBLOCK_RECEIVE_LIMIT + 1} bytes)']
         ):
             msg = msg_unrecognized(str_data="d" * (VALID_DATA_LIMIT + 1))
             v1.send_raw_message(v1.build_message(msg))
@@ -358,7 +361,7 @@ class InvalidMessagesTest(BitcoinTestFramework):
         conn = self.nodes[0].add_p2p_connection(P2PDataStore(), supports_v2_p2p=False)
         conn2 = self.nodes[0].add_p2p_connection(P2PDataStore(), supports_v2_p2p=False)
         msg_at_size = msg_unrecognized(str_data="b" * VALID_DATA_LIMIT)
-        assert len(msg_at_size.serialize()) == MAX_PROTOCOL_MESSAGE_LENGTH
+        assert len(msg_at_size.serialize()) == NONBLOCK_RECEIVE_LIMIT
 
         self.log.info("(a) Send 80 messages, each of maximum valid data size (4MB)")
         for _ in range(80):

@@ -2380,37 +2380,41 @@ std::optional<PSBTError> CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bo
         }
     }
 
-    // Unified sighash commits to every spent output. A co-signer's parent
-    // transaction is often absent from this wallet, and writing that output
-    // into the PSBT would claim the updater knows an input it does not own.
-    // The message still has to be built from it, or the signature made here
-    // stops verifying once the co-signer adds the output.
+    // Unified sighash commits to every spent output. Signing without them
+    // produces a signature that stops verifying once a co-signer adds them.
+    // The updater path (sign=false) still fills only this wallet's UTXOs so
+    // a co-signer is not claimed as ours.
     std::vector<CTxOut> spent_outputs(psbtx.tx->vin.size());
     std::vector<unsigned char> have_output(psbtx.tx->vin.size(), 0);
-    std::map<COutPoint, Coin> chain_coins;
     for (unsigned int i = 0; i < psbtx.tx->vin.size(); ++i) {
         if (psbtx.GetInputUTXO(spent_outputs[i], i)) {
             have_output[i] = 1;
-        } else if (HaveChain()) {
-            chain_coins.emplace(psbtx.tx->vin[i].prevout, Coin{});
         }
     }
-    if (!chain_coins.empty()) {
-        chain().findCoins(chain_coins);
+    if (sign && HaveChain()) {
+        std::map<COutPoint, Coin> chain_coins;
         for (unsigned int i = 0; i < psbtx.tx->vin.size(); ++i) {
-            if (have_output[i]) continue;
-            const auto found{chain_coins.find(psbtx.tx->vin[i].prevout)};
-            if (found == chain_coins.end() || found->second.IsSpent()) continue;
-            spent_outputs[i] = found->second.out;
-            have_output[i] = 1;
+            if (!have_output[i]) chain_coins.emplace(psbtx.tx->vin[i].prevout, Coin{});
+        }
+        if (!chain_coins.empty()) {
+            chain().findCoins(chain_coins);
+            for (unsigned int i = 0; i < psbtx.tx->vin.size(); ++i) {
+                if (have_output[i]) continue;
+                const auto found{chain_coins.find(psbtx.tx->vin[i].prevout)};
+                if (found == chain_coins.end() || found->second.IsSpent()) continue;
+                spent_outputs[i] = found->second.out;
+                have_output[i] = 1;
+                psbtx.inputs.at(i).witness_utxo = found->second.out;
+            }
         }
     }
     const bool have_all_spent_outputs{std::find(have_output.begin(), have_output.end(), 0) == have_output.end()};
+    if (sign && !have_all_spent_outputs) {
+        return PSBTError::MISSING_INPUTS;
+    }
     PrecomputedTransactionData txdata;
     if (have_all_spent_outputs) {
         txdata.Init(*psbtx.tx, std::move(spent_outputs), /*force=*/true);
-    } else {
-        txdata.Init(*psbtx.tx, {}, /*force=*/true);
     }
 
     // Fill in information from ScriptPubKeyMans
@@ -2510,15 +2514,6 @@ OutputType CWallet::TransactionChangeType(const std::optional<OutputType>& chang
             }
         }
     }
-    return m_default_address_type;
-
-    if (has_bech32m_spkman) {
-        return OutputType::BECH32M;
-    }
-    if (has_bech32_spkman) {
-        return OutputType::BECH32;
-    }
-    // else use m_default_address_type for change
     return m_default_address_type;
 }
 
@@ -2783,7 +2778,7 @@ util::Result<CTxDestination> CWallet::GetNewDestination(const OutputType type, c
 {
     LOCK(cs_wallet);
     if (!OutputTypeIsAllowed(type)) {
-        return util::Error{Untranslated("Bech32m / Taproot addresses are not valid on this chain.")};
+        return util::Error{Untranslated("Address type is not valid on this chain.")};
     }
     auto spk_man = GetScriptPubKeyMan(type, /*internal=*/false);
     if (!spk_man) {
@@ -2802,7 +2797,7 @@ util::Result<CTxDestination> CWallet::GetNewChangeDestination(const OutputType t
 {
     LOCK(cs_wallet);
     if (!OutputTypeIsAllowed(type)) {
-        return util::Error{Untranslated("Bech32m / Taproot addresses are not valid on this chain.")};
+        return util::Error{Untranslated("Address type is not valid on this chain.")};
     }
 
     ReserveDestination reservedest(this, type);
@@ -3328,7 +3323,7 @@ std::shared_ptr<CWallet> CWallet::Create(WalletContext& context, const std::stri
             return nullptr;
         }
         if (!OutputTypeIsAllowed(*parsed)) {
-            error = Untranslated("Bech32m / Taproot addresses are not valid on this chain.");
+            error = Untranslated("Address type is not valid on this chain.");
             return nullptr;
         }
         walletInstance->m_default_address_type = parsed.value();
@@ -3341,7 +3336,7 @@ std::shared_ptr<CWallet> CWallet::Create(WalletContext& context, const std::stri
             return nullptr;
         }
         if (!OutputTypeIsAllowed(*parsed)) {
-            error = Untranslated("Bech32m / Taproot addresses are not valid on this chain.");
+            error = Untranslated("Address type is not valid on this chain.");
             return nullptr;
         }
         walletInstance->m_default_change_type = parsed.value();

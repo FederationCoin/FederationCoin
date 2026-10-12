@@ -342,6 +342,13 @@ public:
          return false;
     }
 
+    /** Native witness v0: secp P2WPKH or Dilithium 44/87. Fail closed without
+     *  the spending transaction and unified precomputes. */
+    virtual bool EvalWitnessV0(const std::vector<unsigned char>& program, const CScriptWitness& witness) const
+    {
+        return false;
+    }
+
     virtual ~BaseSignatureChecker() = default;
 };
 
@@ -393,6 +400,7 @@ public:
     bool CheckSchnorrSignature(Span<const unsigned char> sig, Span<const unsigned char> pubkey, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr, SighashRules sighash_rules = SighashRules::LEGACY) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
+    bool EvalWitnessV0(const std::vector<unsigned char>& program, const CScriptWitness& witness) const override;
 
     bool m_require_sighash_all{false};
 };
@@ -425,6 +433,11 @@ public:
     bool CheckSequence(const CScriptNum& nSequence) const override
     {
         return m_checker.CheckSequence(nSequence);
+    }
+
+    bool EvalWitnessV0(const std::vector<unsigned char>& program, const CScriptWitness& witness) const override
+    {
+        return m_checker.EvalWitnessV0(program, witness);
     }
 };
 

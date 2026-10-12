@@ -3,10 +3,12 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <coins.h>
+#include <common/sighash_rules.h>
 #include <consensus/consensus.h>
 #include <consensus/validation.h>
 #include <script/script.h>
 #include <script/signingprovider.h>
+#include <script/solver.h>
 #include <test/util/transaction_utils.h>
 
 #include <algorithm>
@@ -127,8 +129,32 @@ bool SignSignature(const SigningProvider &provider, const CScript& fromPubKey, C
 {
     assert(nIn < txTo.vin.size());
 
-    MutableTransactionSignatureCreator creator(txTo, nIn, amount, nHashType);
+    CScript spend_script = fromPubKey;
+    std::vector<std::vector<unsigned char>> solutions;
+    if (Solver(fromPubKey, solutions) == TxoutType::SCRIPTHASH) {
+        CScript redeem;
+        if (provider.GetCScript(CScriptID{uint160(solutions[0])}, redeem)) {
+            spend_script = redeem;
+        }
+    }
+    int witver{0};
+    std::vector<unsigned char> witprog;
+    const bool v0_keyhash = spend_script.IsWitnessProgram(witver, witprog) && witver == 0 && witprog.size() == 20;
 
+    if (v0_keyhash) {
+        const int hash_type = nHashType | SIGHASH_UNIFIED;
+        std::vector<CTxOut> spent(txTo.vin.size());
+        spent[nIn] = CTxOut(amount, fromPubKey);
+        PrecomputedTransactionData txdata;
+        txdata.Init(CTransaction(txTo), std::move(spent), /*force=*/true);
+        MutableTransactionSignatureCreator creator(txTo, nIn, amount, &txdata, hash_type);
+        creator.SetSighashRules(SighashRules::UNIFIED);
+        bool ret = ProduceSignature(provider, creator, fromPubKey, sig_data);
+        UpdateInput(txTo.vin.at(nIn), sig_data);
+        return ret;
+    }
+
+    MutableTransactionSignatureCreator creator(txTo, nIn, amount, nHashType);
     bool ret = ProduceSignature(provider, creator, fromPubKey, sig_data);
     UpdateInput(txTo.vin.at(nIn), sig_data);
     return ret;

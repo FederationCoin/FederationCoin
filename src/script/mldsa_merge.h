@@ -8,6 +8,7 @@
 #include <consensus/mldsa44_spend.h>
 #include <consensus/mldsa87_spend.h>
 #include <consensus/mldsa_policy_slots.h>
+#include <consensus/secp_spend.h>
 
 #include <optional>
 #include <span>
@@ -24,7 +25,7 @@ std::optional<std::vector<std::vector<unsigned char>>> MergeMlDsaWitnesses(
     const std::vector<std::vector<std::vector<unsigned char>>>& stacks,
     std::span<const unsigned char> sighash)
 {
-    if (sighash.size() != 32) return std::nullopt;
+    if (sighash.size() != UNIFIED_SIGHASH_SIZE) return std::nullopt;
     std::vector<MlDsaParsedSlot<Kind>> merged;
     bool have{false};
     for (const auto& stack : stacks) {

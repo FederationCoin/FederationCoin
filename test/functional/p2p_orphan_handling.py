@@ -123,6 +123,24 @@ class OrphanHandlingTest(BitcoinTestFramework):
         self.num_nodes = 1
         self.extra_args = [[]]
 
+    def with_standard_output(self, tx_info):
+        """Pay a product v0 program. RAW_P2PK outputs are not standard."""
+        tx = tx_info["tx"]
+        tx.vout[0].scriptPubKey = bytearray(self.wallet.get_output_script())
+        assert self.wallet_nonsegwit.resign(tx)
+        txid = tx.rehash()
+        tx_info["txid"] = txid
+        tx_info["wtxid"] = tx.getwtxid()
+        tx_info["hex"] = tx.serialize().hex()
+        for key in ("new_utxo",):
+            if tx_info.get(key) is not None:
+                tx_info[key]["txid"] = txid
+                tx_info[key]["wtxid"] = tx_info["wtxid"]
+        for u in tx_info.get("new_utxos") or []:
+            u["txid"] = txid
+            u["wtxid"] = tx_info["wtxid"]
+        return tx_info
+
     def create_parent_and_child(self):
         """Create package with 1 parent and 1 child, normal fees (no cpfp)."""
         parent = self.wallet.create_self_transfer()
@@ -335,12 +353,12 @@ class OrphanHandlingTest(BitcoinTestFramework):
         inflight_parent_AB = self.wallet_nonsegwit.create_self_transfer(utxo_to_spend=confirmed_utxos[2])
         # Parent of child_B only
         missing_parent_B = self.wallet_nonsegwit.create_self_transfer(utxo_to_spend=confirmed_utxos[3])
-        child_A = self.wallet_nonsegwit.create_self_transfer_multi(
+        child_A = self.with_standard_output(self.wallet_nonsegwit.create_self_transfer_multi(
             utxos_to_spend=[missing_parent_A["new_utxo"], missing_parent_AB["new_utxo"], inflight_parent_AB["new_utxo"]]
-        )
-        child_B = self.wallet_nonsegwit.create_self_transfer_multi(
+        ))
+        child_B = self.with_standard_output(self.wallet_nonsegwit.create_self_transfer_multi(
             utxos_to_spend=[missing_parent_B["new_utxo"], missing_parent_AB["new_utxo"], inflight_parent_AB["new_utxo"]]
-        )
+        ))
 
         # The wtxid and txid need to be the same for the node to recognize that the missing input
         # and in-flight request for inflight_parent_AB are the same transaction.
@@ -381,9 +399,9 @@ class OrphanHandlingTest(BitcoinTestFramework):
 
         self.log.info("Test handling of an orphan with a parent who is another orphan")
         missing_grandparent = self.wallet_nonsegwit.create_self_transfer()
-        missing_parent_orphan = self.wallet_nonsegwit.create_self_transfer(utxo_to_spend=missing_grandparent["new_utxo"])
+        missing_parent_orphan = self.with_standard_output(self.wallet_nonsegwit.create_self_transfer(utxo_to_spend=missing_grandparent["new_utxo"]))
         missing_parent = self.wallet_nonsegwit.create_self_transfer()
-        orphan = self.wallet_nonsegwit.create_self_transfer_multi(utxos_to_spend=[missing_parent["new_utxo"], missing_parent_orphan["new_utxo"]])
+        orphan = self.with_standard_output(self.wallet_nonsegwit.create_self_transfer_multi(utxos_to_spend=[missing_parent["new_utxo"], missing_parent_orphan["new_utxo"]]))
 
         # The node should put missing_parent_orphan into the orphanage and request missing_grandparent
         self.relay_transaction(peer, missing_parent_orphan["tx"])

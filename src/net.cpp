@@ -4014,7 +4014,11 @@ uint64_t CConnman::GetTotalBytesSent() const
 
 ServiceFlags CConnman::GetLocalServices() const
 {
-    return m_local_services;
+    ServiceFlags flags{m_local_services};
+    if (!V2CanCarryAdmitCap()) {
+        flags = ServiceFlags(flags & ~NODE_P2P_V2);
+    }
+    return flags;
 }
 
 bool V2CanCarryAdmitCap() noexcept
@@ -4027,10 +4031,10 @@ bool V2CanCarryAdmitCap() noexcept
 
 static std::unique_ptr<Transport> MakeTransport(NodeId id, bool use_v2transport, bool inbound) noexcept
 {
-    // Window admit can exceed BIP324's 16 MiB cipher max. Falling back to v1
-    // for the whole connection made --v2transport peers miss the handshake.
-    // Oversized blocks still fail MessageTooLargeToSend on v2.
-    if (use_v2transport) {
+    // Window admit can exceed BIP324's 16 MiB cipher max. Offer v2 only while
+    // a packet can still name a block at that cap. Oversized sends still fail
+    // MessageTooLargeToSend on a v2 connection that was opened earlier.
+    if (use_v2transport && V2CanCarryAdmitCap()) {
         return std::make_unique<V2Transport>(id, /*initiating=*/!inbound);
     }
     return std::make_unique<V1Transport>(id);

@@ -51,7 +51,7 @@ bool MlDsa87Sign(const MlDsa87Keypair& key, std::span<const unsigned char> messa
  *  FIPS 204 context string FederationCoin. */
 bool MlDsa87Verify(std::span<const unsigned char> pubkey, std::span<const unsigned char> signature, std::span<const unsigned char> message);
 
-/** 32-byte tagged key fingerprint (KEY tag). Null hash on a wrong pubkey size. */
+/** 32-byte tagged key fingerprint (KEY tag). Asserts a correct pubkey size. */
 uint256 MlDsa87KeyHash(std::span<const unsigned char> pubkey);
 /** Single-key program is the key fingerprint. */
 uint256 MlDsa87SingleKeyProgram(std::span<const unsigned char> pubkey);

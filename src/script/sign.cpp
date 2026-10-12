@@ -582,7 +582,11 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
                     if (SignWitnessV0Input(provider, program, message, sigdata.scriptWitness)) {
                         sigdata.witness = true;
                         sigdata.scriptSig.clear();
-                        sigdata.complete = Consensus::CheckWitnessV0Spend(sigdata.scriptSig, fromPubKey, sigdata.scriptWitness, txConst, mtx_creator->GetInputIndex(), *txdata);
+                        const unsigned int verify_flags{STANDARD_SCRIPT_VERIFY_FLAGS |
+                            (creator.GetSighashRules() == SighashRules::UNIFIED ||
+                             SighashRulesForVerifying() == SighashRules::UNIFIED
+                                 ? uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH} : uint32_t{0})};
+                        sigdata.complete = VerifyScript(sigdata.scriptSig, fromPubKey, &sigdata.scriptWitness, verify_flags, creator.Checker());
                         return sigdata.complete;
                     }
                 }
@@ -676,19 +680,11 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
         sigdata.scriptSig = PushAll(result);
     }
 
-    // Completeness covers a co-signer's signatures as well as any just made.
+    // Completeness is VerifyScript once it matches connect (kinds own v0).
     const bool read_opted_in{creator.GetSighashRules() == SighashRules::UNIFIED ||
                              SighashRulesForVerifying() == SighashRules::UNIFIED};
     const unsigned int verify_flags{STANDARD_SCRIPT_VERIFY_FLAGS | (read_opted_in ? uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH} : uint32_t{0})};
-    bool v0_ok = false;
-    if (const auto* mtx_creator = dynamic_cast<const MutableTransactionSignatureCreator*>(&creator)) {
-        const PrecomputedTransactionData* txdata = mtx_creator->GetTxData();
-        if (txdata && txdata->m_spent_outputs_ready) {
-            const CTransaction txConst(mtx_creator->GetTransaction());
-            v0_ok = Consensus::CheckWitnessV0Spend(sigdata.scriptSig, fromPubKey, sigdata.scriptWitness, txConst, mtx_creator->GetInputIndex(), *txdata);
-        }
-    }
-    sigdata.complete = v0_ok || (solved && VerifyScript(sigdata.scriptSig, fromPubKey, &sigdata.scriptWitness, verify_flags, creator.Checker()));
+    sigdata.complete = solved && VerifyScript(sigdata.scriptSig, fromPubKey, &sigdata.scriptWitness, verify_flags, creator.Checker());
     return sigdata.complete;
 }
 
@@ -826,6 +822,7 @@ public:
     bool CheckSchnorrSignature(Span<const unsigned char> sig, Span<const unsigned char> pubkey, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror, SighashRules sighash_rules) const override { return sig.size() != 0; }
     bool CheckLockTime(const CScriptNum& nLockTime) const override { return true; }
     bool CheckSequence(const CScriptNum& nSequence) const override { return true; }
+    bool EvalWitnessV0(const std::vector<unsigned char>& program, const CScriptWitness& witness) const override { return true; }
 };
 }
 
@@ -981,25 +978,7 @@ bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, 
         }
 
         ScriptError serror = SCRIPT_ERR_OK;
-        const unsigned int check_flags{STANDARD_SCRIPT_VERIFY_FLAGS | (SighashRulesForVerifying() == SighashRules::UNIFIED ? uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH} : uint32_t{0})};
-        if (txdata.m_spent_outputs_ready && Consensus::CheckWitnessV0Spend(txin.scriptSig, prevPubKey, txin.scriptWitness, txConst, i, txdata)) {
-            txin.scriptSig.clear();
-            input_errors.erase(i);
-            continue;
-        }
-        int witness_version{0};
-        std::vector<unsigned char> witness_program;
-        if (prevPubKey.IsWitnessProgram(witness_version, witness_program) &&
-            witness_version == 0 && witness_program.size() == 32 && txdata.m_spent_outputs_ready) {
-            uint256 sighash;
-            const uint256 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
-            if (keystore && SignatureHashUnified(sighash, CScript{}, txConst, i, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata) &&
-                SignWitnessV0Input(*keystore, program, {sighash.begin(), sighash.size()}, txin.scriptWitness)) {
-                txin.scriptSig.clear();
-                input_errors.erase(i);
-                continue;
-            }
-        }
+        const unsigned int check_flags{STANDARD_SCRIPT_VERIFY_FLAGS | (sighash_rules == SighashRules::UNIFIED ? uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH} : uint32_t{0})};
         if (!sigdata.complete && !VerifyScript(txin.scriptSig, prevPubKey, &txin.scriptWitness, check_flags, TransactionSignatureChecker(&txConst, i, amount, txdata, MissingDataBehavior::FAIL), &serror)) {
             if (serror == SCRIPT_ERR_INVALID_STACK_OPERATION) {
                 // Unable to sign input and verification failed (possible attempt to partially sign).

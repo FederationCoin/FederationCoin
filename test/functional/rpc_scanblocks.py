@@ -34,14 +34,10 @@ class ScanblocksTest(BitcoinTestFramework):
         wallet.send_to(from_node=node, scriptPubKey=spk_1, amount=1 * COIN)
 
         parent_key = "trB6nMbsSD2SBxuhNXhn4z1LDdKasWu6ENda7foJDVBd31u37KcqP9syhfEAfn5HgCiY6rxNjEhDYXuywbHJNZaEumJ3nkHfi9C2GGVfBBYBGEB"
-        # send 1.0, mempool only
-        # childkey 5 of `parent_key`
-        wallet.send_to(from_node=node,
-                       scriptPubKey=address_to_scriptpubkey("fK2QXo2rBd1SZwNwss9MWbXsPUPyu9Fufa"),
-                       amount=1 * COIN)
-
-        # mine a block and assure that the mined blockhash is in the filterresult
-        blockhash = self.generate(node, 1)[0]
+        # childkey 5 of `parent_key`. P2PKH is nonstandard in the mempool;
+        # mine it as coinbase so the pkh() scan still hits this block.
+        pkh_spk = address_to_scriptpubkey("fK2QXo2rBd1SZwNwss9MWbXsPUPyu9Fufa")
+        blockhash = self.generatetodescriptor(node, 1, f'raw({pkh_spk.hex()})')[0]
         height = node.getblockheader(blockhash)['height']
         self.wait_until(lambda: all(i["synced"] for i in node.getindexinfo().values()))
 

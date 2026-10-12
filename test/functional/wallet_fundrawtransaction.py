@@ -1002,8 +1002,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
         recipient = self.nodes[0].get_wallet_rpc("large")
         # Same many-small secp pattern as test_weight_limits. Default getnewaddress
-        # is Dilithium 87; 1500 of those is a sanitizer time bomb, not the BnB story.
-        recipient.keypoolrefill(1500)
+        # is Dilithium 87; do not refill that keypool for a secp BnB story.
         outputs = {recipient.getnewaddress("", "bech32"): 0.1 for _ in range(1472)}
         wallet.sendmany("", outputs)
         self.generate(self.nodes[0], 1)

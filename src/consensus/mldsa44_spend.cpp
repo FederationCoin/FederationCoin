@@ -6,6 +6,7 @@
 
 #include <crypto/mldsa_randombytes.h>
 
+#include <cassert>
 #include <cstdint>
 
 extern "C" {
@@ -48,7 +49,9 @@ bool MlDsa44Kind::Verify(std::span<const unsigned char> pubkey, std::span<const 
 
 uint256 MlDsa44KeyHash(std::span<const unsigned char> pubkey)
 {
-    return MlDsaTaggedKeyHash<MlDsa44Kind>(pubkey).value_or(uint256{});
+    const std::optional<uint256> hash{MlDsaTaggedKeyHash<MlDsa44Kind>(pubkey)};
+    assert(hash.has_value());
+    return *hash;
 }
 
 uint256 MlDsa44SingleKeyProgram(std::span<const unsigned char> pubkey)

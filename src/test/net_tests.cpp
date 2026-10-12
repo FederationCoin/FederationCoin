@@ -1391,6 +1391,44 @@ BOOST_AUTO_TEST_CASE(command_receive_limits)
     Consensus::SetBlockMessageAdmitWeight(saved);
 }
 
+BOOST_AUTO_TEST_CASE(make_transport_follows_v2_admit)
+{
+    in_addr ipv4Addr;
+    ipv4Addr.s_addr = 0xa0b0c001;
+    const CAddress addr{CService(ipv4Addr, 7777), NODE_NETWORK};
+    const auto make_node = [&](bool use_v2) {
+        CNodeOptions opts;
+        opts.use_v2transport = use_v2;
+        return std::make_unique<CNode>(/*id=*/0,
+                                       /*sock=*/nullptr,
+                                       addr,
+                                       /*nKeyedNetGroupIn=*/0,
+                                       /*nLocalHostNonceIn=*/0,
+                                       CAddress(),
+                                       /*addrNameIn=*/"",
+                                       ConnectionType::OUTBOUND_FULL_RELAY,
+                                       /*inbound_onion=*/false,
+                                       /*network_key=*/0,
+                                       std::move(opts));
+    };
+    const uint64_t saved{Consensus::BlockMessageAdmitWeight()};
+    Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    {
+        const auto node{make_node(/*use_v2=*/true)};
+        BOOST_CHECK(node->m_transport->GetInfo().transport_type == TransportProtocolType::DETECTING);
+    }
+    Consensus::SetBlockMessageAdmitWeight(BIP324Cipher::MAX_CONTENTS_LEN);
+    {
+        const auto node{make_node(/*use_v2=*/true)};
+        BOOST_CHECK(node->m_transport->GetInfo().transport_type == TransportProtocolType::V1);
+    }
+    {
+        const auto node{make_node(/*use_v2=*/false)};
+        BOOST_CHECK(node->m_transport->GetInfo().transport_type == TransportProtocolType::V1);
+    }
+    Consensus::SetBlockMessageAdmitWeight(saved);
+}
+
 BOOST_AUTO_TEST_CASE(v1_message_size_limits)
 {
     const uint64_t saved{Consensus::BlockMessageAdmitWeight()};

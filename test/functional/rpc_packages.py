@@ -100,7 +100,7 @@ class RPCPackagesTest(BitcoinTestFramework):
         self.assert_testres_equal(self.independent_txns_hex, self.independent_txns_testres)
 
         self.log.info("Test an otherwise valid package with an extra garbage tx appended")
-        address = node.get_deterministic_priv_key().address
+        address = self.wallet.get_address()
         garbage_tx = node.createrawtransaction([{"txid": "00" * 32, "vout": 5}], {address: 1})
         tx = tx_from_hex(garbage_tx)
         # Only the txid and wtxids are returned because validation is incomplete for the independent txns.
@@ -123,8 +123,8 @@ class RPCPackagesTest(BitcoinTestFramework):
         assert_equal_without_usage(testres_bad_sig, self.independent_txns_testres + [{
             "txid": tx_bad_sig_txid,
             "wtxid": tx_bad_sig_wtxid, "allowed": False,
-            "reject-reason": "mempool-script-verify-flag-failed (Script evaluated without error but finished with a false/empty top stack element)",
-            "reject-details": "mempool-script-verify-flag-failed (Script evaluated without error but finished with a false/empty top stack element), " +
+            "reject-reason": "mempool-script-verify-flag-failed (Operation not valid with the current stack size)",
+            "reject-details": "mempool-script-verify-flag-failed (Operation not valid with the current stack size), " +
                               f"input 0 of {tx_bad_sig_txid} (wtxid {tx_bad_sig_wtxid}), spending {coin['txid']}:{coin['vout']}"
         }])
 

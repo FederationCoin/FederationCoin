@@ -4,9 +4,13 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the scantxoutset rpc call."""
 from test_framework.address import address_to_scriptpubkey
-from test_framework.messages import COIN
+from test_framework.messages import COIN, CTxOut
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal, assert_raises_rpc_error
+from test_framework.util import (
+    assert_equal,
+    assert_greater_than_or_equal,
+    assert_raises_rpc_error,
+)
 from test_framework.wallet import (
     MiniWallet,
     getnewdestination,
@@ -27,10 +31,28 @@ class ScantxoutsetTest(BitcoinTestFramework):
         # interpret strings as addresses, assume scriptPubKey otherwise
         if isinstance(destination, str):
             destination = address_to_scriptpubkey(destination)
-        self.wallet.send_to(from_node=self.nodes[0], scriptPubKey=destination, amount=int(COIN * amount))
+        # P2PKH/P2SH outputs are nonstandard in the mempool; mine the raw tx.
+        amount_sat = int(COIN * amount)
+        fee = 1000
+        tx = self.wallet.create_self_transfer(fee_rate=0)["tx"]
+        assert_greater_than_or_equal(tx.vout[0].nValue, amount_sat + fee)
+        tx.vout[0].nValue -= (amount_sat + fee)
+        tx.vout.append(CTxOut(amount_sat, destination))
+        need = max(fee, tx.get_vsize() // 12)
+        extra = need - fee
+        if extra > 0:
+            assert_greater_than_or_equal(tx.vout[0].nValue, extra)
+            tx.vout[0].nValue -= extra
+            fee = need
+        spent_value = sum(out.nValue for out in tx.vout) + fee
+        self.wallet.sign_tx(tx, [CTxOut(spent_value, bytearray(self.wallet.get_output_script()))])
+        tx_hex = tx.serialize().hex()
+        self.pending_hexes.append(tx_hex)
+        self.wallet.scan_tx(self.nodes[0].decoderawtransaction(tx_hex))
 
     def run_test(self):
         self.wallet = MiniWallet(self.nodes[0])
+        self.pending_hexes = []
 
         self.log.info("Test if we find coinbase outputs.")
         assert_equal(sum(u["coinbase"] for u in self.nodes[0].scantxoutset("start", [self.wallet.get_descriptor()])["unspents"]), 49)
@@ -57,7 +79,7 @@ class ScantxoutsetTest(BitcoinTestFramework):
         self.sendtodestination("fXQUBNxX57kp1Pu4VihJ5VaJozABdEd3G2", 8.192)  # (m/1/1/1)
         self.sendtodestination("fNzV74yZLvbS5x522Nuzha8Bf6Per59Gcx", 16.384)  # (m/1/1/1500)
 
-        self.generate(self.nodes[0], 1)
+        self.generateblock(self.nodes[0], self.wallet.get_address(), self.pending_hexes)
 
         scan = self.nodes[0].scantxoutset("start", [])
         info = self.nodes[0].gettxoutsetinfo()

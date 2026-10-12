@@ -30,6 +30,12 @@ from test_framework.messages import (
 from test_framework.script import (
     CScript,
     OP_0,
+    OP_1,
+    OP_CHECKMULTISIG,
+    OP_CHECKSIG,
+    OP_DUP,
+    OP_EQUAL,
+    OP_EQUALVERIFY,
     OP_HASH160,
     OP_RETURN,
     OP_TRUE,
@@ -326,7 +332,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         _, pubkey = generate_keypair()
         tx.vout[0].scriptPubKey = keys_to_multisig_script([pubkey] * 3, k=2)  # Some bare multisig script (2-of-3)
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'bare-multisig'}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
             rawtxs=[tx.serialize().hex()],
         )
         tx = tx_from_hex(raw_tx_reference)
@@ -353,7 +359,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         tx.vout[0] = output_p2sh_burn
         tx.vout[0].nValue = 1  # Dust at DUST_RELAY_TX_FEE (consensus kvB floor times 3)
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'dust'}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
             rawtxs=[tx.serialize().hex()],
         )
         tx = tx_from_hex(raw_tx_reference)
@@ -432,14 +438,28 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         nested_anchor_spend.rehash()
 
         self.check_mempool_result(
-            result_expected=[{'txid': nested_anchor_spend.rehash(), 'allowed': False, 'reject-reason': 'mempool-script-verify-flag-failed (Witness requires empty scriptSig)'}],
+            result_expected=[{'txid': nested_anchor_spend.rehash(), 'allowed': False, 'reject-reason': 'mempool-script-verify-flag-failed (Witness version reserved for soft-fork upgrades)'}],
             rawtxs=[nested_anchor_spend.serialize().hex()],
             maxfeerate=0,
         )
         assert_raises_rpc_error(
-            -25, "Witness requires empty scriptSig",
+            -25, "Witness version reserved for soft-fork upgrades",
             self.generateblock, node, self.wallet.get_address(), [nested_anchor_spend.serialize().hex()],
         )
+
+        self.log.info('Bare P2PKH, P2SH, and CHECKMULTISIG outputs are not standard')
+        for script in (
+            CScript([OP_DUP, OP_HASH160, bytes(20), OP_EQUALVERIFY, OP_CHECKSIG]),
+            CScript([OP_HASH160, bytes(20), OP_EQUAL]),
+            CScript([OP_1, bytes.fromhex('02' + '11' * 32), OP_1, OP_CHECKMULTISIG]),
+        ):
+            tx = tx_from_hex(raw_tx_reference)
+            tx.vout[0] = CTxOut(tx.vout[0].nValue, script)
+            self.check_mempool_result(
+                result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
+                rawtxs=[tx.serialize().hex()],
+                maxfeerate=0,
+            )
 
         self.log.info('A bare multisig output exceeds the reduced-data script cap')
         address = self.wallet.get_address()

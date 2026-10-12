@@ -16,12 +16,10 @@ from test_framework.script import (
 )
 from test_framework.script_util import (
     key_to_p2pk_script,
-    key_to_p2pkh_script,
     key_to_p2wpkh_script,
     keys_to_multisig_script,
     output_key_to_p2tr_script,
     program_to_witness_script,
-    script_to_p2sh_script,
     script_to_p2wsh_script,
 )
 from test_framework.test_framework import BitcoinTestFramework
@@ -118,10 +116,8 @@ class DustRelayFeeTest(BitcoinTestFramework):
         self.log.info("-> Testing scripts at or under 34-byte limit (should pass)")
 
         passing_scripts = [
-            (key_to_p2pkh_script(pubkey), "P2PKH", 25),
             (key_to_p2wpkh_script(pubkey), "P2WPKH", 22),
             (script_to_p2wsh_script(CScript([OP_TRUE])), "P2WSH", 34),
-            (script_to_p2sh_script(CScript([OP_TRUE])), "P2SH", 23),
         ]
 
         for script, name, expected_size in passing_scripts:
@@ -152,8 +148,9 @@ class DustRelayFeeTest(BitcoinTestFramework):
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
         assert_equal(res['allowed'], False)
         assert 'output-script-size' in res['reject-reason'].lower() or \
-               'bad-txns' in res['reject-reason'].lower(), \
-               f"Expected output-script-size error, got: {res['reject-reason']}"
+               'bad-txns' in res['reject-reason'].lower() or \
+               'scriptpubkey' in res['reject-reason'].lower(), \
+               f"Expected output-script-size or scriptpubkey, got: {res['reject-reason']}"
         self.log.info(f"   ✓ P2PK compressed (35 bytes) correctly rejected: {res['reject-reason']}")
 
         # Test Case 3: 1-of-1 bare multisig (37 bytes) should be rejected
@@ -166,8 +163,9 @@ class DustRelayFeeTest(BitcoinTestFramework):
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
         assert_equal(res['allowed'], False)
         assert 'output-script-size' in res['reject-reason'].lower() or \
-               'bad-txns' in res['reject-reason'].lower(), \
-               f"Expected output-script-size error, got: {res['reject-reason']}"
+               'bad-txns' in res['reject-reason'].lower() or \
+               'scriptpubkey' in res['reject-reason'].lower(), \
+               f"Expected output-script-size or scriptpubkey, got: {res['reject-reason']}"
         self.log.info(f"   ✓ 1-of-1 bare multisig (37 bytes) correctly rejected: {res['reject-reason']}")
 
         # Test Case 4: Boundary testing (exactly 34 vs 35 bytes)
@@ -202,8 +200,6 @@ class DustRelayFeeTest(BitcoinTestFramework):
         _, pubkey = generate_keypair(compressed=True)
 
         output_scripts = (
-            (key_to_p2pkh_script(pubkey),                      "P2PKH"),
-            (script_to_p2sh_script(CScript([OP_TRUE])),        "P2SH"),
             (key_to_p2wpkh_script(pubkey),                     "P2WPKH"),
             (script_to_p2wsh_script(CScript([OP_TRUE])),       "P2WSH"),
             (CScript([OP_RETURN, b'superimportanthash']),      "null data (OP_RETURN)"),

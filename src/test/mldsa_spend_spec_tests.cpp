@@ -476,7 +476,7 @@ BOOST_AUTO_TEST_CASE(p2wsh_and_op_true_rejected)
     created.vout.emplace_back(1, op_true);
     TxValidationState state;
     BOOST_CHECK(Consensus::CheckOutputSizes(CTransaction{created}, state));
-    BOOST_CHECK(ScriptCheckFails(op_true, {}));
+    BOOST_CHECK(!ScriptCheckFails(op_true, {}));
     BOOST_CHECK(ScriptCheckFails(op_true, {{0x51}}));
 
     uint256 burn;

@@ -5,6 +5,7 @@
 
 #include <script/interpreter.h>
 
+#include <cstring>
 #include <consensus/mldsa44_spend.h>
 #include <consensus/mldsa87_spend.h>
 #include <consensus/secp_spend.h>
@@ -2017,6 +2018,16 @@ bool GenericTransactionSignatureChecker<T>::CheckSequence(const CScriptNum& nSeq
     return true;
 }
 
+template <class T>
+bool GenericTransactionSignatureChecker<T>::EvalWitnessV0(const std::vector<unsigned char>& program, const CScriptWitness& witness) const
+{
+    if (!txTo || !txdata) return false;
+    CScript scriptPubKey;
+    scriptPubKey << OP_0 << program;
+    const CTransaction txConst(*txTo);
+    return Consensus::CheckWitnessV0Spend(txTo->vin[nIn].scriptSig, scriptPubKey, witness, txConst, nIn, *txdata);
+}
+
 // explicit instantiation
 // Explicit instantiation: sign.cpp calls this, and relying on it being
 // instantiated as a side effect of a call elsewhere in this file is fragile.
@@ -2119,8 +2130,23 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
     ScriptExecutionData execdata;
 
     if (witversion == 0) {
-        if (program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
-            // BIP141 P2WSH: 32-byte witness v0 program (which encodes SHA256(script))
+        if (program.size() != WITNESS_V0_KEYHASH_SIZE && program.size() != WITNESS_V0_SCRIPTHASH_SIZE) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
+        }
+        if (flags & SCRIPT_VERIFY_UNIFIED_SIGHASH) {
+            if (!checker.EvalWitnessV0(program, witness)) {
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            }
+            return set_success(serror);
+        }
+        // BIP322 / pre-UNIFIED flags: BIP141 implied P2PKH and P2WSH. Chain
+        // spends set SCRIPT_VERIFY_UNIFIED_SIGHASH and use EvalWitnessV0.
+        if (program.size() == WITNESS_V0_KEYHASH_SIZE) {
+            if (stack.size() != 2) {
+                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
+            }
+            exec_script << OP_DUP << OP_HASH160 << program << OP_EQUALVERIFY << OP_CHECKSIG;
+        } else {
             if (stack.size() == 0) {
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
             }
@@ -2128,20 +2154,11 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
             exec_script = CScript(script_bytes.begin(), script_bytes.end());
             uint256 hash_exec_script;
             CSHA256().Write(exec_script.data(), exec_script.size()).Finalize(hash_exec_script.begin());
-            if (memcmp(hash_exec_script.begin(), program.data(), 32)) {
+            if (memcmp(hash_exec_script.begin(), program.data(), WITNESS_V0_SCRIPTHASH_SIZE)) {
                 return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
             }
-            return ExecuteWitnessScript(stack, exec_script, flags, SigVersion::WITNESS_V0, checker, execdata, serror);
-        } else if (program.size() == WITNESS_V0_KEYHASH_SIZE) {
-            // BIP141 P2WPKH: 20-byte witness v0 program (which encodes Hash160(pubkey))
-            if (stack.size() != 2) {
-                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH); // 2 items in witness
-            }
-            exec_script << OP_DUP << OP_HASH160 << program << OP_EQUALVERIFY << OP_CHECKSIG;
-            return ExecuteWitnessScript(stack, exec_script, flags, SigVersion::WITNESS_V0, checker, execdata, serror);
-        } else {
-            return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
+        return ExecuteWitnessScript(stack, exec_script, flags, SigVersion::WITNESS_V0, checker, execdata, serror);
     } else if (witversion == 1 && program.size() == WITNESS_V1_TAPROOT_SIZE && !is_p2sh) {
         // BIP341 Taproot: 32-byte non-P2SH witness v1 program (which encodes a P2C-tweaked pubkey)
         // FederationCoin parks Taproot (NEVER_ACTIVE). Bitcoin Core returns
@@ -2342,16 +2359,15 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     return set_success(serror);
 }
 
-size_t static WitnessSigOps(int witversion, const std::vector<unsigned char>& witprogram, const CScriptWitness& witness)
+size_t static WitnessSigOps(int witversion, const std::vector<unsigned char>& witprogram, const CScriptWitness&)
 {
     if (witversion == 0) {
         if (witprogram.size() == WITNESS_V0_KEYHASH_SIZE)
             return 1;
-
-        if (witprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE && witness.stack.size() > 0) {
-            CScript subscript(witness.stack.back().begin(), witness.stack.back().end());
-            return subscript.GetSigOpCount(true);
-        }
+        // Dilithium v0/32 and unmatched 32-byte programs are not Bitcoin
+        // script. Do not parse pubkey||sig as a subscript.
+        if (witprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE)
+            return 0;
     }
 
     // Future flags may be implemented here.
@@ -2393,7 +2409,10 @@ namespace Consensus {
 
 bool CheckWitnessV0Spend(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness& witness, const CTransaction& tx, unsigned int nIn, const PrecomputedTransactionData& txdata)
 {
-    if (!scriptSig.empty()) return false;
+    // Empty scriptSig for native v0 is SCRIPT_ERR_WITNESS_MALLEATED in
+    // VerifyScript. This checker does not duplicate that rule: P2SH-wrapped
+    // v0 carries the redeem script in scriptSig.
+    (void)scriptSig;
     int witness_version{0};
     std::vector<unsigned char> witness_program;
     if (!scriptPubKey.IsWitnessProgram(witness_version, witness_program) || witness_version != 0) return false;

@@ -99,14 +99,11 @@ bool IsStandard(const CScript& scriptPubKey, const std::optional<unsigned>& max_
 
     if (whichType == TxoutType::NONSTANDARD) {
         return false;
-    } else if (whichType == TxoutType::MULTISIG) {
-        unsigned char m = vSolutions.front()[0];
-        unsigned char n = vSolutions.back()[0];
-        // Support up to x-of-3 multisig txns as standard
-        if (n < 1 || n > 3)
-            return false;
-        if (m < 1 || m > n)
-            return false;
+    } else if (whichType == TxoutType::PUBKEY ||
+               whichType == TxoutType::PUBKEYHASH ||
+               whichType == TxoutType::SCRIPTHASH ||
+               whichType == TxoutType::MULTISIG) {
+        return false;
     } else if (whichType == TxoutType::NULL_DATA) {
         if (!max_datacarrier_bytes || scriptPubKey.size() > *max_datacarrier_bytes) {
             return false;
@@ -278,12 +275,6 @@ bool IsStandardTx(const CTransaction& tx, const kernel::MemPoolOptions& opts, st
             }
             nDataOut++;
             continue;
-        }
-        else if ((whichType == TxoutType::PUBKEY) && (!opts.permit_bare_pubkey)) {
-            MaybeReject("bare-pubkey");
-        }
-        else if ((whichType == TxoutType::MULTISIG) && (!opts.permit_bare_multisig)) {
-            MaybeReject("bare-multisig");
         }
         else if (whichType == TxoutType::WITNESS_V0_SCRIPTHASH && opts.reject_tokens && txout.scriptPubKey.IsOLGA(tx.vout.size() - i))  {
             MaybeReject("tokens-olga");
@@ -480,6 +471,11 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
             if (!ApplyPolicyWitnessKind(*kind, tx.vin[i], p2sh, reason_prefix, out_reason, ignore_rejects)) {
                 return false;
             }
+            continue;
+        }
+
+        if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
+            MaybeReject("nonstandard");
             continue;
         }
 

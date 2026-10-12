@@ -55,8 +55,14 @@ FUZZ_TARGET(script, .init = initialize_script)
     TxoutType which_type;
     bool is_standard_ret = IsStandard(script, std::nullopt, which_type);
     if (!is_standard_ret) {
+        // Solver still names P2PK / P2PKH / P2SH / MULTISIG. Product
+        // IsStandard rejects those classified types. NULL_DATA fails when
+        // the payload exceeds max_datacarrier_bytes (nullopt here).
         assert(which_type == TxoutType::NONSTANDARD ||
                which_type == TxoutType::NULL_DATA ||
+               which_type == TxoutType::PUBKEY ||
+               which_type == TxoutType::PUBKEYHASH ||
+               which_type == TxoutType::SCRIPTHASH ||
                which_type == TxoutType::MULTISIG);
     }
     if (which_type == TxoutType::NONSTANDARD) {

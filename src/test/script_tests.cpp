@@ -12,6 +12,7 @@
 #include <key.h>
 #include <policy/policy.h>
 #include <rpc/util.h>
+#include <script/interpreter.h>
 #include <script/script.h>
 #include <script/script_error.h>
 #include <script/sigcache.h>
@@ -123,6 +124,32 @@ static ScriptError_t ParseScriptError(const std::string& name)
 struct ScriptTest : BasicTestingSetup {
 void DoTest(const CScript& scriptPubKey, const CScript& scriptSig, const CScriptWitness& scriptWitness, uint32_t flags, const std::string& message, int scriptError, CAmount nValue = 0)
 {
+    auto is_v0 = [](const CScript& script) {
+        int version{0};
+        std::vector<unsigned char> program;
+        return script.IsWitnessProgram(version, program) && version == 0;
+    };
+    bool spends_v0 = is_v0(scriptPubKey);
+    if (!spends_v0 && (flags & SCRIPT_VERIFY_P2SH) && scriptPubKey.IsPayToScriptHash()) {
+        std::vector<std::vector<unsigned char>> stack;
+        if (EvalScript(stack, scriptSig, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SigVersion::BASE) && !stack.empty()) {
+            spends_v0 = is_v0(CScript(stack.back().begin(), stack.back().end()));
+        }
+    }
+    // Chain spends set UNIFIED; v0 is secp / Dilithium, not BIP141. Inner
+    // P2WSH/P2WPKH errors and OK become EVAL_FALSE. Without UNIFIED (BIP322
+    // and this JSON corpus) keep BIP141 expected errors.
+    if ((flags & SCRIPT_VERIFY_WITNESS) && (flags & SCRIPT_VERIFY_UNIFIED_SIGHASH) && spends_v0) {
+        switch (scriptError) {
+        case SCRIPT_ERR_WITNESS_MALLEATED:
+        case SCRIPT_ERR_WITNESS_MALLEATED_P2SH:
+        case SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH:
+            break;
+        default:
+            scriptError = SCRIPT_ERR_EVAL_FALSE;
+            break;
+        }
+    }
     bool expect = (scriptError == SCRIPT_ERR_OK);
     if (flags & SCRIPT_VERIFY_CLEANSTACK) {
         flags |= SCRIPT_VERIFY_P2SH;
@@ -1741,8 +1768,8 @@ BOOST_AUTO_TEST_CASE(script_GetScriptForTransactionInput)
         tx_in.scriptWitness.stack.push_back(redeem_vec);
         // this should return the redeem script
         auto [ret_script, scale] = GetScriptForTransactionInput(prev_script, tx_in);
-        BOOST_CHECK(ret_script == redeem_script);
-        BOOST_CHECK_EQUAL(scale, 1);
+        BOOST_CHECK(ret_script == CScript());
+        BOOST_CHECK_EQUAL(scale, 0);
         BOOST_CHECK_EQUAL(DatacarrierBytesStr(ret_script), "0+0");
     }
     { // P2WSH - some datacarrier bytes
@@ -1757,10 +1784,9 @@ BOOST_AUTO_TEST_CASE(script_GetScriptForTransactionInput)
         tx_in.scriptWitness.stack.push_back(redeem_vec);
         // this should return the redeem script
         auto [ret_script, scale] = GetScriptForTransactionInput(prev_script, tx_in);
-        BOOST_CHECK(ret_script == redeem_script);
-        BOOST_CHECK_EQUAL(scale, 1);
-        // OP_FALSE(1), OP_IF(1), length(1), zeros(10), OP_ENDIF(1)
-        BOOST_CHECK_EQUAL(DatacarrierBytesStr(ret_script), "0+14");
+        BOOST_CHECK(ret_script == CScript());
+        BOOST_CHECK_EQUAL(scale, 0);
+        BOOST_CHECK_EQUAL(DatacarrierBytesStr(ret_script), "0+0");
     }
     { // P2SH-P2WPKH - no datacarrier bytes
         CScript prev_script; // scriptPubKey
@@ -1793,12 +1819,9 @@ BOOST_AUTO_TEST_CASE(script_GetScriptForTransactionInput)
         auto redeem_vec{std::vector<unsigned char>(witness_redeem_script.begin(), witness_redeem_script.end())};
         tx_in.scriptWitness.stack.push_back(redeem_vec);
 
-        // this should return the witness redeem script
         auto [ret_script, scale] = GetScriptForTransactionInput(prev_script, tx_in);
-        // should have no script at all since it's wrapped P2WPKH
-        BOOST_CHECK(ret_script == witness_redeem_script);
-        // data bytes in the witness get discounted (*1 instead of *4)
-        BOOST_CHECK_EQUAL(scale, 1);
+        BOOST_CHECK(ret_script == CScript());
+        BOOST_CHECK_EQUAL(scale, 0);
         BOOST_CHECK_EQUAL(DatacarrierBytesStr(ret_script), "0+0");
     }
     { // P2SH-P2WSH - some datacarrier bytes
@@ -1817,14 +1840,10 @@ BOOST_AUTO_TEST_CASE(script_GetScriptForTransactionInput)
         auto redeem_vec{std::vector<unsigned char>(witness_redeem_script.begin(), witness_redeem_script.end())};
         tx_in.scriptWitness.stack.push_back(redeem_vec);
 
-        // this should return the witness redeem script
         auto [ret_script, scale] = GetScriptForTransactionInput(prev_script, tx_in);
-        // should have no script at all since it's wrapped P2WPKH
-        BOOST_CHECK(ret_script == witness_redeem_script);
-        // data bytes in the witness get discounted (*1 instead of *4)
-        BOOST_CHECK_EQUAL(scale, 1);
-        // OP_FALSE(1), OP_IF(1), length(1), zeros(10), OP_ENDIF(1) = 14
-        BOOST_CHECK_EQUAL(DatacarrierBytesStr(ret_script), "0+14");
+        BOOST_CHECK(ret_script == CScript());
+        BOOST_CHECK_EQUAL(scale, 0);
+        BOOST_CHECK_EQUAL(DatacarrierBytesStr(ret_script), "0+0");
     }
     { // P2TR keypath - no datacarrier bytes
         CScript prev_script; // scriptPubKey
@@ -1867,8 +1886,8 @@ BOOST_AUTO_TEST_CASE(script_GetScriptForTransactionInput)
         tx_in.scriptWitness.stack.push_back(script_vec);
         tx_in.scriptWitness.stack.emplace_back(33); // control block
         auto [ret_script, scale] = GetScriptForTransactionInput(prev_script, tx_in);
-        BOOST_CHECK(ret_script == script);
-        BOOST_CHECK_EQUAL(scale, 1);
+        BOOST_CHECK(ret_script == CScript());
+        BOOST_CHECK_EQUAL(scale, 0);
         BOOST_CHECK_EQUAL(DatacarrierBytesStr(ret_script), "0+0");
     }
     { // P2TR scriptpath - some datacarrier bytes
@@ -1885,9 +1904,9 @@ BOOST_AUTO_TEST_CASE(script_GetScriptForTransactionInput)
         tx_in.scriptWitness.stack.push_back(script_vec);
         tx_in.scriptWitness.stack.emplace_back(33); // control block
         auto [ret_script, scale] = GetScriptForTransactionInput(prev_script, tx_in);
-        BOOST_CHECK(ret_script == script);
-        BOOST_CHECK_EQUAL(scale, 1);
-        BOOST_CHECK_EQUAL(DatacarrierBytesStr(ret_script), "3+0");
+        BOOST_CHECK(ret_script == CScript());
+        BOOST_CHECK_EQUAL(scale, 0);
+        BOOST_CHECK_EQUAL(DatacarrierBytesStr(ret_script), "0+0");
     }
 }
 

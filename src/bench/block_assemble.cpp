@@ -13,7 +13,6 @@
 #include <span>
 #include <sync.h>
 #include <test/util/mining.h>
-#include <test/util/script.h>
 #include <test/util/setup_common.h>
 #include <validation.h>
 
@@ -82,7 +81,11 @@ static void BlockAssemblerAddPackageTxns(benchmark::Bench& bench)
     testing_setup->PopulateMempool(det_rand, /*num_transactions=*/1000, /*submit=*/true);
     BlockAssembler::Options assembler_options;
     assembler_options.test_block_validity = false;
-    assembler_options.coinbase_output_script = P2WSH_OP_TRUE;
+    Consensus::MlDsa44Keypair coinbase_mldsa;
+    std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> coinbase_seed{};
+    coinbase_seed[31] = 3;
+    assert(Consensus::MlDsa44Keygen(coinbase_seed, coinbase_mldsa));
+    assembler_options.coinbase_output_script = CScript() << OP_0 << ToByteVector(Consensus::MlDsa44SingleKeyProgram(coinbase_mldsa.pubkey));
 
     bench.run([&] {
         PrepareBlock(testing_setup->m_node, assembler_options);

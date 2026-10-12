@@ -6,16 +6,19 @@
 
 #include <chainparams.h>
 #include <consensus/merkle.h>
+#include <consensus/mldsa44_spend.h>
 #include <consensus/validation.h>
 #include <key_io.h>
 #include <node/context.h>
 #include <pow.h>
 #include <primitives/transaction.h>
-#include <test/util/script.h>
 #include <util/check.h>
 #include <validation.h>
 #include <validationinterface.h>
 #include <versionbits.h>
+
+#include <array>
+#include <cassert>
 
 using node::BlockAssembler;
 using node::NodeContext;
@@ -34,6 +37,11 @@ std::vector<std::shared_ptr<CBlock>> CreateBlockChain(size_t total_height, const
 {
     std::vector<std::shared_ptr<CBlock>> ret{total_height};
     auto time{params.GenesisBlock().nTime};
+    Consensus::MlDsa44Keypair coinbase_key;
+    std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> coinbase_seed{};
+    coinbase_seed[31] = 1;
+    assert(Consensus::MlDsa44Keygen(coinbase_seed, coinbase_key));
+    const CScript coinbase_script = CScript() << OP_0 << ToByteVector(Consensus::MlDsa44SingleKeyProgram(coinbase_key.pubkey));
     for (size_t height{0}; height < total_height; ++height) {
         CBlock& block{*(ret.at(height) = std::make_shared<CBlock>())};
 
@@ -41,7 +49,7 @@ std::vector<std::shared_ptr<CBlock>> CreateBlockChain(size_t total_height, const
         coinbase_tx.vin.resize(1);
         coinbase_tx.vin[0].prevout.SetNull();
         coinbase_tx.vout.resize(1);
-        coinbase_tx.vout[0].scriptPubKey = P2WSH_OP_TRUE;
+        coinbase_tx.vout[0].scriptPubKey = coinbase_script;
         const int nHeight{static_cast<int>(height) + 1};
         const auto& consensus{params.GetConsensus()};
         coinbase_tx.vout[0].nValue = GetBlockSubsidy(nHeight, consensus);

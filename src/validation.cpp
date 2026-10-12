@@ -2454,13 +2454,19 @@ std::optional<std::pair<ScriptError, std::string>> CScriptCheck::operator()() {
     const CScript &scriptSig = ptxTo->vin[nIn].scriptSig;
     const CScriptWitness *witness = &ptxTo->vin[nIn].scriptWitness;
     auto debug_str = strprintf("input %i of %s (wtxid %s), spending %s:%i", nIn, ptxTo->GetHash().ToString(), ptxTo->GetWitnessHash().ToString(), ptxTo->vin[nIn].prevout.hash.ToString(), ptxTo->vin[nIn].prevout.n);
-    if (!scriptSig.empty()) {
-        return std::make_pair(SCRIPT_ERR_WITNESS_MALLEATED, std::move(debug_str));
+    if (!txdata) {
+        return std::make_pair(SCRIPT_ERR_UNKNOWN_ERROR, std::move(debug_str));
     }
-    if (txdata && Consensus::CheckWitnessV0Spend(scriptSig, m_tx_out.scriptPubKey, *witness, *ptxTo, nIn, *txdata)) {
-        return std::nullopt;
+    ScriptError error = SCRIPT_ERR_OK;
+    const bool ok = m_signature_cache
+        ? VerifyScript(scriptSig, m_tx_out.scriptPubKey, witness, nFlags,
+                       CachingTransactionSignatureChecker(ptxTo, nIn, m_tx_out.nValue, cacheStore, *m_signature_cache, *txdata), &error)
+        : VerifyScript(scriptSig, m_tx_out.scriptPubKey, witness, nFlags,
+                       TransactionSignatureChecker(ptxTo, nIn, m_tx_out.nValue, *txdata, MissingDataBehavior::ASSERT_FAIL), &error);
+    if (!ok) {
+        return std::make_pair(error, std::move(debug_str));
     }
-    return std::make_pair(SCRIPT_ERR_EVAL_FALSE, std::move(debug_str));
+    return std::nullopt;
 }
 
 ValidationCache::ValidationCache(const size_t script_execution_cache_bytes, const size_t signature_cache_bytes)
@@ -2501,7 +2507,7 @@ ValidationCache::ValidationCache(const size_t script_execution_cache_bytes, cons
  * Non-static (and redeclared) in src/test/txvalidationcache_tests.cpp
  */
 bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
-                       const CCoinsViewCache& inputs, unsigned int flags, [[maybe_unused]] bool cacheSigStore,
+                       const CCoinsViewCache& inputs, unsigned int flags, bool cacheSigStore,
                        bool cacheFullScriptStore, PrecomputedTransactionData& txdata,
                        ValidationCache& validation_cache,
                        std::vector<CScriptCheck>* pvChecks)
@@ -2551,7 +2557,7 @@ bool CheckInputScripts(const CTransaction& tx, TxValidationState& state,
         // spent being checked as a part of CScriptCheck.
 
         // Verify signature
-        CScriptCheck check(txdata.m_spent_outputs[i], tx, i, &txdata);
+        CScriptCheck check(txdata.m_spent_outputs[i], tx, i, flags, cacheSigStore, &txdata, validation_cache.m_signature_cache);
         if (pvChecks) {
             pvChecks->emplace_back(std::move(check));
         } else if (auto result = check(); result.has_value()) {

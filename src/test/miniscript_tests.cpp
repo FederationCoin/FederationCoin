@@ -366,6 +366,7 @@ void TestSatisfy(const KeyConverter& converter, const std::string& testcase, con
             // Get the ScriptPubKey for this script, filling spend data if it's Taproot.
             TaprootBuilder builder;
             const CScript script_pubkey{ScriptPubKey(converter.MsContext(), script, builder)};
+            const bool v0_p2wsh = !miniscript::IsTapscript(converter.MsContext());
 
             // Run malleable satisfaction algorithm.
             CScriptWitness witness_mal;
@@ -394,8 +395,9 @@ void TestSatisfy(const KeyConverter& converter, const std::string& testcase, con
                 ScriptError serror;
                 bool res = VerifyScript(CScript(), script_pubkey, &witness_nonmal, STANDARD_SCRIPT_VERIFY_FLAGS, checker, &serror);
                 // Non-malleable satisfactions are guaranteed to be valid if ValidSatisfactions(), unless REDUCED_DATA rules are violated.
+                // v0/32 is Dilithium, not BIP141 P2WSH; those satisfactions EVAL_FALSE.
                 if (node->ValidSatisfactions()) {
-                    BOOST_CHECK(res ||
+                    BOOST_CHECK(res || v0_p2wsh ||
                                 serror == ScriptError::SCRIPT_ERR_PUSH_SIZE ||
                                 serror == ScriptError::SCRIPT_ERR_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM ||
                                 serror == ScriptError::SCRIPT_ERR_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION ||
@@ -404,7 +406,7 @@ void TestSatisfy(const KeyConverter& converter, const std::string& testcase, con
                 }
                 // More detailed: non-malleable satisfactions must be valid, or could fail with ops count error (if CheckOpsLimit failed),
                 // or with a stack size error (if CheckStackSize check fails), or with REDUCED_DATA-related errors.
-                BOOST_CHECK(res ||
+                BOOST_CHECK(res || v0_p2wsh ||
                             (!node->CheckOpsLimit() && serror == ScriptError::SCRIPT_ERR_OP_COUNT) ||
                             (!node->CheckStackSize() && serror == ScriptError::SCRIPT_ERR_STACK_SIZE) ||
                             (serror == ScriptError::SCRIPT_ERR_PUSH_SIZE) ||
@@ -420,7 +422,7 @@ void TestSatisfy(const KeyConverter& converter, const std::string& testcase, con
                 bool res = VerifyScript(CScript(), script_pubkey, &witness_mal, STANDARD_SCRIPT_VERIFY_FLAGS, checker, &serror);
                 // Malleable satisfactions are not guaranteed to be valid under any conditions, but they can only
                 // fail due to stack or ops limits, or REDUCED_DATA-related errors.
-                BOOST_CHECK(res ||
+                BOOST_CHECK(res || v0_p2wsh ||
                             serror == ScriptError::SCRIPT_ERR_OP_COUNT ||
                             serror == ScriptError::SCRIPT_ERR_STACK_SIZE ||
                             serror == ScriptError::SCRIPT_ERR_PUSH_SIZE ||

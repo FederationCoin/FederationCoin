@@ -72,6 +72,15 @@ class MldsaSpendTest(BitcoinTestFramework):
         self.generate(node, 1)
         return sent["txid"], sent["sent_vout"], amount
 
+    def fund_mined(self, node, wallet, script_pubkey):
+        tx = wallet.create_self_transfer()['tx']
+        tx.vout[0].scriptPubKey = script_pubkey
+        assert wallet.resign(tx)
+        value = tx.vout[0].nValue
+        tx.rehash()
+        self.generateblock(node, wallet.get_address(), [tx.serialize().hex()])
+        return tx.rehash(), 0, value
+
     def spend(self, txid, vout, value, script_pubkey, fee=2000):
         tx = CTransaction()
         tx.vin = [CTxIn(COutPoint(int(txid, 16), vout))]
@@ -119,7 +128,7 @@ class MldsaSpendTest(BitcoinTestFramework):
         self.assert_script_reject(node, spend)
 
         legacy = CScript([OP_DUP, OP_HASH160, hash160(b"\x02" * 33), OP_EQUALVERIFY, OP_CHECKSIG])
-        txid, vout, value = self.fund(node, wallet, legacy)
+        txid, vout, value = self.fund_mined(node, wallet, legacy)
         spend = self.spend(txid, vout, value, dest)
         spend.vin[0].scriptSig = CScript([b"\x30" * 70, b"\x02" * 33])
         spend.rehash()

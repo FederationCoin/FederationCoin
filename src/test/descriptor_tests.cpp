@@ -2,11 +2,14 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <common/sighash_rules.h>
 #include <pubkey.h>
 #include <key.h>
 #include <key_io.h>
 #include <script/descriptor.h>
+#include <script/script.h>
 #include <script/sign.h>
+#include <script/solver.h>
 #include <test/util/chain_encoding.h>
 #include <test/util/setup_common.h>
 #include <util/strencodings.h>
@@ -403,10 +406,12 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
                     spend.vin.resize(1);
                     spend.vin[0].nSequence = spender_nsequence;
                     spend.vout.resize(1);
-                    std::vector<CTxOut> utxos(1);
+                    const CAmount amt{1};
+                    std::vector<CTxOut> utxos{CTxOut(amt, spks[n])};
                     PrecomputedTransactionData txdata;
                     txdata.Init(spend, std::move(utxos), /*force=*/true);
-                    MutableTransactionSignatureCreator creator{spend, 0, CAmount{0}, &txdata, SIGHASH_DEFAULT};
+                    MutableTransactionSignatureCreator creator{spend, 0, amt, &txdata, SIGHASH_ALL | SIGHASH_UNIFIED};
+                    creator.SetSighashRules(SighashRules::UNIFIED);
                     SignatureData sigdata;
                     // We assume there is no collision between the hashes (eg h1=SHA256(SHA256(x)) and h2=SHA256(x))
                     sigdata.sha256_preimages = preimages;
@@ -414,7 +419,24 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
                     sigdata.ripemd160_preimages = preimages;
                     sigdata.hash160_preimages = preimages;
                     const auto prod_sig_res = ProduceSignature(FlatSigningProvider{keys_priv}.Merge(FlatSigningProvider{script_provider}), creator, spks[n], sigdata);
-                    BOOST_CHECK_MESSAGE(prod_sig_res == !(flags & SIGNABLE_FAILS), prv);
+                    bool expect_ok = !(flags & SIGNABLE_FAILS);
+                    int witver{0};
+                    std::vector<unsigned char> witprog;
+                    auto is_v0_32 = [&](const CScript& s) {
+                        return s.IsWitnessProgram(witver, witprog) && witver == 0 && witprog.size() == 32;
+                    };
+                    if (is_v0_32(spks[n])) {
+                        expect_ok = false;
+                    } else if (spks[n].IsPayToScriptHash()) {
+                        std::vector<std::vector<unsigned char>> sols;
+                        CScript redeem;
+                        if (Solver(spks[n], sols) == TxoutType::SCRIPTHASH &&
+                            script_provider.GetCScript(CScriptID{uint160(sols[0])}, redeem) &&
+                            is_v0_32(redeem)) {
+                            expect_ok = false;
+                        }
+                    }
+                    BOOST_CHECK_MESSAGE(prod_sig_res == expect_ok, prv);
                 }
 
                 /* Infer a descriptor from the generated script, and verify its solvability and that it roundtrips. */

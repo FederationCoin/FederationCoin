@@ -290,7 +290,7 @@ static OutputType GetOutputType(TxoutType type, bool is_from_p2sh)
             return OutputType::BECH32M;
         case TxoutType::WITNESS_V0_KEYHASH:
             if (is_from_p2sh) return OutputType::P2SH_SEGWIT;
-            return OutputType::SECP;
+            return OutputType::BECH32;
         case TxoutType::WITNESS_V0_SCRIPTHASH:
             if (is_from_p2sh) return OutputType::P2SH_SEGWIT;
             return OutputType::DILITHIUM87;

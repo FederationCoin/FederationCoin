@@ -130,12 +130,12 @@ BOOST_AUTO_TEST_CASE(available_coins_separates_dilithium_kinds)
     wallet->SetLastBlockProcessed(300, uint256{});
     AddConfirmedProductCoin(*wallet, OutputType::DILITHIUM87, COIN);
     AddConfirmedProductCoin(*wallet, OutputType::DILITHIUM44, COIN);
-    AddConfirmedProductCoin(*wallet, OutputType::SECP, COIN);
+    AddConfirmedProductCoin(*wallet, OutputType::BECH32, COIN);
 
     const CoinsResult coins{AvailableCoins(*wallet)};
     BOOST_CHECK_EQUAL(coins.coins.at(OutputType::DILITHIUM87).size(), 1U);
     BOOST_CHECK_EQUAL(coins.coins.at(OutputType::DILITHIUM44).size(), 1U);
-    BOOST_CHECK_EQUAL(coins.coins.at(OutputType::SECP).size(), 1U);
+    BOOST_CHECK_EQUAL(coins.coins.at(OutputType::BECH32).size(), 1U);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

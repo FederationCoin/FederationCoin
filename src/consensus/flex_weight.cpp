@@ -4,79 +4,83 @@
 
 #include <consensus/flex_weight.h>
 
+#include <consensus/spend_kind_weight.h>
+
 #include <limits>
 
 namespace Consensus {
-namespace {
 
-/** 64x64 -> 128 using four 32x32 multiplies. Same on every target. */
-void Mul128(uint64_t a, uint64_t b, uint64_t& hi, uint64_t& lo)
+WideProduct Mul128(uint64_t a, uint64_t b)
 {
     const uint64_t ll{uint64_t{uint32_t(a)} * uint32_t(b)};
     const uint64_t lh{uint64_t{uint32_t(a)} * (b >> 32)};
     const uint64_t hl{(a >> 32) * uint32_t(b)};
     const uint64_t hh{(a >> 32) * (b >> 32)};
     const uint64_t mid34{(ll >> 32) + uint32_t(lh) + uint32_t(hl)};
-    hi = hh + (lh >> 32) + (hl >> 32) + (mid34 >> 32);
+    WideProduct out;
+    out.hi = hh + (lh >> 32) + (hl >> 32) + (mid34 >> 32);
     // Mask before the shift. mid34 can be up to ~3*2^32; a bare mid34<<32 is
     // not a representable uint64_t and Clang -fsanitize=integer rejects it.
-    lo = (uint64_t{uint32_t(mid34)} << 32) | uint32_t(ll);
+    out.lo = (uint64_t{uint32_t(mid34)} << 32) | uint32_t(ll);
+    return out;
 }
-
-} // namespace
 
 bool MulGe(uint64_t a, uint64_t b, uint64_t c, uint64_t d)
 {
-    uint64_t ab_hi{0};
-    uint64_t ab_lo{0};
-    uint64_t cd_hi{0};
-    uint64_t cd_lo{0};
-    Mul128(a, b, ab_hi, ab_lo);
-    Mul128(c, d, cd_hi, cd_lo);
-    return ab_hi > cd_hi || (ab_hi == cd_hi && ab_lo >= cd_lo);
+    const WideProduct ab{Mul128(a, b)};
+    const WideProduct cd{Mul128(c, d)};
+    return ab.hi > cd.hi || (ab.hi == cd.hi && ab.lo >= cd.lo);
 }
 
-uint64_t GrowCap(uint64_t cap)
+bool Pegged(uint64_t block_weight, uint64_t cap, int height)
 {
-    if (cap > std::numeric_limits<uint64_t>::max() / 3) return cap;
+    if (block_weight > cap) return false;
+    const std::optional<uint64_t> smallest{SmallestSimplePaymentWeight(height)};
+    if (!smallest) return false;
+    if (*smallest > std::numeric_limits<uint64_t>::max() - FULL_FIT_BUFFER_WEIGHT) return false;
+    const uint64_t hole{*smallest + FULL_FIT_BUFFER_WEIGHT};
+    return (cap - block_weight) < hole;
+}
+
+bool Slack(uint64_t block_weight, uint64_t cap)
+{
+    // block_weight * 5 < cap, as 128-bit products.
+    return !MulGe(block_weight, 5, cap, 1);
+}
+
+bool CountMeetsFourFifths(uint64_t count, int interval)
+{
+    if (interval <= 0) return false;
+    return MulGe(count, 5, static_cast<uint64_t>(interval), 4);
+}
+
+GrowCapResult GrowCap(uint64_t cap)
+{
+    constexpr uint64_t times_three_max{std::numeric_limits<uint64_t>::max() / 3};
+    if (cap > times_three_max) return MultiplyWouldOverflow{};
+    // Floor toward zero. The * 3 is in range because of the check above.
     const uint64_t grown{(cap * 3) / 2};
-    if (grown > MAX_FLEX_BLOCK_WEIGHT) return cap;
-    return grown;
+    if (grown > MAX_FLEX_BLOCK_WEIGHT) return AtCeiling{cap};
+    return Grew{grown};
 }
 
 uint64_t ShrinkCap(uint64_t cap)
 {
+    // Floor toward zero. Divisor is the constant 2.
     const uint64_t halved{cap / 2};
     return halved < MIN_FLEX_BLOCK_WEIGHT ? MIN_FLEX_BLOCK_WEIGHT : halved;
 }
 
-bool ShouldGrow(int hot_windows)
+uint64_t DecideNextCap(uint64_t cap, uint64_t pegged_blocks, uint64_t slack_blocks, int interval)
 {
-    return hot_windows >= 13;
-}
-
-bool ShouldShrink(uint64_t epoch_weight, uint64_t cap, int interval)
-{
-    if (interval <= 0) return false;
-    if (cap <= MIN_FLEX_BLOCK_WEIGHT) return false;
-    // epoch_weight / (cap * interval) < 1/5  =>  epoch_weight * 5 < cap * interval
-    return !MulGe(epoch_weight, 5, cap, static_cast<uint64_t>(interval));
-}
-
-bool WindowIsHot(uint64_t window_weight, uint64_t cap, uint64_t window_blocks)
-{
-    if (window_blocks == 0) return false;
-    // window_weight / (cap * blocks) >= 4/5  =>  weight * 5 >= cap * blocks * 4
-    if (cap > std::numeric_limits<uint64_t>::max() / 4) {
-        return MulGe(window_weight, 5, cap, window_blocks * 4);
+    if (CountMeetsFourFifths(pegged_blocks, interval)) {
+        const GrowCapResult grown{GrowCap(cap)};
+        if (const Grew* grew = std::get_if<Grew>(&grown)) return grew->cap;
+        if (const AtCeiling* ceiling = std::get_if<AtCeiling>(&grown)) return ceiling->cap;
+        // MultiplyWouldOverflow: do not grow, do not wrap.
+        return cap;
     }
-    return MulGe(window_weight, 5, cap * 4, window_blocks);
-}
-
-uint64_t DecideNextCap(uint64_t cap, int hot_windows, uint64_t epoch_weight, int interval)
-{
-    if (ShouldGrow(hot_windows)) return GrowCap(cap);
-    if (ShouldShrink(epoch_weight, cap, interval)) return ShrinkCap(cap);
+    if (CountMeetsFourFifths(slack_blocks, interval)) return ShrinkCap(cap);
     return cap;
 }
 

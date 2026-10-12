@@ -34,7 +34,7 @@ from test_framework.wallet import MiniWallet
 from test_framework.wallet_util import generate_keypair
 
 
-DUST_RELAY_TX_FEE = 3000  # default setting [sat/kvB]
+DUST_RELAY_TX_FEE = 250  # default setting [sat/kvB]; (3 * 1000) / 12
 
 
 class DustRelayFeeTest(BitcoinTestFramework):

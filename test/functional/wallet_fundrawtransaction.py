@@ -66,7 +66,7 @@ class RawTransactionsTest(BitcoinTestFramework):
 
     def lock_outputs_type(self, wallet, outputtype):
         """Only allow UTXOs of the given spend kind (lock every other kind)."""
-        if outputtype in ["bech32", "wpkh", "secp"]:
+        if outputtype in ["bech32", "wpkh", "bech32"]:
             prefixes = ["wpkh("]
         elif outputtype == "mldsa87":
             prefixes = ["mldsa87("]
@@ -250,7 +250,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.generate(self.nodes[0], COINBASE_MATURITY + 10)
         self.nodes[2].sendall(recipients=[self.nodes[0].getnewaddress()])
 
-        output_types = ['mldsa87', 'mldsa44', 'secp']
+        output_types = ['mldsa87', 'mldsa44', 'bech32']
         # Create coins
         for _ in range(10):
             for output_type in output_types:
@@ -500,9 +500,9 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.log.info("Test fundrawtxn fee for Dilithium 87, Dilithium 44, and secp")
         wallet = self.nodes[0]
         self.unlock_utxos(wallet)
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             self.ensure_kind_coins(wallet, kind, count=6, amount=10)
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             self.unlock_utxos(wallet)
             self.lock_outputs_type(wallet, kind)
             spendable = sum((u["amount"] for u in wallet.listunspent()), Decimal(0))
@@ -516,7 +516,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         """Same feerate check with several outputs per kind."""
         self.log.info("Test fundrawtxn fee for each spend kind with multiple outputs")
         wallet = self.nodes[0]
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             self.unlock_utxos(wallet)
             self.lock_outputs_type(wallet, kind)
             outputs = {self.nodes[1].getnewaddress("", kind): amt for amt in (1.1, 1.2, 0.1, 1.3, 0.2, 0.3)}
@@ -530,7 +530,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.log.info("Closed createmultisig types reject")
         self.assert_closed_address_types(self.nodes[1])
         secp_pubs = [
-            self.nodes[1].getaddressinfo(self.nodes[1].getnewaddress("", "secp"))["pubkey"]
+            self.nodes[1].getaddressinfo(self.nodes[1].getnewaddress("", "bech32"))["pubkey"]
             for _ in range(5)
         ]
         assert_raises_rpc_error(-5, "Unknown address type", self.nodes[3].createmultisig, 2, secp_pubs[:2], "legacy")
@@ -544,14 +544,14 @@ class RawTransactionsTest(BitcoinTestFramework):
         """P2WSH 2-of-2 is closed. Fund and sign single-key Dilithium 87 and secp."""
         self.log.info("P2WSH 2-of-2 is closed; fundraw+sign Dilithium 87 and secp")
         secp_pubs = [
-            self.nodes[1].getaddressinfo(self.nodes[1].getnewaddress("", "secp"))["pubkey"]
+            self.nodes[1].getaddressinfo(self.nodes[1].getnewaddress("", "bech32"))["pubkey"]
             for _ in range(2)
         ]
         assert_raises_rpc_error(-5, "Unknown address type", self.nodes[1].createmultisig, 2, secp_pubs, "legacy")
         created = self.nodes[1].createmultisig(2, secp_pubs, "bech32")
         assert "address" in created
         wallet = self.nodes[0]
-        for kind in ("mldsa87", "secp"):
+        for kind in ("mldsa87", "bech32"):
             self.lock_outputs_type(wallet, kind)
             rawtx = wallet.createrawtransaction([], {self.nodes[1].getnewaddress("", kind): 1.1})
             funded = wallet.fundrawtransaction(rawtx)
@@ -587,13 +587,13 @@ class RawTransactionsTest(BitcoinTestFramework):
                     'active': True,
                     'internal': True
                 }])
-                self.nodes[0].sendtoaddress(wallet.getnewaddress("", "secp"), 10)
+                self.nodes[0].sendtoaddress(wallet.getnewaddress("", "bech32"), 10)
                 self.sync_all()
                 self.generate(self.nodes[0], 1)
 
         # Drain the keypool while locked.
-        wallet.getnewaddress("", "secp")
-        wallet.getrawchangeaddress("secp")
+        wallet.getnewaddress("", "bech32")
+        wallet.getrawchangeaddress("bech32")
 
         # Choose input
         inputs = wallet.listunspent()
@@ -649,9 +649,9 @@ class RawTransactionsTest(BitcoinTestFramework):
         dest.sendall(recipients=[self.nodes[0].getnewaddress()])
         self.generate(self.nodes[1], 1)
         for _ in range(20):
-            self.nodes[0].sendtoaddress(dest.getnewaddress("", "secp"), 0.01)
+            self.nodes[0].sendtoaddress(dest.getnewaddress("", "bech32"), 0.01)
         self.generate(self.nodes[0], 1)
-        self.lock_outputs_type(dest, "secp")
+        self.lock_outputs_type(dest, "bech32")
         outputs = {self.nodes[0].getnewaddress(): 0.15, self.nodes[0].getnewaddress(): 0.04}
         funded = dest.fundrawtransaction(dest.createrawtransaction([], outputs))
         self.assert_fund_feerate(dest, funded, self.min_relay_tx_fee, extra="many secp")
@@ -675,7 +675,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.generate(self.nodes[1], 1)
 
         for _ in range(20):
-            self.nodes[0].sendtoaddress(self.nodes[1].getnewaddress("", "secp"), 0.01)
+            self.nodes[0].sendtoaddress(self.nodes[1].getnewaddress("", "bech32"), 0.01)
         self.generate(self.nodes[0], 1)
 
         # Fund a tx with ~20 small inputs.
@@ -1003,7 +1003,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         # Same many-small secp pattern as test_weight_limits. Default getnewaddress
         # is Dilithium 87; 1500 of those is a sanitizer time bomb, not the BnB story.
         recipient.keypoolrefill(1500)
-        outputs = {recipient.getnewaddress("", "secp"): 0.1 for _ in range(1472)}
+        outputs = {recipient.getnewaddress("", "bech32"): 0.1 for _ in range(1472)}
         wallet.sendmany("", outputs)
         self.generate(self.nodes[0], 1)
         rawtx = recipient.createrawtransaction([], {wallet.getnewaddress(): 0.1 * 1471})
@@ -1342,7 +1342,7 @@ class RawTransactionsTest(BitcoinTestFramework):
 
         outputs = []
         for _ in range(1472):
-            outputs.append({wallet.getnewaddress(address_type="secp"): 0.1})
+            outputs.append({wallet.getnewaddress(address_type="bech32"): 0.1})
         txid = self.nodes[0].send(outputs=outputs, change_position=0)["txid"]
         self.generate(self.nodes[0], 1)
 
@@ -1422,12 +1422,12 @@ class RawTransactionsTest(BitcoinTestFramework):
         # Because this test is specifically for ApproximateBestSubset, the target value must be greater
         # than any single input available, and require more than 1 input. So we make 3 outputs
         for i in range(0, 3):
-            funds.sendtoaddress(tester.getnewaddress(address_type="secp"), 1)
+            funds.sendtoaddress(tester.getnewaddress(address_type="bech32"), 1)
         self.generate(self.nodes[0], 1, sync_fun=self.no_op)
 
         # Create transactions in order to calculate fees for the target bounds that can trigger this bug.
         # Change stays warned secp so the 2-input vs 3-input window is Bitcoin-sized.
-        change_tx = tester.fundrawtransaction(tester.createrawtransaction([], [{funds.getnewaddress(): 1.5}]), change_type="secp")
+        change_tx = tester.fundrawtransaction(tester.createrawtransaction([], [{funds.getnewaddress(): 1.5}]), change_type="bech32")
         tx = tester.createrawtransaction([], [{funds.getnewaddress(): 2}])
         no_change_tx = tester.fundrawtransaction(tx, subtractFeeFromOutputs=[0])
 
@@ -1438,7 +1438,7 @@ class RawTransactionsTest(BitcoinTestFramework):
 
         def do_fund_send(target):
             create_tx = tester.createrawtransaction([], [{funds.getnewaddress(): target}])
-            funded_tx = tester.fundrawtransaction(create_tx, change_type="secp")
+            funded_tx = tester.fundrawtransaction(create_tx, change_type="bech32")
             signed_tx = tester.signrawtransactionwithwallet(funded_tx["hex"])
             assert signed_tx["complete"]
             decoded_tx = tester.decoderawtransaction(signed_tx["hex"])

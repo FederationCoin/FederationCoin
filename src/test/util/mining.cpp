@@ -49,9 +49,9 @@ std::vector<std::shared_ptr<CBlock>> CreateBlockChain(size_t total_height, const
         block.vtx = {MakeTransactionRef(std::move(coinbase_tx))};
 
         block.nVersion = VERSIONBITS_LAST_OLD_BLOCK_VERSION;
-        block.m_header_v2 = consensus.IsBlake2bHeight(nHeight);
-        block.m_height = block.m_header_v2 ? nHeight : 0;
-        block.m_txcount = block.m_header_v2 ? 1 : 0;
+        block.m_header_v2 = true;
+        block.m_height = nHeight;
+        block.m_txcount = 1;
         block.hashPrevBlock = (height >= 1 ? *ret.at(height - 1) : params.GenesisBlock()).GetHash();
         block.hashMerkleRoot = BlockMerkleRoot(block);
         block.nTime = ++time;

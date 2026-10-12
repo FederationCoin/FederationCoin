@@ -53,8 +53,8 @@ ASSUMED_BLOCK_OVERHEAD_WEIGHT = ASSUMED_BLOCK_OVERHEAD_SIZE * WITNESS_SCALE_FACT
 VERSIONBITS_TOP_BITS = 0x20000000
 VERSIONBITS_DEPLOYMENT_TESTDUMMY_BIT = 28
 HEADER_V2_VERSION_FLAG = 0x80000000
-DEFAULT_BLOCK_MIN_TX_FEE = 3000 # default `-blockmintxfee` setting [sat/kvB]
-MAX_SIGOP_COST = 80000
+DEFAULT_BLOCK_MIN_TX_FEE = 0  # default `-blockmintxfee` setting [sat/kvB]
+MAX_SIGOP_COST = 48000
 
 
 def assert_template(node, block, expect, rehash=True):
@@ -125,21 +125,28 @@ class MiningTest(BitcoinTestFramework):
                 self.restart_node(0, extra_args=[blockmintxfee_parameter, '-minrelaytxfee=0', '-persistmempool=0'])
                 self.wallet.rescan_utxos()  # to avoid spending outputs of txs that are not in mempool anymore after restart
 
-            # submit one tx with exactly the blockmintxfee rate, and one slightly below
-            tx_with_min_feerate = self.wallet.send_self_transfer(from_node=node, fee_rate=blockmintxfee_btc_kvb, confirmed_only=True)
-            assert_equal(tx_with_min_feerate["fee"], get_fee(tx_with_min_feerate["tx"].get_vsize(), blockmintxfee_btc_kvb))
-            if blockmintxfee_sat_kvb >= 5000:
-                lowerfee_btc_kvb = blockmintxfee_btc_kvb - Decimal(10)/COIN  # 0.01 sat/vbyte lower
-                tx_below_min_feerate = self.wallet.send_self_transfer(from_node=node, fee_rate=lowerfee_btc_kvb, confirmed_only=True)
-                assert_equal(tx_below_min_feerate["fee"], get_fee(tx_below_min_feerate["tx"].get_vsize(), lowerfee_btc_kvb))
-                # A 0.01 sat/vB cut can ceil to the same satoshi fee as the minimum rate.
-                below_rate = tx_below_min_feerate["fee"] / tx_below_min_feerate["tx"].get_vsize()
-                min_rate = tx_with_min_feerate["fee"] / tx_with_min_feerate["tx"].get_vsize()
-                if below_rate >= min_rate:
+            # submit one tx with exactly the blockmintxfee rate, and one slightly below.
+            # A 0 rate cannot be submitted (consensus MinimumFee); pay a default fee and
+            # drop the "below" tx with modified fees.
+            if blockmintxfee_sat_kvb == 0:
+                tx_with_min_feerate = self.wallet.send_self_transfer(from_node=node, confirmed_only=True)
+                tx_below_min_feerate = self.wallet.send_self_transfer(from_node=node, confirmed_only=True)
+                node.prioritisetransaction(tx_below_min_feerate["txid"], 0, -int(tx_below_min_feerate["fee"] * COIN) - 1)
+            else:
+                tx_with_min_feerate = self.wallet.send_self_transfer(from_node=node, fee_rate=blockmintxfee_btc_kvb, confirmed_only=True)
+                assert_equal(tx_with_min_feerate["fee"], get_fee(tx_with_min_feerate["tx"].get_vsize(), blockmintxfee_btc_kvb))
+                if blockmintxfee_sat_kvb >= 5000:
+                    lowerfee_btc_kvb = blockmintxfee_btc_kvb - Decimal(10)/COIN  # 0.01 sat/vbyte lower
+                    tx_below_min_feerate = self.wallet.send_self_transfer(from_node=node, fee_rate=lowerfee_btc_kvb, confirmed_only=True)
+                    assert_equal(tx_below_min_feerate["fee"], get_fee(tx_below_min_feerate["tx"].get_vsize(), lowerfee_btc_kvb))
+                    # A 0.01 sat/vB cut can ceil to the same satoshi fee as the minimum rate.
+                    below_rate = tx_below_min_feerate["fee"] / tx_below_min_feerate["tx"].get_vsize()
+                    min_rate = tx_with_min_feerate["fee"] / tx_with_min_feerate["tx"].get_vsize()
+                    if below_rate >= min_rate:
+                        node.prioritisetransaction(tx_below_min_feerate["txid"], 0, -1)
+                else:  # go below zero fee by using modified fees
+                    tx_below_min_feerate = self.wallet.send_self_transfer(from_node=node, fee_rate=blockmintxfee_btc_kvb, confirmed_only=True)
                     node.prioritisetransaction(tx_below_min_feerate["txid"], 0, -1)
-            else:  # go below zero fee by using modified fees
-                tx_below_min_feerate = self.wallet.send_self_transfer(from_node=node, fee_rate=blockmintxfee_btc_kvb, confirmed_only=True)
-                node.prioritisetransaction(tx_below_min_feerate["txid"], 0, -1)
 
             # check that tx below specified fee-rate is neither in template nor in the actual block
             req = NORMAL_GBT_REQUEST_PARAMS
@@ -446,8 +453,8 @@ class MiningTest(BitcoinTestFramework):
         self.log.info("Test that node will fail to start when user provide invalid -blockreservedweight")
         self.stop_node(0)
         self.nodes[0].assert_start_raises_init_error(
-            extra_args=[f"-blockreservedweight={MAX_BLOCK_WEIGHT + 1}"],
-            expected_msg=f"Error: Specified -blockreservedweight ({MAX_BLOCK_WEIGHT + 1}) exceeds consensus maximum block weight ({MAX_BLOCK_WEIGHT})",
+            extra_args=[f"-blockreservedweight={MAX_FLEX_BLOCK_WEIGHT + 1}"],
+            expected_msg=f"Error: Specified -blockreservedweight ({MAX_FLEX_BLOCK_WEIGHT + 1}) exceeds the flex cap ceiling",
         )
 
         self.log.info(f"Test that node will fail to start when user provide -blockreservedweight below {MINIMUM_BLOCK_RESERVED_WEIGHT}")
@@ -559,7 +566,7 @@ class MiningTest(BitcoinTestFramework):
         assert_equal("bad-blk-length", node.submitblock(hexdata=no_tx_block.serialize().hex()))
 
         self.log.info("submitblock: Test empty block")
-        assert_equal('high-hash', node.submitblock(hexdata=CBlock().serialize().hex()))
+        assert_equal('bad-version-blake2b', node.submitblock(hexdata=CBlock().serialize().hex()))
 
         self.log.info("getblocktemplate: Test truncated final transaction")
         assert_raises_rpc_error(-22, "Block decode failed", node.getblocktemplate, {

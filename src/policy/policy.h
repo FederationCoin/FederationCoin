@@ -7,7 +7,9 @@
 #define BITCOIN_POLICY_POLICY_H
 
 #include <consensus/amount.h>
+#include <consensus/block_limits.h>
 #include <consensus/consensus.h>
+#include <consensus/settlement_fee.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
 #include <script/solver.h>
@@ -24,14 +26,15 @@ namespace kernel {
 struct MemPoolOptions;
 };
 
-/** Default for -blockmaxsize, which controls the maximum size of block the mining code will create **/
+/** Heritage -blockmaxsize default. Template weight is DEFAULT_BLOCK_MAX_WEIGHT. **/
 static const unsigned int DEFAULT_BLOCK_MAX_SIZE = 300000;
 /** Default for -blockprioritysize, maximum space for zero/low-fee transactions **/
 static const unsigned int DEFAULT_BLOCK_PRIORITY_SIZE = 100000;
 /** Minimum priority for transactions to be accepted into the priority area **/
 static const double MINIMUM_TX_PRIORITY = COIN * 144 / 250;
-/** Default for -blockmaxweight, which controls the range of block weights the mining code will create **/
-static constexpr unsigned int DEFAULT_BLOCK_MAX_WEIGHT{DEFAULT_BLOCK_MAX_SIZE * WITNESS_SCALE_FACTOR};
+/** Default for -blockmaxweight. Template tracks the genesis flex floor; a
+ *  live cap after a grow is -blockmaxweight / the assembler clamp, not TRUC. */
+static constexpr unsigned int DEFAULT_BLOCK_MAX_WEIGHT{static_cast<unsigned int>(Consensus::MIN_FLEX_BLOCK_WEIGHT)};
 /** Default for BlockCreateOptions.block_reserved_size **/
 static constexpr unsigned int DEFAULT_BLOCK_RESERVED_SIZE{1000};
 /** Default for -blockreservedweight **/
@@ -41,20 +44,26 @@ static constexpr unsigned int DEFAULT_BLOCK_RESERVED_WEIGHT{8000};
  * of block serialization, it's easy to make a costly mistake when trying to squeeze every last byte.
  * Setting a lower value is prevented at startup. */
 static constexpr unsigned int MINIMUM_BLOCK_RESERVED_WEIGHT{2000};
-/** Default for -blockmintxfee, which sets the minimum feerate for a transaction in blocks created by mining code **/
-static constexpr unsigned int DEFAULT_BLOCK_MIN_TX_FEE{3000};
+/** Default for -blockmintxfee. Consensus MinimumFee is the floor; this is not a second linear rate. **/
+static constexpr unsigned int DEFAULT_BLOCK_MIN_TX_FEE{0};
 /** The maximum weight for transactions we're willing to relay/mine */
 static constexpr int32_t MAX_STANDARD_TX_WEIGHT{400000};
 /** The minimum non-witness size for transactions we're willing to relay/mine: one larger than 64  */
 static constexpr unsigned int MIN_STANDARD_TX_NONWITNESS_SIZE{65};
 /** Maximum number of signature check operations in an IsStandard() P2SH script */
 static constexpr unsigned int MAX_P2SH_SIGOPS{15};
-/** The maximum number of sigops we're willing to relay/mine in a single tx */
-static constexpr unsigned int MAX_STANDARD_TX_SIGOPS_COST{MAX_BLOCK_SIGOPS_COST/5};
+/** Sigops this node will relay or mine in one transaction.
+ *  Floor of the block sigops cost (itself floor(cap / 50)) divided by 5.
+ *  cap is the live block weight, not a fixed 4,000,000. */
+inline unsigned int StandardTxSigopsLimit(uint64_t weight_cap)
+{
+    return static_cast<unsigned int>(Consensus::LimitsForCap(weight_cap).standard_tx_sigops_cost);
+}
 /** The maximum number of potentially executed legacy signature operations in a single standard tx */
 static constexpr unsigned int MAX_TX_LEGACY_SIGOPS{2'500};
-/** Default for -incrementalrelayfee, which sets the minimum feerate increase for mempool limiting or replacement **/
-static constexpr unsigned int DEFAULT_INCREMENTAL_RELAY_FEE{3000};
+/** Default for -incrementalrelayfee. One atom per vB RBF delta, not a 3 atom/vB floor.
+ *  Distinct from CORE_INCREMENTAL_RELAY_FEE{100}. */
+static constexpr unsigned int DEFAULT_INCREMENTAL_RELAY_FEE{1000};
 static constexpr CAmount CORE_INCREMENTAL_RELAY_FEE{100};
 /** Default for -maxscriptsize */
 static constexpr unsigned int DEFAULT_SCRIPT_SIZE_POLICY_LIMIT{1650};
@@ -100,12 +109,16 @@ static constexpr unsigned int MAX_STANDARD_SCRIPTSIG_SIZE{1650};
  * standard and should be done with care and ideally rarely. It makes sense to
  * only increase the dust limit after prior releases were already not creating
  * outputs below the new threshold */
-static constexpr unsigned int DUST_RELAY_TX_FEE{3000};
+/** Dust feerate (atoms/kvB): consensus kvB floor times this multiplier. */
+static constexpr unsigned int DUST_RELAY_FEE_MULTIPLIER{3};
+static constexpr unsigned int DUST_RELAY_TX_FEE{(DUST_RELAY_FEE_MULTIPLIER * 1000) / MIN_FEE_VSIZE_DIVISOR};
 static const std::string DEFAULT_DUST_DYNAMIC{"off"};
 static const int DEFAULT_DUST_RELAY_MULTIPLIER{3'000};
 static const std::string DEFAULT_SPKREUSE{"allow"};
-/** Default for -minrelaytxfee, minimum relay fee for transactions */
-static constexpr unsigned int DEFAULT_MIN_RELAY_TX_FEE{3000};
+/** Default for -minrelaytxfee. Zero: do not add a linear gossip floor.
+ *  Consensus MinimumFee (floor(vsize / 12)) still applies. Operator
+ *  -minrelaytxfee remains a stricter knob. */
+static constexpr unsigned int DEFAULT_MIN_RELAY_TX_FEE{0};
 /** Default for -limitancestorcount, max number of in-mempool ancestors */
 static constexpr unsigned int DEFAULT_ANCESTOR_LIMIT{25};
 /** Default for -limitancestorsize, maximum kilobytes of tx + all in-mempool ancestors */
@@ -122,7 +135,7 @@ static const bool DEFAULT_ACCEPT_DATACARRIER = true;
  */
 /** Default for -permitbaredatacarrier */
 static const bool DEFAULT_PERMITBAREDATACARRIER{false};
-static const unsigned int MAX_OP_RETURN_RELAY = 83;
+static const unsigned int MAX_OP_RETURN_RELAY = 38;
 /** Default for -datacarrierfullcount */
 static constexpr bool DEFAULT_DATACARRIER_FULLCOUNT{true};
 /**

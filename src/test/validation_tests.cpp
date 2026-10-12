@@ -75,23 +75,30 @@ BOOST_AUTO_TEST_CASE(subsidy_limit_test)
     BOOST_CHECK_EQUAL(nSum, CAmount{2099999997690000});
 }
 
-BOOST_AUTO_TEST_CASE(block_header_hidden_v2_fields)
+BOOST_AUTO_TEST_CASE(block_header_requires_v2)
 {
     Consensus::Params params{};
-    const auto check_hidden_field = [&](const CBlock& block) {
-        BlockValidationState state;
-        BOOST_CHECK(!CheckBlock(block, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
-        BOOST_CHECK(state.GetResult() == BlockValidationResult::BLOCK_MUTATED);
-        BOOST_CHECK_EQUAL(state.GetRejectReason(), "error-headerv1-with-v2-fields");
-    };
+    BlockValidationState state;
+    CBlock v1;
+    BOOST_CHECK(!CheckBlock(v1, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK(state.GetResult() == BlockValidationResult::BLOCK_INVALID_HEADER);
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-version-blake2b");
 
-    CBlock hidden_txcount;
-    hidden_txcount.m_txcount = 1;
-    check_hidden_field(hidden_txcount);
+    // v2 payload fields on a v1 header do not change that: v1 is invalid.
+    CBlock v1_with_fields;
+    v1_with_fields.m_txcount = 1;
+    v1_with_fields.m_mm_rhs = uint256::ONE;
+    state = {};
+    BOOST_CHECK(!CheckBlock(v1_with_fields, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-version-blake2b");
 
-    CBlock hidden_mm_rhs;
-    hidden_mm_rhs.m_mm_rhs = uint256::ONE;
-    check_hidden_field(hidden_mm_rhs);
+    CBlock v2_txcount;
+    v2_txcount.m_header_v2 = true;
+    v2_txcount.m_txcount = 1;
+    state = {};
+    BOOST_CHECK(!CheckBlock(v2_txcount, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/true));
+    BOOST_CHECK(state.GetResult() == BlockValidationResult::BLOCK_MUTATED);
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-txnlist-size");
 }
 
 BOOST_AUTO_TEST_CASE(signet_parse_tests)

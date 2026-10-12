@@ -9,7 +9,8 @@
 #include <chain.h>
 #include <coins.h>
 #include <consensus/amount.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
+#include <consensus/mldsa87_spend.h>
 #include <consensus/validation.h>
 #include <core_io.h>
 #include <index/txindex.h>
@@ -752,10 +753,18 @@ static RPCHelpMan combinerawtransaction()
             uint256 sighash;
             const bool hashed{txdata.m_spent_outputs_ready &&
                               SignatureHashUnified(sighash, CScript{}, txConst, i, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata)};
-            const std::span<const unsigned char> message{hashed ? std::span<const unsigned char>{sighash.begin(), sighash.size()} : std::span<const unsigned char>{}};
-            const auto merged{Consensus::MergeMlDsa44Witnesses(stacks, message)};
+            if (!hashed) {
+                throw JSONRPCError(RPC_VERIFY_ERROR, "Unable to combine Dilithium slot witnesses");
+            }
+            const std::span<const unsigned char> message{sighash.begin(), sighash.size()};
+            const auto merged87{Consensus::MergeMlDsa87Witnesses(stacks, message)};
+            const auto merged44{Consensus::MergeMlDsa44Witnesses(stacks, message)};
+            if (merged87 && merged44 && *merged87 != *merged44) {
+                throw JSONRPCError(RPC_VERIFY_ERROR, "Unable to combine Dilithium slot witnesses");
+            }
+            const auto& merged{merged87 ? merged87 : merged44};
             if (!merged) {
-                throw JSONRPCError(RPC_VERIFY_ERROR, "Unable to combine ML-DSA-44 slot witnesses");
+                throw JSONRPCError(RPC_VERIFY_ERROR, "Unable to combine Dilithium slot witnesses");
             }
             mergedTx.vin[i].scriptSig.clear();
             mergedTx.vin[i].scriptWitness.stack = *merged;

@@ -61,7 +61,7 @@ class CreateWalletTest(BitcoinTestFramework):
 
         self.nodes[0].createwallet(wallet_name='w0')
         w0 = node.get_wallet_rpc('w0')
-        address1 = w0.getnewaddress("", "secp")
+        address1 = w0.getnewaddress("", "bech32")
 
         self.log.info("Test disableprivatekeys creation.")
         self.nodes[0].createwallet(wallet_name='w1', disable_private_keys=True)
@@ -116,8 +116,8 @@ class CreateWalletTest(BitcoinTestFramework):
         else:
             w3.sethdseed()
         assert_equal(w3.getwalletinfo()['keypoolsize'], 1)
-        w3.getnewaddress("", "secp")
-        w3.getrawchangeaddress("secp")
+        w3.getnewaddress("", "bech32")
+        w3.getrawchangeaddress("bech32")
 
         self.log.info("Test blank creation with privkeys enabled and then encryption")
         self.nodes[0].createwallet(wallet_name='w4', disable_private_keys=False, blank=True)
@@ -145,8 +145,8 @@ class CreateWalletTest(BitcoinTestFramework):
                 }])
             else:
                 w4.sethdseed()
-            w4.getnewaddress("", "secp")
-            w4.getrawchangeaddress("secp")
+            w4.getnewaddress("", "bech32")
+            w4.getrawchangeaddress("bech32")
 
         self.log.info("Test blank creation with privkeys disabled and then encryption")
         self.nodes[0].createwallet(wallet_name='w5', disable_private_keys=True, blank=True)
@@ -173,7 +173,7 @@ class CreateWalletTest(BitcoinTestFramework):
         w6 = node.get_wallet_rpc('w6')
         assert_raises_rpc_error(-13, "Error: Please enter the wallet passphrase with walletpassphrase first.", w6.signmessage, "needanargument", "test")
         with WalletUnlock(w6, "thisisapassphrase"):
-            w6.signmessage(w6.getnewaddress('', 'secp'), "test")
+            w6.signmessage(w6.getnewaddress('', 'bech32'), "test")
             w6.keypoolrefill(1)
             # Three product descriptors: Dilithium 87, Dilithium 44, secp.
             walletinfo = w6.getwalletinfo()

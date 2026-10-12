@@ -45,7 +45,7 @@ class KeypoolRestoreTest(BitcoinTestFramework):
         for i in range(1, self.num_nodes):
             self.connect_nodes(0, i)
 
-        output_types = ["mldsa87", "mldsa44", "secp"]
+        output_types = ["mldsa87", "mldsa44", "bech32"]
         for i, output_type in enumerate(output_types):
             self.log.info("Generate keys for wallet with address type: {}".format(output_type))
             idx = i+1
@@ -58,7 +58,7 @@ class KeypoolRestoreTest(BitcoinTestFramework):
             address_details = self.nodes[idx].validateaddress(addr_extpool)
             assert address_details["iswitness"]
             assert_equal(address_details["witness_version"], 0)
-            if output_type == "secp":
+            if output_type == "bech32":
                 assert_equal(len(address_details["witness_program"]), 40)
             else:
                 assert_equal(len(address_details["witness_program"]), 64)

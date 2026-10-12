@@ -101,7 +101,7 @@ class WalletSignerTest(BitcoinTestFramework):
 
         assert_equal(hww.getwalletinfo()["keypoolsize"], 40)
 
-        address1 = hww.getnewaddress(address_type="secp")
+        address1 = hww.getnewaddress(address_type="bech32")
         assert_equal(address1, "gfcnrt1qm90ugl4d48jv8n6e5t9ln6t9zlpm5th6wlt4ts")
         address_info = hww.getaddressinfo(address1)
         assert_equal(address_info['solvable'], True)
@@ -203,7 +203,7 @@ class WalletSignerTest(BitcoinTestFramework):
 
         self.log.info('Test sendall using hww1')
 
-        res = hww.sendall(recipients=[{dest:0.5}, hww.getrawchangeaddress("secp")], add_to_wallet=False)
+        res = hww.sendall(recipients=[{dest:0.5}, hww.getrawchangeaddress("bech32")], add_to_wallet=False)
         assert res["complete"]
         assert_equal(res["hex"], mock_tx)
         # Broadcast transaction so we can bump the fee
@@ -252,7 +252,7 @@ class WalletSignerTest(BitcoinTestFramework):
         hww = self.nodes[1].get_wallet_rpc('hww_disconnect')
 
         # Try to spend
-        dest = hww.getrawchangeaddress("secp")
+        dest = hww.getrawchangeaddress("bech32")
         assert_raises_rpc_error(-25, "External signer not found", hww.send, outputs=[{dest:0.5}])
 
     def test_invalid_signer(self):

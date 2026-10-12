@@ -68,12 +68,12 @@ FUZZ_TARGET(wallet_notifications, .init = initialize_setup)
     FuzzedWallet a{
         *g_setup->m_node.chain,
         "fuzzed_wallet_a",
-        "tprv8ZgxMBicQKsPd1QwsGgzfu2pcPYbBosZhJknqreRHgsWx32nNEhMjGQX2cgFL8n6wz9xdDYwLcs78N4nsCo32cxEX8RBtwGsEGgybLiQJfk",
+        "trBb8nVXuTDmeQ5gSrWCbT5Cddfs75ooMzbSEp2yrgmuEBnwBYujC3wduh8Vv4rYeCJizJResPiNzQWQrxMeqES7dFdxeyW14Bz6RVLev2RZ43z",
     };
     FuzzedWallet b{
         *g_setup->m_node.chain,
         "fuzzed_wallet_b",
-        "tprv8ZgxMBicQKsPfCunYTF18sEmEyjz8TfhGnZ3BoVAhkqLv7PLkQgmoG2Ecsp4JuqciWnkopuEwShit7st743fdmB9cMD4tznUkcs33vK51K9",
+        "trBb8nVXuTDmeQ5gV413GddD6bsojg1CJePZpHqECdceeFkm9dGHaDw3ygkDWKzMcyNEkq4T414gbEM2ciAk55gkEPrskCHt4FVhwqWiNcqNc1C",
     };
 
     // Keep track of all coins in this test.

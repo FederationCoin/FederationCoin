@@ -68,7 +68,7 @@ class PSBTTest(BitcoinTestFramework):
         self.num_nodes = 3
         self.extra_args = [
             ["-walletrbf=1", "-addresstype=bech32", "-changetype=bech32"], #TODO: Remove address type restrictions once taproot has psbt extensions
-            ["-walletrbf=0", "-changetype=secp"],
+            ["-walletrbf=0", "-changetype=bech32"],
             []
         ]
         # whitelist peers to speed up tx relay / mempool sync
@@ -222,7 +222,7 @@ class PSBTTest(BitcoinTestFramework):
 
     def test_addresstype_legacy_with_no_legacy_change(self):
         self.log.info("A taproot change descriptor cannot mint an address")
-        self.restart_node(2, extra_args=["-addresstype=secp"])
+        self.restart_node(2, extra_args=["-addresstype=bech32"])
         self.connect_nodes(0, 2)
         self.connect_nodes(1, 2)
         self.nodes[2].createwallet(wallet_name='no_legacy_change', blank=True)
@@ -389,9 +389,9 @@ class PSBTTest(BitcoinTestFramework):
         self.nodes[0].walletcreatefundedpsbt([{"txid": utxo1['txid'], "vout": utxo1['vout']}], {self.nodes[2].getnewaddress():1}, 0)
 
         # Create p2sh, p2wpkh, and p2wsh addresses
-        pubkey0 = self.nodes[0].getaddressinfo(self.nodes[0].getnewaddress("", "secp"))['pubkey']
-        pubkey1 = self.nodes[1].getaddressinfo(self.nodes[1].getnewaddress("", "secp"))['pubkey']
-        pubkey2 = self.nodes[2].getaddressinfo(self.nodes[2].getnewaddress("", "secp"))['pubkey']
+        pubkey0 = self.nodes[0].getaddressinfo(self.nodes[0].getnewaddress("", "bech32"))['pubkey']
+        pubkey1 = self.nodes[1].getaddressinfo(self.nodes[1].getnewaddress("", "bech32"))['pubkey']
+        pubkey2 = self.nodes[2].getaddressinfo(self.nodes[2].getnewaddress("", "bech32"))['pubkey']
 
         # Setup watchonly wallets
         self.nodes[2].createwallet(wallet_name='wmulti', disable_private_keys=True)
@@ -410,7 +410,7 @@ class PSBTTest(BitcoinTestFramework):
         p2wsh = wmulti.deriveaddresses(p2wsh_desc)[0]
         p2sh_p2wsh = wmulti.deriveaddresses(p2sh_p2wsh_desc)[0]
         p2wpkh = self.nodes[1].getnewaddress("", "bech32")
-        p2pkh = self.nodes[1].getnewaddress("", "secp")
+        p2pkh = self.nodes[1].getnewaddress("", "bech32")
         p2sh_p2wpkh = self.nodes[1].getnewaddress("", "mldsa44")
 
         # fund those addresses
@@ -458,8 +458,8 @@ class PSBTTest(BitcoinTestFramework):
         self.nodes[1].sendrawtransaction(walletprocesspsbt_out['hex'])
 
         self.log.info("Test walletcreatefundedpsbt fee rate of 10000 token/vB and 0.1 COIN/kvB stays at or below -maxtxfee for secp change")
-        secp_out = [{self.nodes[1].getnewaddress("", "secp"): 1}]
-        secp_opts = {"add_inputs": True, "change_type": "secp"}
+        secp_out = [{self.nodes[1].getnewaddress("", "bech32"): 1}]
+        secp_opts = {"add_inputs": True, "change_type": "bech32"}
         res1 = self.nodes[1].walletcreatefundedpsbt([], secp_out, 0, {**secp_opts, "fee_rate": 10000})
         assert res1["fee"] < 0.1
         res2 = self.nodes[1].walletcreatefundedpsbt([], secp_out, 0, {**secp_opts, "feeRate": "0.1"})
@@ -654,7 +654,7 @@ class PSBTTest(BitcoinTestFramework):
         self.assert_change_type(psbtx_np2wkh, "witness_v0_scripthash")
 
         # Make sure the change type cannot be specified if a change address is given
-        invalid_options = {"change_type":"secp","changeAddress":self.nodes[0].getnewaddress()}
+        invalid_options = {"change_type":"bech32","changeAddress":self.nodes[0].getnewaddress()}
         assert_raises_rpc_error(-8, "both change address and address type options", self.nodes[0].walletcreatefundedpsbt, [], [small_output], 0, invalid_options)
 
         # Regression test for 14473 (mishandling of already-signed witness transaction):
@@ -761,7 +761,7 @@ class PSBTTest(BitcoinTestFramework):
         self.test_input_confs_control()
 
         # Test that psbts with p2pkh outputs are created properly
-        p2pkh = self.nodes[0].getnewaddress(address_type='secp')
+        p2pkh = self.nodes[0].getnewaddress(address_type='bech32')
         psbt = self.nodes[1].walletcreatefundedpsbt([], [{p2pkh : 1}], 0, {"includeWatching" : True}, True)
         self.nodes[0].decodepsbt(psbt['psbt'])
 
@@ -769,7 +769,7 @@ class PSBTTest(BitcoinTestFramework):
         assert_raises_rpc_error(-22, "TX decode failed invalid base64", self.nodes[0].decodepsbt, ";definitely not base64;")
 
         # Send to all types of addresses
-        addr1 = self.nodes[1].getnewaddress("", "secp")
+        addr1 = self.nodes[1].getnewaddress("", "bech32")
         addr2 = self.nodes[1].getnewaddress("", "mldsa87")
         addr3 = self.nodes[1].getnewaddress("", "mldsa44")
         utxo1, utxo2, utxo3 = self.create_outpoints(self.nodes[1], outputs=[{addr1: 11}, {addr2: 11}, {addr3: 11}])
@@ -805,7 +805,7 @@ class PSBTTest(BitcoinTestFramework):
         assert_raises_rpc_error(-8, "exists in multiple PSBTs", self.nodes[1].joinpsbts, [psbt1, updated])
 
         # Join two distinct PSBTs
-        addr4 = self.nodes[1].getnewaddress("", "secp")
+        addr4 = self.nodes[1].getnewaddress("", "bech32")
         utxo4 = self.create_outpoints(self.nodes[0], outputs=[{addr4: 5}])[0]
         self.generate(self.nodes[0], 6)
         psbt2 = self.nodes[1].createpsbt([utxo4], {self.nodes[0].getnewaddress():Decimal('4.999')})
@@ -827,11 +827,11 @@ class PSBTTest(BitcoinTestFramework):
         assert shuffled
 
         # Newly created PSBT needs UTXOs and updating
-        addr = self.nodes[1].getnewaddress("", "secp")
+        addr = self.nodes[1].getnewaddress("", "bech32")
         utxo = self.create_outpoints(self.nodes[0], outputs=[{addr: 7}])[0]
         addrinfo = self.nodes[1].getaddressinfo(addr)
         self.generate(self.nodes[0], 6)[0]
-        psbt = self.nodes[1].createpsbt([utxo], {self.nodes[0].getnewaddress("", "secp"):Decimal('6.999')})
+        psbt = self.nodes[1].createpsbt([utxo], {self.nodes[0].getnewaddress("", "bech32"):Decimal('6.999')})
         analyzed = self.nodes[0].analyzepsbt(psbt)
         assert not analyzed['inputs'][0]['has_utxo'] and not analyzed['inputs'][0]['is_final'] and analyzed['inputs'][0]['next'] == 'updater' and analyzed['next'] == 'updater'
 

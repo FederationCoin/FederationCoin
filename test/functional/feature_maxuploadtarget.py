@@ -36,8 +36,9 @@ UPLOAD_TARGET_MB = 6400
 # Knots counted on a ~1MB block. These are those iteration counts.
 HISTORICAL_DOWNLOADS = 235
 NEW_BLOCK_DOWNLOADS = 800
-# OutboundTargetReached reserves (time left / 10 minutes) * this.
-MAX_BLOCK_SERIALIZED_SIZE = 32_000_000
+# OutboundTargetReached reserves (time left / 10 minutes) * the live block
+# message limit. At the flex floor that is 2,400,000 bytes.
+MAX_BLOCK_SERIALIZED_SIZE = 2_400_000
 
 
 class TestP2PConn(P2PInterface):

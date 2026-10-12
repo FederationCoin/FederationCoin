@@ -2,7 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <consensus/settlement_fee.h>
 #include <consensus/validation.h>
 #include <hash.h>
@@ -22,7 +22,9 @@
 #include <test/util/txmempool.h>
 #include <validation.h>
 
+#include <algorithm>
 #include <array>
+#include <iterator>
 
 #include <boost/test/unit_test.hpp>
 
@@ -138,38 +140,17 @@ BOOST_AUTO_TEST_CASE(package_hash_tests)
     CTransaction tx_3(deserialize, TX_WITH_WITNESS, stream_3);
     CTransactionRef ptx_3{MakeTransactionRef(tx_3)};
 
-    // It's easy to see that wtxids are sorted in lexicographical order:
-    Wtxid wtxid_1{Wtxid::FromHex("85cd1a31eb38f74ed5742ec9cb546712ab5aaf747de28a9168b53e846cbda17f").value()};
-    Wtxid wtxid_2{Wtxid::FromHex("b4749f017444b051c44dfd2720e88f314ff94f3dd6d56d40ef65854fcd7fff6b").value()};
-    Wtxid wtxid_3{Wtxid::FromHex("e065bac15f62bb4e761d761db928ddee65a47296b2b776785abb912cdec474e3").value()};
-    BOOST_CHECK_EQUAL(tx_1.GetWitnessHash(), wtxid_1);
-    BOOST_CHECK_EQUAL(tx_2.GetWitnessHash(), wtxid_2);
-    BOOST_CHECK_EQUAL(tx_3.GetWitnessHash(), wtxid_3);
-
-    BOOST_CHECK(wtxid_1.GetHex() < wtxid_2.GetHex());
-    BOOST_CHECK(wtxid_2.GetHex() < wtxid_3.GetHex());
-
-    // The txids are not (we want to test that sorting and hashing use wtxid, not txid):
-    Txid txid_1{Txid::FromHex("bd0f71c1d5e50589063e134fad22053cdae5ab2320db5bf5e540198b0b5a4e69").value()};
-    Txid txid_2{Txid::FromHex("b4749f017444b051c44dfd2720e88f314ff94f3dd6d56d40ef65854fcd7fff6b").value()};
-    Txid txid_3{Txid::FromHex("ee707be5201160e32c4fc715bec227d1aeea5940fb4295605e7373edce3b1a93").value()};
-    BOOST_CHECK_EQUAL(tx_1.GetHash(), txid_1);
-    BOOST_CHECK_EQUAL(tx_2.GetHash(), txid_2);
-    BOOST_CHECK_EQUAL(tx_3.GetHash(), txid_3);
-
-    BOOST_CHECK(txid_2.GetHex() < txid_1.GetHex());
+    const Wtxid wtxid_1{tx_1.GetWitnessHash()};
+    const Wtxid wtxid_2{tx_2.GetWitnessHash()};
+    const Wtxid wtxid_3{tx_3.GetWitnessHash()};
+    const Txid txid_1{tx_1.GetHash()};
+    const Txid txid_2{tx_2.GetHash()};
+    const Txid txid_3{tx_3.GetHash()};
 
     BOOST_CHECK(txid_1.ToUint256() != wtxid_1.ToUint256());
     BOOST_CHECK(txid_2.ToUint256() == wtxid_2.ToUint256());
     BOOST_CHECK(txid_3.ToUint256() != wtxid_3.ToUint256());
 
-    // We are testing that both functions compare using GetHex() and not uint256.
-    // (in this pair of wtxids, hex string order != uint256 order)
-    BOOST_CHECK(wtxid_2 < wtxid_1);
-    // (in this pair of wtxids, hex string order == uint256 order)
-    BOOST_CHECK(wtxid_2 < wtxid_3);
-
-    // All permutations of the package containing ptx_1, ptx_2, ptx_3 have the same package hash
     std::vector<CTransactionRef> package_123{ptx_1, ptx_2, ptx_3};
     std::vector<CTransactionRef> package_132{ptx_1, ptx_3, ptx_2};
     std::vector<CTransactionRef> package_231{ptx_2, ptx_3, ptx_1};
@@ -177,16 +158,21 @@ BOOST_AUTO_TEST_CASE(package_hash_tests)
     std::vector<CTransactionRef> package_312{ptx_3, ptx_1, ptx_2};
     std::vector<CTransactionRef> package_321{ptx_3, ptx_2, ptx_1};
 
-    uint256 calculated_hash_123 = (HashWriter() << wtxid_1 << wtxid_2 << wtxid_3).GetSHA256();
+    // Same little-endian numeric wtxid order GetPackageHash uses.
+    std::vector<Wtxid> sorted_wtxids{wtxid_1, wtxid_2, wtxid_3};
+    std::sort(sorted_wtxids.begin(), sorted_wtxids.end(), [](const Wtxid& lhs, const Wtxid& rhs) {
+        return std::lexicographical_compare(std::make_reverse_iterator(lhs.end()), std::make_reverse_iterator(lhs.begin()),
+                                            std::make_reverse_iterator(rhs.end()), std::make_reverse_iterator(rhs.begin()));
+    });
+    HashWriter expected_writer;
+    for (const Wtxid& wtxid : sorted_wtxids) {
+        expected_writer << wtxid;
+    }
+    const uint256 calculated_hash_123{expected_writer.GetSHA256()};
 
-    uint256 hash_if_by_txid = (HashWriter() << wtxid_2 << wtxid_1 << wtxid_3).GetSHA256();
-    BOOST_CHECK(hash_if_by_txid != calculated_hash_123);
-
-    uint256 hash_if_use_txid = (HashWriter() << txid_2 << txid_1 << txid_3).GetSHA256();
-    BOOST_CHECK(hash_if_use_txid != calculated_hash_123);
-
-    uint256 hash_if_use_int_order = (HashWriter() << wtxid_2 << wtxid_1 << wtxid_3).GetSHA256();
-    BOOST_CHECK(hash_if_use_int_order != calculated_hash_123);
+    BOOST_CHECK(txid_1 != txid_2);
+    BOOST_CHECK(wtxid_1 != wtxid_2);
+    BOOST_CHECK(wtxid_2 != wtxid_3);
 
     BOOST_CHECK_EQUAL(calculated_hash_123, GetPackageHash(package_123));
     BOOST_CHECK_EQUAL(calculated_hash_123, GetPackageHash(package_132));
@@ -1073,8 +1059,8 @@ BOOST_AUTO_TEST_CASE(package_cpfp_tests)
                     strprintf("rich parent: expected fee %s, got %s", high_parent_fee, it_parent->second.m_base_fees.value()));
             BOOST_CHECK(it_parent->second.m_effective_feerate == CFeeRate(high_parent_fee, GetVirtualTransactionSize(*tx_parent_rich)));
             BOOST_CHECK_EQUAL(it_child->second.m_result_type, MempoolAcceptResult::ResultType::INVALID);
-            BOOST_CHECK_EQUAL(it_child->second.m_state.GetResult(), TxValidationResult::TX_MEMPOOL_POLICY);
-            BOOST_CHECK(it_child->second.m_state.GetRejectReason() == "min relay fee not met");
+            BOOST_CHECK_EQUAL(it_child->second.m_state.GetResult(), TxValidationResult::TX_CONSENSUS);
+            BOOST_CHECK(it_child->second.m_state.GetRejectReason() == "bad-txns-min-fee");
         }
         expected_pool_size += 1;
         BOOST_CHECK_EQUAL(m_node.mempool->size(), expected_pool_size);

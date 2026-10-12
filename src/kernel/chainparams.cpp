@@ -7,7 +7,6 @@
 
 #include <chainparamsseeds.h>
 #include <consensus/amount.h>
-#include <consensus/flex_weight.h>
 #include <consensus/merkle.h>
 #include <consensus/params.h>
 #include <hash.h>
@@ -45,6 +44,26 @@ auto consteval_ctor(auto&& input) { return input; }
 // 0x1b095cae so localhost GPU automation can find a block. Dummy MAIN stays
 // 0x1e00ffff; MAIN launch compact remains 0x1b00efab.
 static constexpr uint32_t kTestnetBlake2bBits = 0x1c03a830;
+/** Block target spacing: 12 minutes, in seconds. */
+static constexpr int64_t kPowTargetSpacing = 12 * 60;
+/** Retarget timespan: 14 days, in seconds. */
+static constexpr int64_t kPowTargetTimespan = 14 * 24 * 60 * 60;
+/** timespan / spacing (14 days / 12 minutes). */
+static constexpr uint32_t kMinerConfirmationWindow = static_cast<uint32_t>(kPowTargetTimespan / kPowTargetSpacing);
+/** 90% of kMinerConfirmationWindow (MAIN / signet BIP9 threshold). */
+static constexpr uint32_t kMainBip9Threshold = kMinerConfirmationWindow * 90 / 100;
+/** 75% of kMinerConfirmationWindow (testnet BIP9 threshold). */
+static constexpr uint32_t kTestnetBip9Threshold = kMinerConfirmationWindow * 75 / 100;
+/** Subsidy halving interval (blocks). */
+static constexpr int kSubsidyHalvingInterval = 210000;
+/** Regtest BIP9 threshold / window. */
+static constexpr uint32_t kRegtestBip9Threshold = 90;
+static constexpr uint32_t kRegtestMinerWindow = 120;
+/** Dummy MAIN placeholder compact (not launch). Intended MAIN launch compact
+ *  0x1b00efab is named in comments only. */
+static constexpr uint32_t kDummyMainBits = 0x1e00ffff;
+static constexpr uint32_t kSignetGenesisBits = 0x1e0377ae;
+static constexpr uint32_t kRegtestBits = 0x207fffff;
 
 static CBlock CreateGenesisBlock([[maybe_unused]] const char* pszTimestamp, const CScript& genesisOutputScript, uint32_t nTime, uint32_t nNonce, uint32_t nNonce2, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
@@ -74,49 +93,20 @@ static CBlock CreateGenesisBlock([[maybe_unused]] const char* pszTimestamp, cons
 }
 
 /**
- * Build the genesis block. Note that the output of its generation
- * transaction cannot be spent since it did not originally exist in the
- * database.
- *
- * CBlock(hash=000000000019d6, ver=1, hashPrevBlock=00000000000000, hashMerkleRoot=4a5e1e, nTime=1231006505, nBits=1d00ffff, nNonce=2083236893, vtx=1)
- *   CTransaction(hash=4a5e1e, ver=1, vin.size=1, vout.size=1, nLockTime=0)
- *     CTxIn(COutPoint(000000, -1), coinbase 04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73)
- *     CTxOut(nValue=50.00000000, scriptPubKey=0x5F1DF16B2B704C8A578D0B)
- *   vMerkleTree: 4a5e1e
+ * Genesis is header v2 / Blake2b. Dummy MAIN hash and merkle are ours
+ * (not Bitcoin 000000000019d668 / 4a5e1e4b). Coinbase scriptSig is
+ * << 0 << OP_0. pszTimestamp is unused on the wire. There is no buried
+ * history: nMinimumChainWork, defaultAssumeValid, BIP34Hash,
+ * checkpointData, and m_assumeutxo_data stay empty (epic 29 is test
+ * fixtures, not assumeutxo).
  */
 
+/** OP_CHECKSIG of an all-zero pubkey. Genesis coinbase is unspendable. */
 static CScript UnspendableGenesisScript()
 {
     return CScript() << "000000000000000000000000000000000000000000000000000000000000000000"_hex << OP_CHECKSIG;
 }
 
-static constexpr int64_t kFederationTaprootStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
-
-static void SetFederationBuriedBips(Consensus::Params& consensus)
-{
-    consensus.BIP34Height = 1;
-    consensus.BIP34Hash = uint256{};
-    consensus.BIP65Height = 1;
-    consensus.BIP66Height = 1;
-    consensus.CSVHeight = 1;
-    consensus.SegwitHeight = 1;
-    consensus.MinBIP9WarningHeight = 0;
-}
-
-static void SetFederationBlake2bAndRdts(Consensus::Params& consensus)
-{
-    consensus.Blake2bHeight = 0;
-    consensus.Blake2bTargetShift = 0;
-    assert(consensus.nSubsidyHalvingInterval % Consensus::FLEX_WINDOW_COUNT == 0);
-}
-
-static void SetFederationTaprootDeployment(Consensus::Params& consensus)
-{
-    consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
-    consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = kFederationTaprootStartTime;
-    consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
-    consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
-}
 
 /**
  * Main network on which people trade goods and services.
@@ -127,25 +117,36 @@ public:
         m_chain_type = ChainType::MAIN;
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
-        consensus.nSubsidyHalvingInterval = 210000;
-        SetFederationBuriedBips(consensus);
-        SetFederationBlake2bAndRdts(consensus);
-        SetFederationTaprootDeployment(consensus);
+        consensus.nSubsidyHalvingInterval = kSubsidyHalvingInterval;
+        assert(consensus.nSubsidyHalvingInterval % 5 == 0);
+        // Buried BIPs at height 1: genesis-exempt, not unused.
+        consensus.BIP34Height = 1;
+        consensus.BIP34Hash = uint256{}; // empty: no buried BIP34 block
+        consensus.BIP65Height = 1;
+        consensus.BIP66Height = 1;
+        consensus.CSVHeight = 1;
+        consensus.SegwitHeight = 1;
+        consensus.MinBIP9WarningHeight = 0;
+        // Taproot parked.
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
         consensus.powLimit = uint256{"000000ffff000000000000000000000000000000000000000000000000000000"};
-        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
-        consensus.nPowTargetSpacing = 12 * 60;
+        consensus.nPowTargetTimespan = kPowTargetTimespan;
+        consensus.nPowTargetSpacing = kPowTargetSpacing;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.enforce_BIP94 = false;
         consensus.fPowNoRetargeting = false;
-        consensus.nRuleChangeActivationThreshold = 1512; // 90% of 1680
-        consensus.nMinerConfirmationWindow = 1680; // nPowTargetTimespan / nPowTargetSpacing
+        consensus.nRuleChangeActivationThreshold = kMainBip9Threshold;
+        consensus.nMinerConfirmationWindow = kMinerConfirmationWindow;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0; // No activation delay
 
-        consensus.nMinimumChainWork = uint256{};
-        consensus.defaultAssumeValid = uint256{};
+        consensus.nMinimumChainWork = uint256{}; // empty: no IBD assume-work
+        consensus.defaultAssumeValid = uint256{}; // empty: no assumevalid checkpoint
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -167,13 +168,13 @@ public:
         // (10 miners × 50 GH/s, 10-minute blocks), compact 0x1b00efab.
         // Do not remine this placeholder until then.
         // nTime is LOCKTIME_THRESHOLD so timestamp-lock tests still mean timestamps.
-        genesis = CreateGenesisBlock("UNLAUNCHED FederationCoin placeholder; not main", UnspendableGenesisScript(), LOCKTIME_THRESHOLD, 20457615, 0, 0x1e00ffff, 1, 50 * COIN);
+        genesis = CreateGenesisBlock("UNLAUNCHED FederationCoin placeholder; not main", UnspendableGenesisScript(), LOCKTIME_THRESHOLD, 20457615, 0, kDummyMainBits, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256{"000000640fce328a480bffe1bfb26d34c11816150699faa79fff034c5a3d5183"});
-        assert(genesis.hashMerkleRoot == uint256{"9d18c1a3a61fe29a7fbf2d26d77f9c625e2a1c5dc8786dcb41612fb48cf6c504"});
+        assert(consensus.hashGenesisBlock == uint256{"000000640fce328a480bffe1bfb26d34c11816150699faa79fff034c5a3d5183"}); // dummy MAIN; ours, not Bitcoin genesis
+        assert(genesis.hashMerkleRoot == uint256{"9d18c1a3a61fe29a7fbf2d26d77f9c625e2a1c5dc8786dcb41612fb48cf6c504"}); // dummy MAIN merkle; ours
 
         vSeeds.clear();
-        vFixedSeeds.clear();
+        vFixedSeeds.clear(); // no DNS/fixed seeds yet
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,36);
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,16);
@@ -181,17 +182,17 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x88, 0xFC, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x88, 0xFC, 0xE4};
 
-        bech32_hrp = "gfcn";
+        bech32_hrp = "gfcn"; // dummy MAIN HRP; not launched
 
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
 
-        checkpointData = {
+        checkpointData = { // empty: no buried checkpoints
             {
             }
         };
 
-        m_assumeutxo_data = {
+        m_assumeutxo_data = { // empty: no published assumeutxo snapshot
         };
 
         chainTxData = ChainTxData{
@@ -211,13 +212,24 @@ public:
         m_chain_type = ChainType::TESTNET;
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
-        consensus.nSubsidyHalvingInterval = 210000;
-        SetFederationBuriedBips(consensus);
-        SetFederationBlake2bAndRdts(consensus);
-        SetFederationTaprootDeployment(consensus);
+        consensus.nSubsidyHalvingInterval = kSubsidyHalvingInterval;
+        assert(consensus.nSubsidyHalvingInterval % 5 == 0);
+        // Buried BIPs at height 1: genesis-exempt, not unused.
+        consensus.BIP34Height = 1;
+        consensus.BIP34Hash = uint256{}; // empty: no buried BIP34 block
+        consensus.BIP65Height = 1;
+        consensus.BIP66Height = 1;
+        consensus.CSVHeight = 1;
+        consensus.SegwitHeight = 1;
+        consensus.MinBIP9WarningHeight = 0;
+        // Taproot parked.
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
         consensus.powLimit = uint256{"000000ffff000000000000000000000000000000000000000000000000000000"};
-        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
-        consensus.nPowTargetSpacing = 12 * 60;
+        consensus.nPowTargetTimespan = kPowTargetTimespan;
+        consensus.nPowTargetSpacing = kPowTargetSpacing;
         consensus.fPowAllowMinDifficultyBlocks = true;
         // Blake2b from height 0. Floor is two orders of magnitude easier than
         // 0x1b095cae so a laptop GPU can find a block in localhost suites.
@@ -225,14 +237,14 @@ public:
         consensus.nMinDifficultyBits = kTestnetBlake2bBits;
         consensus.enforce_BIP94 = false;
         consensus.fPowNoRetargeting = false;
-        consensus.nRuleChangeActivationThreshold = 1260; // 75% of 1680
-        consensus.nMinerConfirmationWindow = 1680; // nPowTargetTimespan / nPowTargetSpacing
+        consensus.nRuleChangeActivationThreshold = kTestnetBip9Threshold;
+        consensus.nMinerConfirmationWindow = kMinerConfirmationWindow;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0;
 
-        consensus.nMinimumChainWork = uint256{};
+        consensus.nMinimumChainWork = uint256{}; // empty: no IBD assume-work
         consensus.defaultAssumeValid = uint256{};
 
         pchMessageStart[0] = 0xfc;
@@ -260,17 +272,17 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0xFC, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0xFC, 0xE4};
 
-        bech32_hrp = "tgfcn";
+        bech32_hrp = "tgfcn"; // testnet / signet HRP
 
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
 
-        checkpointData = {
+        checkpointData = { // empty: no buried checkpoints
             {
             }
         };
 
-        m_assumeutxo_data = {
+        m_assumeutxo_data = { // empty: no published assumeutxo snapshot
         };
 
         chainTxData = ChainTxData{
@@ -290,25 +302,36 @@ public:
         m_chain_type = ChainType::TESTNET4;
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
-        consensus.nSubsidyHalvingInterval = 210000;
-        SetFederationBuriedBips(consensus);
-        SetFederationBlake2bAndRdts(consensus);
-        SetFederationTaprootDeployment(consensus);
+        consensus.nSubsidyHalvingInterval = kSubsidyHalvingInterval;
+        assert(consensus.nSubsidyHalvingInterval % 5 == 0);
+        // Buried BIPs at height 1: genesis-exempt, not unused.
+        consensus.BIP34Height = 1;
+        consensus.BIP34Hash = uint256{}; // empty: no buried BIP34 block
+        consensus.BIP65Height = 1;
+        consensus.BIP66Height = 1;
+        consensus.CSVHeight = 1;
+        consensus.SegwitHeight = 1;
+        consensus.MinBIP9WarningHeight = 0;
+        // Taproot parked.
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
         consensus.powLimit = uint256{"000000ffff000000000000000000000000000000000000000000000000000000"};
-        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
-        consensus.nPowTargetSpacing = 12 * 60;
+        consensus.nPowTargetTimespan = kPowTargetTimespan;
+        consensus.nPowTargetSpacing = kPowTargetSpacing;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.nMinDifficultyBits = kTestnetBlake2bBits;
         consensus.enforce_BIP94 = true;
         consensus.fPowNoRetargeting = false;
-        consensus.nRuleChangeActivationThreshold = 1260; // 75% of 1680
-        consensus.nMinerConfirmationWindow = 1680; // nPowTargetTimespan / nPowTargetSpacing
+        consensus.nRuleChangeActivationThreshold = kTestnetBip9Threshold;
+        consensus.nMinerConfirmationWindow = kMinerConfirmationWindow;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0;
 
-        consensus.nMinimumChainWork = uint256{};
+        consensus.nMinimumChainWork = uint256{}; // empty: no IBD assume-work
         consensus.defaultAssumeValid = uint256{};
 
         pchMessageStart[0] = 0xfc;
@@ -335,17 +358,17 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0xFC, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0xFC, 0xE4};
 
-        bech32_hrp = "tgfcn";
+        bech32_hrp = "tgfcn"; // testnet / signet HRP
 
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
 
-        checkpointData = {
+        checkpointData = { // empty: no buried checkpoints
             {
             }
         };
 
-        m_assumeutxo_data = {
+        m_assumeutxo_data = { // empty: no published assumeutxo snapshot
         };
 
         chainTxData = ChainTxData{
@@ -369,7 +392,7 @@ public:
 
         if (!options.challenge) {
             bin = {0x51}; // OP_TRUE: experimental signet, anyone can mine
-            consensus.nMinimumChainWork = uint256{};
+            consensus.nMinimumChainWork = uint256{}; // empty: no IBD assume-work
             consensus.defaultAssumeValid = uint256{};
             m_assumed_blockchain_size = 0;
             m_assumed_chain_state_size = 0;
@@ -380,7 +403,7 @@ public:
             };
         } else {
             bin = *options.challenge;
-            consensus.nMinimumChainWork = uint256{};
+            consensus.nMinimumChainWork = uint256{}; // empty: no IBD assume-work
             consensus.defaultAssumeValid = uint256{};
             m_assumed_blockchain_size = 0;
             m_assumed_chain_state_size = 0;
@@ -399,17 +422,28 @@ public:
         m_chain_type = ChainType::SIGNET;
         consensus.signet_blocks = true;
         consensus.signet_challenge.assign(bin.begin(), bin.end());
-        consensus.nSubsidyHalvingInterval = 210000;
-        SetFederationBuriedBips(consensus);
-        SetFederationBlake2bAndRdts(consensus);
-        SetFederationTaprootDeployment(consensus);
-        consensus.nPowTargetTimespan = 14 * 24 * 60 * 60; // two weeks
+        consensus.nSubsidyHalvingInterval = kSubsidyHalvingInterval;
+        assert(consensus.nSubsidyHalvingInterval % 5 == 0);
+        // Buried BIPs at height 1: genesis-exempt, not unused.
+        consensus.BIP34Height = 1;
+        consensus.BIP34Hash = uint256{}; // empty: no buried BIP34 block
+        consensus.BIP65Height = 1;
+        consensus.BIP66Height = 1;
+        consensus.CSVHeight = 1;
+        consensus.SegwitHeight = 1;
+        consensus.MinBIP9WarningHeight = 0;
+        // Taproot parked.
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
+        consensus.nPowTargetTimespan = kPowTargetTimespan;
         consensus.nPowTargetSpacing = options.pow_target_spacing;
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.enforce_BIP94 = false;
         consensus.fPowNoRetargeting = false;
-        consensus.nRuleChangeActivationThreshold = 1512; // 90% of 1680
-        consensus.nMinerConfirmationWindow = 1680; // nPowTargetTimespan / nPowTargetSpacing
+        consensus.nRuleChangeActivationThreshold = kMainBip9Threshold;
+        consensus.nMinerConfirmationWindow = kMinerConfirmationWindow;
         consensus.powLimit = uint256{"00000377ae000000000000000000000000000000000000000000000000000000"};
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
@@ -425,12 +459,12 @@ public:
         nDefaultPort = 26333;
         nPruneAfterHeight = 1000;
 
-        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin signet: time is the unit, not the state", UnspendableGenesisScript(), 1789600818, 4033131, 0, 0x1e0377ae, 1, 50 * COIN);
+        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin signet: time is the unit, not the state", UnspendableGenesisScript(), 1789600818, 4033131, 0, kSignetGenesisBits, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         assert(consensus.hashGenesisBlock == uint256{"000001ea36cbf07180105eddb59e322c11dd7472aba722485ba79dc773408d48"});
         assert(genesis.hashMerkleRoot == uint256{"9d18c1a3a61fe29a7fbf2d26d77f9c625e2a1c5dc8786dcb41612fb48cf6c504"});
 
-        m_assumeutxo_data = {
+        m_assumeutxo_data = { // empty: no published assumeutxo snapshot
         };
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,95);
@@ -439,7 +473,7 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0xFC, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0xFC, 0xE4};
 
-        bech32_hrp = "tgfcn";
+        bech32_hrp = "tgfcn"; // testnet / signet HRP
 
         fDefaultConsistencyChecks = false;
         m_is_mockable_chain = false;
@@ -459,24 +493,35 @@ public:
         consensus.signet_blocks = false;
         consensus.signet_challenge.clear();
         consensus.nSubsidyHalvingInterval = 160;
-        SetFederationBuriedBips(consensus);
-        SetFederationBlake2bAndRdts(consensus);
-        SetFederationTaprootDeployment(consensus);
+        assert(consensus.nSubsidyHalvingInterval % 5 == 0);
+        // Buried BIPs at height 1: genesis-exempt, not unused.
+        consensus.BIP34Height = 1;
+        consensus.BIP34Hash = uint256{}; // empty: no buried BIP34 block
+        consensus.BIP65Height = 1;
+        consensus.BIP66Height = 1;
+        consensus.CSVHeight = 1;
+        consensus.SegwitHeight = 1;
+        consensus.MinBIP9WarningHeight = 0;
+        // Taproot parked.
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
         consensus.powLimit = uint256{"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
         consensus.nPowTargetTimespan = 24 * 60 * 60; // one day
-        consensus.nPowTargetSpacing = 12 * 60;
+        consensus.nPowTargetSpacing = kPowTargetSpacing;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.enforce_BIP94 = opts.enforce_bip94;
         consensus.fPowNoRetargeting = true;
-        consensus.nRuleChangeActivationThreshold = 90; // 75% of 120
-        consensus.nMinerConfirmationWindow = 120; // Faster than normal for regtest (120 instead of 1680)
+        consensus.nRuleChangeActivationThreshold = kRegtestBip9Threshold; // 75% of 120
+        consensus.nMinerConfirmationWindow = kRegtestMinerWindow; // Faster than normal for regtest (120 instead of 1680)
 
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 0;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].min_activation_height = 0;
 
-        consensus.nMinimumChainWork = uint256{};
+        consensus.nMinimumChainWork = uint256{}; // empty: no IBD assume-work
         consensus.defaultAssumeValid = uint256{};
 
         pchMessageStart[0] = 0xfc;
@@ -490,9 +535,6 @@ public:
 
         for (const auto& [dep, height] : opts.activation_heights) {
             switch (dep) {
-            case Consensus::BuriedDeployment::DEPLOYMENT_BLAKE2B:
-                consensus.Blake2bHeight = int{height};
-                break;
             case Consensus::BuriedDeployment::DEPLOYMENT_SEGWIT:
                 consensus.SegwitHeight = int{height};
                 break;
@@ -524,24 +566,10 @@ public:
             consensus.vDeployments[deployment_pos].threshold = version_bits_params.threshold;
         }
 
-        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin regtest: time is the unit, not the state", UnspendableGenesisScript(), 1789600819, 5079040, 0, 0x207fffff, 1, 50 * COIN);
-        // A regtest that moves the BLAKE2b fork past height 0 needs a SHA256d
-        // genesis. The default fork is height 0, and that block hash stays put.
-        if (consensus.Blake2bHeight != 0) {
-            genesis.m_header_v2 = false;
-            genesis.m_nonce2 = 0;
-            genesis.m_txcount = 0;
-            genesis.m_height = 0;
-            genesis.nNonce = 0;
-            while (!CheckProofOfWork(genesis.GetHash(), genesis.nBits, consensus)) {
-                ++genesis.nNonce;
-            }
-        }
+        genesis = CreateGenesisBlock("09/Sep/2026 FederationCoin regtest: time is the unit, not the state", UnspendableGenesisScript(), 1789600819, 5079040, 0, kRegtestBits, 1, 50 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
         assert(genesis.hashMerkleRoot == uint256{"9d18c1a3a61fe29a7fbf2d26d77f9c625e2a1c5dc8786dcb41612fb48cf6c504"});
-        if (consensus.Blake2bHeight == 0) {
-            assert(consensus.hashGenesisBlock == uint256{"79edf0c9d6b7f35f88ca8ace6c5ef436bf502e2cefe2ba377b5551dc9cb7446a"});
-        }
+        assert(consensus.hashGenesisBlock == uint256{"79edf0c9d6b7f35f88ca8ace6c5ef436bf502e2cefe2ba377b5551dc9cb7446a"});
 
         vFixedSeeds.clear();
         vSeeds.clear();
@@ -549,12 +577,12 @@ public:
         fDefaultConsistencyChecks = true;
         m_is_mockable_chain = true;
 
-        checkpointData = {
+        checkpointData = { // empty: no buried checkpoints
             {
             }
         };
 
-        m_assumeutxo_data = {
+        m_assumeutxo_data = { // empty: no published assumeutxo snapshot
         };
 
         chainTxData = ChainTxData{

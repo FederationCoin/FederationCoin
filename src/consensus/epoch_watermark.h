@@ -8,55 +8,46 @@
 #include <consensus/flex_weight.h>
 #include <serialize.h>
 
-#include <array>
 #include <cstdint>
+#include <limits>
 
 namespace Consensus {
 
+/** Running pegged-block count, slack-block count, and the decision those
+ *  counts make at a subsidy-interval boundary. Pegged: leftover weight cannot
+ *  fit one more simplest payment plus the 64-weight buffer. Slack:
+ *  block_weight * 5 < cap. Stored on the block index. A datadir written with
+ *  the old 16-window arrays will not load. */
 struct EpochWatermark {
-    std::array<uint64_t, FLEX_WINDOW_COUNT> window_weight{};
-    std::array<uint32_t, FLEX_WINDOW_COUNT> window_blocks{};
+    uint32_t pegged_blocks{0};
+    uint32_t slack_blocks{0};
 
     SERIALIZE_METHODS(EpochWatermark, obj)
     {
-        for (int i{0}; i < FLEX_WINDOW_COUNT; ++i) {
-            READWRITE(obj.window_weight[i]);
-            READWRITE(obj.window_blocks[i]);
-        }
+        READWRITE(obj.pegged_blocks);
+        READWRITE(obj.slack_blocks);
     }
 
     void Clear()
     {
-        window_weight.fill(0);
-        window_blocks.fill(0);
+        pegged_blocks = 0;
+        slack_blocks = 0;
     }
 
-    void AddBlock(uint64_t weight, int height, int interval)
+    /** Count this block against cap at height. A block is pegged, or else
+     *  slack, or neither. The count saturates at uint32 max instead of wrapping. */
+    void AddBlock(uint64_t weight, uint64_t cap, int height)
     {
-        const int idx{FlexWindowIndex(height, interval)};
-        window_weight[idx] += weight;
-        window_blocks[idx] += 1;
-    }
-
-    int HotWindows(uint64_t cap) const
-    {
-        int hot{0};
-        for (int i{0}; i < FLEX_WINDOW_COUNT; ++i) {
-            if (WindowIsHot(window_weight[i], cap, window_blocks[i])) ++hot;
+        if (Pegged(weight, cap, height)) {
+            if (pegged_blocks < std::numeric_limits<uint32_t>::max()) ++pegged_blocks;
+        } else if (Slack(weight, cap)) {
+            if (slack_blocks < std::numeric_limits<uint32_t>::max()) ++slack_blocks;
         }
-        return hot;
-    }
-
-    uint64_t TotalWeight() const
-    {
-        uint64_t sum{0};
-        for (uint64_t w : window_weight) sum += w;
-        return sum;
     }
 
     uint64_t CapAfter(uint64_t cap, int interval) const
     {
-        return DecideNextCap(cap, HotWindows(cap), TotalWeight(), interval);
+        return DecideNextCap(cap, pegged_blocks, slack_blocks, interval);
     }
 };
 

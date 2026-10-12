@@ -210,8 +210,8 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
 
     // Check that the correct OutputType is inferred. wpkh() is the secp receive kind.
     if (prv.starts_with("wpkh(")) {
-        BOOST_CHECK(parse_priv->GetOutputType() == OutputType::SECP);
-        BOOST_CHECK(parse_pub->GetOutputType() == OutputType::SECP);
+        BOOST_CHECK(parse_priv->GetOutputType() == OutputType::BECH32);
+        BOOST_CHECK(parse_pub->GetOutputType() == OutputType::BECH32);
     } else {
         BOOST_CHECK(parse_priv->GetOutputType() == type);
         BOOST_CHECK(parse_pub->GetOutputType() == type);

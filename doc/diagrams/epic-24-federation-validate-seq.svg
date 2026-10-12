@@ -93,7 +93,7 @@
   <text x="250" y="1078" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">The next max would break the math</text>
   <text x="620" y="1078" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1B2838">Do not grow the max</text>
 
-  <text x="450" y="1128" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Pegged means the block was completely saturated: full to the brim, no leftover space.</text>
+  <text x="450" y="1128" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Pegged: one more smallest payment (max sig, kinds valid then) would not fit.</text>
   <text x="450" y="1150" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">The grow rule applies only if we were in that state 80% of the full ~4.8 year period.</text>
   <text x="450" y="1172" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">After a cut, slack blocks sit at about 40% of the new max. A stable load does not bounce.</text>
   <text x="450" y="1194" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#5C4A2A">Starts at 2.4M. 80% of 210,000 blocks is 168,000 pegged or slack.</text>

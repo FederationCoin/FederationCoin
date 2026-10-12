@@ -15,16 +15,16 @@ namespace Consensus {
 
 bool IsSecpSingleWitness(const std::vector<std::vector<unsigned char>>& witness)
 {
-    if (witness.size() != 2) return false;
+    if (witness.size() != SECP_SINGLE_WITNESS_ITEMS) return false;
     if (witness[1].size() != CPubKey::COMPRESSED_SIZE) return false;
-    if (witness[0].size() < 9 || witness[0].size() > 73) return false;
+    if (witness[0].size() < BIP66_DER_SIGHASH_SIZE_MIN || witness[0].size() > BIP66_DER_SIGHASH_SIZE_MAX) return false;
     return witness[0].back() == (SIGHASH_ALL | SIGHASH_UNIFIED);
 }
 
 bool CheckSecpSingleKeySpend(const uint160& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash)
 {
     if (!IsSecpSingleWitness(witness)) return false;
-    if (sighash.size() != 32) return false;
+    if (sighash.size() != UNIFIED_SIGHASH_SIZE) return false;
     const CPubKey pubkey{Span<const unsigned char>{witness[1]}};
     if (!pubkey.IsFullyValid() || !pubkey.IsCompressed()) return false;
     if (Hash160(pubkey) != program) return false;

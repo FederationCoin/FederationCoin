@@ -2485,8 +2485,9 @@ OutputType CWallet::TransactionChangeType(const std::optional<OutputType>& chang
         return OutputType::BECH32M;
     }
     const bool has_bech32_spkman(GetScriptPubKeyMan(OutputType::BECH32, /*internal=*/true));
-    if (has_bech32_spkman && any_wpkh) {
-        // Currently wpkh is the only type supported by the BECH32 spkman
+    if (has_bech32_spkman && any_wpkh && m_default_address_type == OutputType::BECH32) {
+        // SegWit change only when this wallet's receive type is already SegWit.
+        // Sending to a P2WPKH dest must not silently switch Dilithium change to the cheap-out.
         return OutputType::BECH32;
     }
     const bool has_p2sh_segwit_spkman(GetScriptPubKeyMan(OutputType::P2SH_SEGWIT, /*internal=*/true));

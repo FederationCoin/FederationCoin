@@ -103,7 +103,7 @@ void ReceiveCoinsDialog::setModel(WalletModel *_model)
         };
         add_address_type(OutputType::DILITHIUM87);
         add_address_type(OutputType::DILITHIUM44);
-        add_address_type(OutputType::SECP);
+        add_address_type(OutputType::BECH32);
 
         connect(_model->getOptionsModel(), &OptionsModel::addresstypeChanged, [this](const OutputType type) {
             const int index = ui->addressType->findData((int) type);
@@ -173,9 +173,9 @@ void ReceiveCoinsDialog::on_receiveButton_clicked()
     QString label = ui->reqLabel->text();
     /* Generate new receiving address */
     const OutputType address_type = (OutputType)ui->addressType->currentData().toInt();
-    if (address_type == OutputType::SECP) {
+    if (address_type == OutputType::BECH32) {
         const auto ret = QMessageBox::warning(this, windowTitle(),
-            tr("secp is cheap, not quantum-safe. The payment still goes. Create this address?"),
+            tr("SegWit is cheap, not quantum-safe (secp256k1). The payment still goes. Create this address?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (ret != QMessageBox::Yes) return;
     }

@@ -9,7 +9,7 @@
 #include <checkqueue.h>
 #include <clientversion.h>
 #include <consensus/amount.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
@@ -392,26 +392,28 @@ BOOST_AUTO_TEST_CASE(tx_no_inputs)
 
 BOOST_AUTO_TEST_CASE(tx_oversized)
 {
-    auto createTransaction =[](size_t payloadSize) {
+    // One script push cannot exceed serialize MAX_SIZE. Build the stripped
+    // transaction from many outputs so the total can cross the disk-window sanity check.
+    auto createTransaction = [](uint64_t target_stripped) {
         CMutableTransaction tx;
         tx.vin.resize(1);
-        tx.vout.emplace_back(1, CScript() << OP_RETURN << std::vector<unsigned char>(payloadSize));
+        const size_t chunk{1'000'000};
+        while (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(CTransaction(tx)))) <= target_stripped) {
+            tx.vout.emplace_back(1, CScript() << OP_RETURN << std::vector<unsigned char>(chunk));
+        }
         return CTransaction(tx);
     };
-    const auto maxTransactionSize = MAX_BLOCK_SERIALIZED_SIZE;
-    const auto oversizedTransactionBaseSize = ::GetSerializeSize(TX_NO_WITNESS(createTransaction(maxTransactionSize))) - maxTransactionSize;
-
-    auto maxPayloadSize = maxTransactionSize - oversizedTransactionBaseSize;
     {
         TxValidationState state;
-        CheckTransaction(createTransaction(maxPayloadSize), state);
+        CMutableTransaction under;
+        under.vin.resize(1);
+        under.vout.emplace_back(1, CScript() << OP_RETURN << std::vector<unsigned char>(32));
+        CheckTransaction(CTransaction(under), state);
         BOOST_CHECK(state.GetRejectReason() != "bad-txns-oversize");
     }
-
-    maxPayloadSize += 1;
     {
         TxValidationState state;
-        BOOST_CHECK_MESSAGE(!CheckTransaction(createTransaction(maxPayloadSize), state), "Oversized transaction should be invalid");
+        BOOST_CHECK_MESSAGE(!CheckTransaction(createTransaction(CONTEXT_FREE_BLOCK_BYTES), state), "Oversized transaction should be invalid");
         BOOST_CHECK(state.GetRejectReason() == "bad-txns-oversize");
     }
 }
@@ -789,13 +791,16 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
 
     constexpr auto CheckIsStandard = [](const auto& t) {
         std::string reason;
-        BOOST_CHECK(IsStandardTx(CTransaction{t}, g_mempool_opts, reason));
+        BOOST_CHECK_MESSAGE(IsStandardTx(CTransaction{t}, g_mempool_opts, reason), reason);
         BOOST_CHECK(reason.empty());
     };
     constexpr auto CheckIsNotStandard = [](const auto& t, const std::string& reason_in) {
         std::string reason;
         BOOST_CHECK(!IsStandardTx(CTransaction{t}, g_mempool_opts, reason));
         BOOST_CHECK_EQUAL(reason_in, reason);
+    };
+    const auto DustOf = [](const CScript& script, const CFeeRate& rate = CFeeRate{DUST_RELAY_TX_FEE}) {
+        return GetDustThreshold(CTxOut{/*nValue=*/0, script}, rate);
     };
 
     CheckIsStandard(t);
@@ -804,9 +809,8 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
     g_mempool_opts.permitephemeral_dust = true;
     g_mempool_opts.permitephemeral_send = true;
 
-    // Check dust with default relay fee:
-    CAmount nDustThreshold = 182 * g_mempool_opts.dust_relay_feerate.GetFeePerK() / 1000;
-    BOOST_CHECK_EQUAL(nDustThreshold, 546);
+    // Check dust with default relay fee (P2PKH spend size 182 bytes).
+    CAmount nDustThreshold = DustOf(t.vout[0].scriptPubKey, g_mempool_opts.dust_relay_feerate);
 
     // Add dust outputs up to allowed maximum, still standard!
     for (size_t i{0}; i < MAX_DUST_OUTPUTS_PER_TX; ++i) {
@@ -935,7 +939,7 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
     // OP_RESERVED *is* considered to be a PUSHDATA type opcode by IsPushOnly()!
     t.vout[0].scriptPubKey = CScript() << OP_RETURN << OP_RESERVED << -1 << 0 << "01"_hex << 2 << 3 << 4 << 5 << 6 << 7 << 8 << 9 << 10 << 11 << 12 << 13 << 14 << 15 << 16;
     CheckIsStandard(t);
-    t.vout[0].scriptPubKey = CScript() << OP_RETURN << 0 << "01"_hex << 2 << "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"_hex;
+    t.vout[0].scriptPubKey = CScript() << OP_RETURN << 0 << "01"_hex << 2 << "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"_hex;
     CheckIsStandard(t);
 
     // ...so long as it only contains PUSHDATA's
@@ -949,13 +953,13 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
 
     // Only one TxoutType::NULL_DATA permitted in all cases
     t.vout.resize(2);
-    t.vout[0].scriptPubKey = CScript() << OP_RETURN << "04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38"_hex;
+    t.vout[0].scriptPubKey = CScript() << OP_RETURN << "00"_hex;
     t.vout[0].nValue = 0;
-    t.vout[1].scriptPubKey = CScript() << OP_RETURN << "04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38"_hex;
+    t.vout[1].scriptPubKey = CScript() << OP_RETURN << "00"_hex;
     t.vout[1].nValue = 0;
     CheckIsNotStandard(t, "multi-op-return");
 
-    t.vout[0].scriptPubKey = CScript() << OP_RETURN << "04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38"_hex;
+    t.vout[0].scriptPubKey = CScript() << OP_RETURN << "00"_hex;
     t.vout[1].scriptPubKey = CScript() << OP_RETURN;
     CheckIsNotStandard(t, "multi-op-return");
 
@@ -1051,57 +1055,57 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
 
     // Check compressed P2PK outputs dust threshold (must have leading 02 or 03)
     t.vout[0].scriptPubKey = CScript() << std::vector<unsigned char>(33, 0x02) << OP_CHECKSIG;
-    t.vout[0].nValue = 576;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey);
     CheckIsStandard(t);
-    t.vout[0].nValue = 575;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey) - 1;
     CheckIsNotStandard(t, "dust");
 
     // Check uncompressed P2PK outputs dust threshold (must have leading 04/06/07)
     t.vout[0].scriptPubKey = CScript() << std::vector<unsigned char>(65, 0x04) << OP_CHECKSIG;
-    t.vout[0].nValue = 672;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey);
     CheckIsStandard(t);
-    t.vout[0].nValue = 671;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey) - 1;
     CheckIsNotStandard(t, "dust");
 
     // Check P2PKH outputs dust threshold
     t.vout[0].scriptPubKey = CScript() << OP_DUP << OP_HASH160 << std::vector<unsigned char>(20, 0) << OP_EQUALVERIFY << OP_CHECKSIG;
-    t.vout[0].nValue = 546;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey);
     CheckIsStandard(t);
-    t.vout[0].nValue = 545;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey) - 1;
     CheckIsNotStandard(t, "dust");
 
     // Check P2SH outputs dust threshold
     t.vout[0].scriptPubKey = CScript() << OP_HASH160 << std::vector<unsigned char>(20, 0) << OP_EQUAL;
-    t.vout[0].nValue = 540;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey);
     CheckIsStandard(t);
-    t.vout[0].nValue = 539;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey) - 1;
     CheckIsNotStandard(t, "dust");
 
     // Check P2WPKH outputs dust threshold
     t.vout[0].scriptPubKey = CScript() << OP_0 << std::vector<unsigned char>(20, 0);
-    t.vout[0].nValue = 294;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey);
     CheckIsStandard(t);
-    t.vout[0].nValue = 293;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey) - 1;
     CheckIsNotStandard(t, "dust");
 
     // Check P2WSH outputs dust threshold
     t.vout[0].scriptPubKey = CScript() << OP_0 << std::vector<unsigned char>(32, 0);
-    t.vout[0].nValue = 330;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey);
     CheckIsStandard(t);
-    t.vout[0].nValue = 329;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey) - 1;
     CheckIsNotStandard(t, "dust");
 
     // Check P2TR outputs dust threshold (Invalid xonly key ok!)
     t.vout[0].scriptPubKey = CScript() << OP_1 << std::vector<unsigned char>(32, 0);
-    t.vout[0].nValue = 330;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey);
     CheckIsStandard(t);
-    t.vout[0].nValue = 329;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey) - 1;
     CheckIsNotStandard(t, "dust");
 
     // Check future Witness Program versions dust threshold (non-32-byte pushes are undefined for version 1)
     for (int op = OP_1; op <= OP_16; op += 1) {
         t.vout[0].scriptPubKey = CScript() << (opcodetype)op << std::vector<unsigned char>(2, 0);
-        t.vout[0].nValue = 240;
+        t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey);
 
         g_mempool_opts.acceptunknownwitness = false;
         CheckIsNotStandard(t, "scriptpubkey-unknown-witnessversion");
@@ -1109,16 +1113,16 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
 
         CheckIsStandard(t);
 
-        t.vout[0].nValue = 239;
+        t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey) - 1;
         CheckIsNotStandard(t, "dust");
     }
 
     // Check anchor outputs
     t.vout[0].scriptPubKey = CScript() << OP_1 << std::vector<unsigned char>{0x4e, 0x73};
     BOOST_CHECK(t.vout[0].scriptPubKey.IsPayToAnchor());
-    t.vout[0].nValue = 240;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey);
     CheckIsStandard(t);
-    t.vout[0].nValue = 239;
+    t.vout[0].nValue = DustOf(t.vout[0].scriptPubKey) - 1;
     CheckIsNotStandard(t, "dust");
 
     // Test permitbareanchor

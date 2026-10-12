@@ -3,7 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <consensus/mldsa87_spend.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <test/util/setup_common.h>
 
 #include <array>
@@ -88,7 +88,7 @@ BOOST_AUTO_TEST_CASE(mixed_44_87_policy_rejected)
     witness.emplace_back(sig44.begin(), sig44.end());
     AppendSigned(witness, holder87, sighash);
     BOOST_CHECK(!Consensus::CheckMultisig87Spend(*program, witness, sighash));
-    BOOST_CHECK(!Consensus::CheckMultisigSpend(*program, witness, sighash));
+    BOOST_CHECK(!Consensus::CheckMultisig44Spend(*program, witness, sighash));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

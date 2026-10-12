@@ -704,17 +704,18 @@ BOOST_FIXTURE_TEST_CASE(output_type_parse_epic21, WalletTestingSetup)
 {
     BOOST_CHECK(ParseOutputType("mldsa87") == OutputType::DILITHIUM87);
     BOOST_CHECK(ParseOutputType("mldsa44") == OutputType::DILITHIUM44);
-    BOOST_CHECK(ParseOutputType("secp") == OutputType::SECP);
-    BOOST_CHECK(ParseOutputType("bech32") == OutputType::SECP);
+    BOOST_CHECK(ParseOutputType("bech32") == OutputType::BECH32);
+    BOOST_CHECK(ParseOutputType("segwit") == OutputType::BECH32);
+    BOOST_CHECK(!ParseOutputType("secp"));
     BOOST_CHECK(!ParseOutputType("legacy"));
     BOOST_CHECK(!ParseOutputType("p2sh-segwit"));
     BOOST_CHECK(!ParseOutputType("bech32m"));
     BOOST_CHECK_EQUAL(FormatOutputType(OutputType::DILITHIUM87), "mldsa87");
     BOOST_CHECK_EQUAL(FormatOutputType(OutputType::DILITHIUM44), "mldsa44");
-    BOOST_CHECK_EQUAL(FormatOutputType(OutputType::SECP), "secp");
+    BOOST_CHECK_EQUAL(FormatOutputType(OutputType::BECH32), "bech32");
     BOOST_CHECK(OutputTypeIsAllowed(OutputType::DILITHIUM87));
     BOOST_CHECK(OutputTypeIsAllowed(OutputType::DILITHIUM44));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::LEGACY));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::P2SH_SEGWIT));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M));
@@ -735,7 +736,7 @@ BOOST_FIXTURE_TEST_CASE(BasicOutputTypesTest, ListCoinsTest)
         const CScript script{GetScriptForDestination(*dest)};
         BOOST_REQUIRE(script.IsWitnessProgram(witness_version, program));
         BOOST_CHECK_EQUAL(witness_version, 0);
-        if (out_type == OutputType::SECP) {
+        if (out_type == OutputType::BECH32) {
             BOOST_CHECK_EQUAL(program.size(), 20U);
         } else {
             BOOST_CHECK_EQUAL(program.size(), 32U);

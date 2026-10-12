@@ -2,7 +2,7 @@
 # Copyright (c) 2026 The Bitcoin Knots developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Flex weight cap: floor 2,400,000, +50% grow, half shrink, no cycle."""
+"""Flex weight cap: floor 2,400,000, pegged blocks grow it, slack blocks cut it."""
 
 from test_framework.blocktools import (
     REGTEST_HALVING_INTERVAL,
@@ -18,10 +18,12 @@ from test_framework.test_framework import BitcoinTestFramework
 MIN_CAP = 2400000
 GROWN_CAP = 3600000
 FILLER = CScript([OP_0, b"\x11" * 32])
-HOT_WEIGHT = MIN_CAP * 4 // 5
 OVER_WEIGHT = MIN_CAP + 10000
 FIT_AFTER_GROW = 3_000_000
 OVER_GROWN = GROWN_CAP + 10000
+# Remaining room under 503 is pegged. Aim at the cap; the builder trims
+# an overshoot of one payment, which stays inside that hole.
+PEGGED_WEIGHT = MIN_CAP
 
 
 class FlexWeightTest(BitcoinTestFramework):
@@ -50,6 +52,10 @@ class FlexWeightTest(BitcoinTestFramework):
             block.vtx[0].vout.pop()
             block.vtx[0].vout.extend([CTxOut(0, FILLER) for _ in range(more)])
             add_witness_commitment(block)
+        while block.get_weight() > target_weight and len(block.vtx[0].vout) > 2:
+            block.vtx[0].vout.pop()
+            block.vtx[0].vout.pop()
+            add_witness_commitment(block)
         block.solve()
         return block
 
@@ -65,32 +71,38 @@ class FlexWeightTest(BitcoinTestFramework):
         assert result is not None, f"expected overweight reject, weight={weight}"
         assert "weight" in result, result
 
-        self.generate(node, 159)
-        assert node.getblockcount() == 159
+        self.generate(node, REGTEST_HALVING_INTERVAL - 1)
+        assert node.getblockcount() == REGTEST_HALVING_INTERVAL - 1
         assert self.flexcap() == MIN_CAP
+        self.generate(node, 1)
+        assert node.getblockcount() == REGTEST_HALVING_INTERVAL
+        assert self.flexcap() == MIN_CAP, "a cut from the floor stays at the floor"
 
-        for _ in range(130):
-            result, weight = self.submit_weighted(HOT_WEIGHT)
-            assert result is None, f"hot block rejected: {result} weight={weight}"
-        assert node.getblockcount() == 289
-        self.generate(node, 30)
-        assert node.getblockcount() == 319
+        pegged = REGTEST_HALVING_INTERVAL * 4 // 5
+        for _ in range(pegged):
+            result, weight = self.submit_weighted(PEGGED_WEIGHT)
+            assert result is None, f"pegged block rejected: {result} weight={weight}"
+            assert MIN_CAP - weight < 503, weight
+        assert node.getblockcount() == REGTEST_HALVING_INTERVAL + pegged
+
+        self.generate(node, REGTEST_HALVING_INTERVAL - pegged - 1)
+        assert node.getblockcount() == 2 * REGTEST_HALVING_INTERVAL - 1
         assert self.flexcap() == MIN_CAP, "cap changes on the first block of the next epoch"
 
         result, weight = self.submit_weighted(FIT_AFTER_GROW)
         assert result is None, f"block that fits the grown cap rejected: {result} weight={weight}"
-        assert node.getblockcount() == 320
+        assert node.getblockcount() == 2 * REGTEST_HALVING_INTERVAL
         assert self.flexcap() == GROWN_CAP
 
         result, weight = self.submit_weighted(OVER_GROWN)
         assert result is not None, f"expected reject over grown cap, weight={weight}"
         assert "weight" in result, result
 
-        self.generate(node, 159)
-        assert node.getblockcount() == 479
+        self.generate(node, REGTEST_HALVING_INTERVAL - 1)
+        assert self.flexcap() == GROWN_CAP
         self.generate(node, 1)
-        assert node.getblockcount() == 480
-        assert self.flexcap() == MIN_CAP, "empty epoch after a grow must shrink to the floor"
+        assert node.getblockcount() == 3 * REGTEST_HALVING_INTERVAL
+        assert self.flexcap() == MIN_CAP, "slack for four fifths of an epoch cuts back to the floor"
 
 
 if __name__ == "__main__":

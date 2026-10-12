@@ -73,6 +73,7 @@ Code quality checks and metrics will be added over time.
 - [Unauthenticated REST Interface](REST-interface.md)
 - [Shared Libraries](shared-libraries.md)
 - [BIPS](bips.md)
+- [Federation spend (Dilithium outputs)](federation-spend.md)
 - [Dnsseed Policy](dnsseed-policy.md)
 - [Benchmarking](benchmarking.md)
 - [Internal Design Docs](design/)

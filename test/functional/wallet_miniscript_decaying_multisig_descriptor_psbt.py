@@ -36,7 +36,7 @@ class WalletMiniscriptDecayingMultisigDescriptorPSBTTest(BitcoinTestFramework):
             # Deriving a closed script is not receiving on a spend kind.
             info = node.getaddressinfo(addrs[0])
             assert info.get("desc", "").startswith("wsh(")
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             assert node.validateaddress(node.getnewaddress("", kind))["isvalid"]
         assert_raises_rpc_error(-5, "Unknown address type", node.getnewaddress, "", "legacy")
 

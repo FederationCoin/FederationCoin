@@ -1949,19 +1949,13 @@ const std::vector<RPCResult> RPCHelpForDeployment{
     }},
 };
 
-// RDTS is a flag-day deployment, not a versionbits one. The rules apply to
-// every block from the BLAKE2b hardfork height. There is no expiry. Reported
-// as-of the queried block, with "active" meaning the next block, like the
-// versionbits entries. Omitted when the hardfork height is unscheduled.
-void RdtsFlagDayDescPushBack(const CBlockIndex* blockindex, UniValue& softforks, const ChainstateManager& chainman)
+// RDTS is on from the first block. Not a height schedule. Reported as-of
+// the queried block; "active" is always true.
+void RdtsFlagDayDescPushBack(const CBlockIndex*, UniValue& softforks, const ChainstateManager&)
 {
-    const Consensus::Params& params{chainman.GetConsensus()};
-    if (params.Blake2bHeight == std::numeric_limits<int>::max()) return;
-
     UniValue rv(UniValue::VOBJ);
     rv.pushKV("type", "flagday");
-    rv.pushKV("height", params.RdtsActivationHeight());
-    rv.pushKV("active", params.RdtsActiveAt(blockindex->nHeight + 1));
+    rv.pushKV("active", true);
     softforks.pushKV("reduced_data", std::move(rv));
 }
 
@@ -1994,10 +1988,6 @@ RPCHelpMan getdeploymentinfo()
                 {RPCResult::Type::OBJ_DYN, "deployments", "", {
                     {RPCResult::Type::OBJ, "xxxx", "name of the deployment", RPCHelpForDeployment}
                 }},
-                {RPCResult::Type::OBJ, "blake2b", /*optional=*/true, "hardfork schedule, present only when one is configured", {
-                    {RPCResult::Type::NUM, "height", "the height the hardfork activates at"},
-                    {RPCResult::Type::BOOL, "active", "whether the hardfork rules apply to the block after this one"},
-                }},
             }
         },
         RPCExamples{ HelpExampleCli("getdeploymentinfo", "") + HelpExampleRpc("getdeploymentinfo", "") },
@@ -2022,23 +2012,6 @@ RPCHelpMan getdeploymentinfo()
             deploymentinfo.pushKV("hash", blockindex->GetBlockHash().ToString());
             deploymentinfo.pushKV("height", blockindex->nHeight);
             deploymentinfo.pushKV("deployments", DeploymentInfo(blockindex, chainman));
-
-            // Reported at the top level rather than among the deployments so
-            // an operator can see whether the fork is scheduled and whether it
-            // has taken effect, instead of inferring that from rejected
-            // transactions. Every rule the fork carries activates together, at
-            // the deployment the proof-of-work change uses.
-            const Consensus::Params& consensus{chainman.GetConsensus()};
-            if (consensus.Blake2bHeight != std::numeric_limits<int>::max()) {
-                UniValue hf(UniValue::VOBJ);
-                hf.pushKV("height", consensus.Blake2bHeight);
-                // The block after this one is built on it, so ask whether the
-                // deployment is active after it. Delegated rather than
-                // open-coded so this cannot drift from consensus.
-                hf.pushKV("active", DeploymentActiveAfter(blockindex, chainman,
-                                                          Consensus::DEPLOYMENT_BLAKE2B));
-                deploymentinfo.pushKV("blake2b", std::move(hf));
-            }
             return deploymentinfo;
         },
     };
@@ -2536,7 +2509,7 @@ static RPCHelpMan getblockstats()
     CAmount totalfee = 0;
     int64_t inputs = 0;
     int64_t maxtxsize = 0;
-    int64_t mintxsize = MAX_BLOCK_SERIALIZED_SIZE;
+    int64_t mintxsize = CONTEXT_FREE_BLOCK_BYTES;
     int64_t outputs = 0;
     int64_t swtotal_size = 0;
     int64_t swtotal_weight = 0;
@@ -2659,7 +2632,7 @@ static RPCHelpMan getblockstats()
     ret_all.pushKV("mediantxsize", CalculateTruncatedMedian(txsize_array));
     ret_all.pushKV("minfee", (minfee == MAX_MONEY) ? 0 : minfee);
     ret_all.pushKV("minfeerate", (minfeerate == MAX_MONEY) ? 0 : minfeerate);
-    ret_all.pushKV("mintxsize", mintxsize == MAX_BLOCK_SERIALIZED_SIZE ? 0 : mintxsize);
+    ret_all.pushKV("mintxsize", mintxsize == CONTEXT_FREE_BLOCK_BYTES ? 0 : mintxsize);
     ret_all.pushKV("outs", outputs);
     ret_all.pushKV("subsidy", GetBlockSubsidy(pindex.nHeight, chainman.GetParams().GetConsensus()));
     ret_all.pushKV("swtotal_size", swtotal_size);

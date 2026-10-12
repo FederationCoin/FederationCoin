@@ -104,7 +104,10 @@ FUZZ_TARGET(key, .init = initialize_key)
         assert(pubkey.IsValid());
         assert(pubkey.IsFullyValid());
         assert(HexToPubKey(HexStr(pubkey)) == pubkey);
-        assert(GetAllDestinationsForKey(pubkey).size() == 3);
+        // Secp keys wrap as P2WPKH only (not Bitcoin's three output types).
+        const auto destinations = GetAllDestinationsForKey(pubkey);
+        assert(destinations.size() == 1);
+        assert(WitnessV0KeyHash{pubkey} == *std::get_if<WitnessV0KeyHash>(&destinations.front()));
     }
 
     {

@@ -39,7 +39,9 @@ class FileMeta(object):
         meta = meta.split()
         # The octal file permission of the file. Internally, git only
         # keeps an 'executable' bit, so this will always be 0o644 or 0o755.
-        self.permissions = int(meta[0], 8) & 0o7777
+        # Gitlinks (mode 160000) mask to 000; skip those in the permission check.
+        self.git_mode = int(meta[0], 8)
+        self.permissions = self.git_mode & 0o7777
         # We don't currently care about the other fields
 
     @property
@@ -125,6 +127,8 @@ def check_all_file_permissions(files) -> int:
     """
     failed_tests = 0
     for filename, file_meta in files.items():
+        if file_meta.git_mode == 0o160000:
+            continue
         if file_meta.permissions == ALLOWED_PERMISSION_EXECUTABLES:
             with open(filename, "rb") as f:
                 shebang = f.readline().rstrip(b"\n")

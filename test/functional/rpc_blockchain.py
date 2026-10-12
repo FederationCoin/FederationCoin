@@ -251,11 +251,9 @@ class BlockchainTest(BitcoinTestFramework):
             },
             'reduced_data': {
                 'type': 'flagday',
-                'height': 0,
                 'active': True,
             },
           },
-          'blake2b': {'height': 0, 'active': True},
         })
 
     def _test_getdeploymentinfo(self):

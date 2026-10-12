@@ -140,12 +140,8 @@ bool CheckSignetBlockSolution(const CBlock& block, const Consensus::Params& cons
     const CScript& scriptSig = signet_txs->m_to_sign.vin[0].scriptSig;
     const CScriptWitness& witness = signet_txs->m_to_sign.vin[0].scriptWitness;
 
-    // Blake2b is buried at genesis, so a non-genesis signet solution is signed
-    // with the unified sighash. Verify it the same way.
-    unsigned int flags = BLOCK_SCRIPT_VERIFY_FLAGS;
-    if (consensusParams.Blake2bHeight == 0) {
-        flags |= SCRIPT_VERIFY_UNIFIED_SIGHASH;
-    }
+    // This chain is Blake2b from the first block. Unified sighash always.
+    unsigned int flags = BLOCK_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_UNIFIED_SIGHASH;
 
     PrecomputedTransactionData txdata;
     txdata.Init(signet_txs->m_to_sign, {signet_txs->m_to_spend.vout[0]}, /*force=*/!!(flags & SCRIPT_VERIFY_UNIFIED_SIGHASH));

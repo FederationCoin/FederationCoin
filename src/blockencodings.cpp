@@ -5,6 +5,7 @@
 #include <blockencodings.h>
 #include <chainparams.h>
 #include <common/system.h>
+#include <consensus/block_limits.h>
 #include <consensus/consensus.h>
 #include <consensus/validation.h>
 #include <crypto/sha256.h>
@@ -50,7 +51,9 @@ uint64_t CBlockHeaderAndShortTxIDs::GetShortID(const Wtxid& wtxid) const {
 ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& cmpctblock, const std::vector<CTransactionRef>& extra_txn) {
     if (cmpctblock.header.IsNull() || (cmpctblock.shorttxids.empty() && cmpctblock.prefilledtxn.empty()))
         return READ_STATUS_INVALID;
-    if (cmpctblock.shorttxids.size() + cmpctblock.prefilledtxn.size() > MAX_BLOCK_WEIGHT / MIN_SERIALIZABLE_TRANSACTION_WEIGHT)
+    const uint64_t tx_slots{Consensus::LimitsForCap(Consensus::BlockMessageReceiveLimit()).compact_tx_count};
+    if (static_cast<uint64_t>(cmpctblock.shorttxids.size()) > tx_slots ||
+        static_cast<uint64_t>(cmpctblock.prefilledtxn.size()) > tx_slots - static_cast<uint64_t>(cmpctblock.shorttxids.size()))
         return READ_STATUS_INVALID;
 
     if (!header.IsNull() || !txn_available.empty()) return READ_STATUS_INVALID;

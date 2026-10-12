@@ -48,7 +48,7 @@ struct Params;
 /**
  * Check whether all outputs of this transaction satisfy size limits.
  * Regular outputs must be <= MAX_OUTPUT_SCRIPT_SIZE (34 bytes).
- * OP_RETURN outputs must be <= MAX_OUTPUT_DATA_SIZE (83 bytes).
+ * OP_RETURN outputs must be <= MAX_OUTPUT_DATA_SIZE (38 bytes).
  */
 bool CheckOutputSizes(const CTransaction& tx, TxValidationState& state);
 

@@ -18,11 +18,11 @@ from test_framework.script import (
     OP_RETURN,
 )
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.util import assert_equal
+from test_framework.util import (
+    assert_equal,
+    get_fee,
+)
 from test_framework.wallet import MiniWallet
-
-
-DUST_THRESHOLD = 330  # P2TR: (43 + 67) * 3000 / 1000 = 330 sats
 
 
 class SubDustFeePenaltyTest(BitcoinTestFramework):
@@ -35,6 +35,10 @@ class SubDustFeePenaltyTest(BitcoinTestFramework):
 
         info = self.nodes[0].getmempoolinfo()
         self.minrelay_per_kvb = info['minrelaytxfee'] * COIN  # sats per kvB
+        # GetDustThreshold: serialize(CTxOut) + 67 for a witness program.
+        spk = self.wallet.get_output_script()
+        n_size = len(CTxOut(nValue=0, scriptPubKey=spk).serialize()) + 67
+        self.dust_threshold = int(get_fee(n_size, info['dustrelayfee']) * COIN)
 
         self.test_dust_output_increases_required_fee()
         self.test_partial_dust_proportional_penalty()
@@ -69,14 +73,14 @@ class SubDustFeePenaltyTest(BitcoinTestFramework):
         min_fee = self.get_min_relay_fee(probe)
 
         # fee just covers min relay + penalty - 1: rejected
-        reject_fee = DUST_THRESHOLD + min_fee - 1
+        reject_fee = self.dust_threshold + min_fee - 1
         tx_low = self.build_tx_with_dust([0], fee=reject_fee)
         result = self.nodes[0].testmempoolaccept([tx_low.serialize().hex()])
         assert_equal(result[0]["allowed"], False)
         assert_equal(result[0]["reject-reason"], "min relay fee not met")
 
         # fee covers min relay + penalty: accepted
-        accept_fee = DUST_THRESHOLD + min_fee
+        accept_fee = self.dust_threshold + min_fee
         tx_high = self.build_tx_with_dust([0], fee=accept_fee)
         result = self.nodes[0].testmempoolaccept([tx_high.serialize().hex()])
         assert_equal(result[0]["allowed"], True)
@@ -84,8 +88,8 @@ class SubDustFeePenaltyTest(BitcoinTestFramework):
     def test_partial_dust_proportional_penalty(self):
         self.log.info("Test: partial dust value gets proportional penalty")
 
-        partial_value = 100
-        penalty = DUST_THRESHOLD - partial_value  # 230 sats
+        partial_value = max(1, self.dust_threshold // 2)
+        penalty = self.dust_threshold - partial_value
 
         probe = self.build_tx_with_dust([partial_value], fee=1000)
         min_fee = self.get_min_relay_fee(probe)
@@ -104,7 +108,7 @@ class SubDustFeePenaltyTest(BitcoinTestFramework):
     def test_multiple_dust_outputs_stack(self):
         self.log.info("Test: multiple dust outputs stack penalties")
 
-        total_penalty = DUST_THRESHOLD * 2  # 660 sats
+        total_penalty = self.dust_threshold * 2
 
         probe = self.build_tx_with_dust([0, 0], fee=1000)
         min_fee = self.get_min_relay_fee(probe)
@@ -157,10 +161,10 @@ class SubDustFeePenaltyTest(BitcoinTestFramework):
     def test_above_dust_not_penalized(self):
         self.log.info("Test: outputs above dust threshold are not penalized")
 
-        probe = self.build_tx_with_dust([DUST_THRESHOLD + 100], fee=1000)
+        probe = self.build_tx_with_dust([self.dust_threshold + 100], fee=1000)
         min_fee = self.get_min_relay_fee(probe)
 
-        tx = self.build_tx_with_dust([DUST_THRESHOLD + 100], fee=min_fee)
+        tx = self.build_tx_with_dust([self.dust_threshold + 100], fee=min_fee)
         result = self.nodes[0].testmempoolaccept([tx.serialize().hex()])
         assert_equal(result[0]["allowed"], True)
 

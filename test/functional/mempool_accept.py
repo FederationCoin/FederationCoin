@@ -10,7 +10,7 @@ import math
 
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.mempool_util import (
-    DEFAULT_MIN_RELAY_TX_FEE,
+    COREPOLICY_MIN_RELAY_TX_FEE,
     DEFAULT_INCREMENTAL_RELAY_FEE,
 )
 from test_framework.messages import (
@@ -87,7 +87,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
 
         self.log.info("Check default settings")
         # Settings are listed in COIN/kvB
-        assert_equal(node.getmempoolinfo()['minrelaytxfee'], Decimal(DEFAULT_MIN_RELAY_TX_FEE) / COIN)
+        assert_equal(node.getmempoolinfo()['minrelaytxfee'], Decimal(COREPOLICY_MIN_RELAY_TX_FEE) / COIN)
         assert_equal(node.getmempoolinfo()['incrementalrelayfee'], Decimal(DEFAULT_INCREMENTAL_RELAY_FEE) / COIN)
 
         self.log.info('Should not accept garbage to testmempoolaccept')
@@ -351,7 +351,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         )
         tx = tx_from_hex(raw_tx_reference)
         tx.vout[0] = output_p2sh_burn
-        tx.vout[0].nValue -= 1  # Make output smaller, such that it is dust for our policy
+        tx.vout[0].nValue = 1  # Dust at DUST_RELAY_TX_FEE (consensus kvB floor times 3)
         self.check_mempool_result(
             result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'dust'}],
             rawtxs=[tx.serialize().hex()],

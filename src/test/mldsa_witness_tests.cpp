@@ -2,7 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <crypto/blake2b.h>
 #include <script/script.h>
 #include <test/util/setup_common.h>
@@ -49,15 +49,15 @@ BOOST_AUTO_TEST_CASE(extra_item_and_wrong_length_rejected)
     witness.emplace_back(pubkey.begin(), pubkey.end());
     witness.emplace_back(signature.begin(), signature.end());
     witness.push_back({0x50});
-    BOOST_CHECK(!Consensus::CheckSingleKeySpend(program, witness, sighash));
+    BOOST_CHECK(!Consensus::CheckSingleKey44Spend(program, witness, sighash));
 
     witness.pop_back();
     witness[0].pop_back();
-    BOOST_CHECK(!Consensus::CheckSingleKeySpend(program, witness, sighash));
+    BOOST_CHECK(!Consensus::CheckSingleKey44Spend(program, witness, sighash));
 
     witness[0].push_back(0);
     witness[1].push_back(0);
-    BOOST_CHECK(!Consensus::CheckSingleKeySpend(program, witness, sighash));
+    BOOST_CHECK(!Consensus::CheckSingleKey44Spend(program, witness, sighash));
 }
 
 BOOST_AUTO_TEST_CASE(single_key_spend_accepted)
@@ -74,7 +74,7 @@ BOOST_AUTO_TEST_CASE(single_key_spend_accepted)
     std::vector<std::vector<unsigned char>> witness;
     witness.emplace_back(key.pubkey.begin(), key.pubkey.end());
     witness.emplace_back(signature.begin(), signature.end());
-    BOOST_CHECK(Consensus::CheckSingleKeySpend(program, witness, sighash));
+    BOOST_CHECK(Consensus::CheckSingleKey44Spend(program, witness, sighash));
 }
 
 BOOST_AUTO_TEST_CASE(unrelated_hash_is_a_burn)
@@ -93,7 +93,7 @@ BOOST_AUTO_TEST_CASE(unrelated_hash_is_a_burn)
     std::vector<std::vector<unsigned char>> witness;
     witness.emplace_back(pubkey.begin(), pubkey.end());
     witness.emplace_back(signature.begin(), signature.end());
-    BOOST_CHECK(!Consensus::CheckSingleKeySpend(burn, witness, sighash));
+    BOOST_CHECK(!Consensus::CheckSingleKey44Spend(burn, witness, sighash));
 }
 
 BOOST_AUTO_TEST_CASE(merge_two_of_two_slots)
@@ -133,11 +133,11 @@ BOOST_AUTO_TEST_CASE(merge_two_of_two_slots)
 
     const auto merged{Consensus::MergeMlDsa44Witnesses({partial_a, partial_b}, sighash)};
     BOOST_REQUIRE(merged);
-    BOOST_CHECK(Consensus::CheckMultisigSpend(*program, *merged, sighash));
+    BOOST_CHECK(Consensus::CheckMultisig44Spend(*program, *merged, sighash));
 
     const auto same_side{Consensus::MergeMlDsa44Witnesses({partial_a, partial_a}, sighash)};
     BOOST_REQUIRE(same_side);
-    BOOST_CHECK(!Consensus::CheckMultisigSpend(*program, *same_side, sighash));
+    BOOST_CHECK(!Consensus::CheckMultisig44Spend(*program, *same_side, sighash));
 
     std::vector<std::vector<unsigned char>> other = partial_b;
     std::fill(other[0].begin(), other[0].end(), static_cast<unsigned char>(0x22));

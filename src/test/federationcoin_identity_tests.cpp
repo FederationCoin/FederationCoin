@@ -54,10 +54,6 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
         BOOST_CHECK_EQUAL(c.CSVHeight, 1);
         BOOST_CHECK_EQUAL(c.SegwitHeight, 1);
         BOOST_CHECK_EQUAL(params->Checkpoints().GetHeight(), 0);
-        BOOST_CHECK_EQUAL(c.Blake2bHeight, 0);
-        BOOST_CHECK_EQUAL(c.Blake2bTargetShift, 0);
-        BOOST_CHECK(c.RdtsActiveAt(0));
-        BOOST_CHECK(!c.RdtsActiveAt(-1));
         const CScript& genesis_sig{params->GenesisBlock().vtx[0]->vin[0].scriptSig};
         BOOST_CHECK(genesis_sig == (CScript() << 0 << OP_0));
         BOOST_CHECK_EQUAL(c.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime,
@@ -165,22 +161,20 @@ BOOST_AUTO_TEST_CASE(output_type_is_allowed_forks)
 {
     BOOST_CHECK(OutputTypeIsAllowed(OutputType::DILITHIUM87));
     BOOST_CHECK(OutputTypeIsAllowed(OutputType::DILITHIUM44));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::LEGACY));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::P2SH_SEGWIT));
-    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::UNKNOWN));
 
     const auto parked{CreateChainParams(ArgsManager{}, ChainType::REGTEST)};
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M, parked->GetConsensus()));
-    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32, parked->GetConsensus()));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP, parked->GetConsensus()));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32, parked->GetConsensus()));
 
     Consensus::Params taproot_on{parked->GetConsensus()};
     taproot_on.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M, taproot_on));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP, taproot_on));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32, taproot_on));
 }
 
 BOOST_AUTO_TEST_CASE(format_subversion_true_equals_false)

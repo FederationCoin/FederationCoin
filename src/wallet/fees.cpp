@@ -5,8 +5,11 @@
 
 #include <wallet/fees.h>
 
+#include <consensus/settlement_fee.h>
 #include <wallet/coincontrol.h>
 #include <wallet/wallet.h>
+
+#include <algorithm>
 
 
 namespace wallet {
@@ -18,7 +21,8 @@ CAmount GetRequiredFee(const CWallet& wallet, unsigned int nTxBytes)
 
 CAmount GetMinimumFee(const CWallet& wallet, unsigned int nTxBytes, const CCoinControl& coin_control, FeeCalculation* feeCalc)
 {
-    return GetMinimumFeeRate(wallet, coin_control, feeCalc).GetFee(nTxBytes);
+    const CAmount by_rate{GetMinimumFeeRate(wallet, coin_control, feeCalc).GetFee(nTxBytes)};
+    return std::max(by_rate, MinimumFee(static_cast<int64_t>(nTxBytes)));
 }
 
 CFeeRate GetRequiredFeeRate(const CWallet& wallet)

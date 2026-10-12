@@ -14,6 +14,11 @@ from test_framework.util import (
     assert_greater_than_or_equal,
     assert_raises_rpc_error,
 )
+from test_framework.mempool_util import (
+    just_below_relay_sat_vb,
+    just_below_relay_sat_vb_str,
+    relay_feerate_sat_vb_str,
+)
 
 # Decorator to reset activewallet to zero utxos
 def cleanup(func):
@@ -289,8 +294,10 @@ class SendallTest(BitcoinTestFramework):
     @cleanup
     def sendall_fails_on_low_fee(self):
         self.log.info("Test sendall fails if the transaction fee is lower than the minimum fee rate setting")
-        assert_raises_rpc_error(-8, "Fee rate (0.999 token/vB) is lower than the minimum fee rate setting (3.000 token/vB)",
-        self.wallet.sendall, recipients=[self.recipient], fee_rate=0.999)
+        below = just_below_relay_sat_vb(self.nodes[0])
+        min_str = relay_feerate_sat_vb_str(self.nodes[0])
+        assert_raises_rpc_error(-8, f"Fee rate ({just_below_relay_sat_vb_str(self.nodes[0])}) is lower than the minimum fee rate setting ({min_str})",
+        self.wallet.sendall, recipients=[self.recipient], fee_rate=below)
 
     @cleanup
     def sendall_watchonly_specific_inputs(self):

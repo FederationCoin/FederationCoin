@@ -25,25 +25,6 @@ static unsigned int MinDifficultyNBits(const Consensus::Params& params)
     return UintToArith256(params.powLimit).GetCompact();
 }
 
-/** One-off target shift applied to the first block under a new PoW algorithm.
- *
- * Shared by GetNextWorkRequired and PermittedDifficultyTransition so the value
- * that gets produced and the value that gets accepted cannot drift apart.
- */
-static unsigned int ApplyBlake2bTargetShift(unsigned int nBits, const Consensus::Params& params)
-{
-    arith_uint256 bnNew;
-    bnNew.SetCompact(nBits);
-    const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
-    const unsigned int shift{params.Blake2bTargetShift};
-    if (bnNew > (bnPowLimit >> shift)) {
-        bnNew = bnPowLimit;
-    } else {
-        bnNew <<= shift;
-    }
-    return bnNew.GetCompact();
-}
-
 /** Do not ease past nMinDifficultyBits (smaller target = harder). */
 static unsigned int ApplyMinDifficultyFloor(unsigned int nBits, const Consensus::Params& params)
 {
@@ -95,11 +76,6 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
         assert(pindexFirst);
 
         nBits = CalculateNextWorkRequired(pindexLast, pindexFirst->GetBlockTime(), params);
-    }
-
-    if (pindexLast->nHeight + 1 == params.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)) {
-        // Adjust the target for the first block mined under a new PoW algorithm.
-        nBits = ApplyBlake2bTargetShift(nBits, params);
     }
 
     return ApplyMinDifficultyFloor(nBits, params);
@@ -155,14 +131,6 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
 bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height, uint32_t old_nbits, uint32_t new_nbits)
 {
     if (params.fPowAllowMinDifficultyBlocks) return true;
-
-    // Across a PoW-algorithm change, GetNextWorkRequired shifts the target once
-    // before returning it. Rebase the comparison onto the shifted target so the
-    // usual limits below apply to the change on top of it, rather than
-    // rejecting the shift itself.
-    if (height == params.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)) {
-        old_nbits = ApplyMinDifficultyFloor(ApplyBlake2bTargetShift(old_nbits, params), params);
-    }
 
     if (height % params.DifficultyAdjustmentInterval() == 0) {
         int64_t smallest_timespan = params.nPowTargetTimespan/4;

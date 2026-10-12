@@ -12,12 +12,13 @@
 #include <checkqueue.h>
 #include <clientversion.h>
 #include <consensus/amount.h>
+#include <consensus/block_limits.h>
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
 #include <consensus/epoch_watermark.h>
 #include <consensus/flex_weight.h>
 #include <consensus/mldsa87_spend.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <consensus/secp_spend.h>
 #include <consensus/settlement_fee.h>
 #include <consensus/tx_check.h>
@@ -28,6 +29,7 @@
 #include <flatfile.h>
 #include <hash.h>
 #include <kernel/chain.h>
+#include <limits>
 #include <kernel/chainparams.h>
 #include <kernel/coinstats.h>
 #include <kernel/disconnected_transactions.h>
@@ -295,10 +297,9 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
  *
  * Where the fork is not scheduled there is nothing to accept, so the flag stays
  * off and the byte keeps the meaning it has always had on that chain. */
-static unsigned int UnifiedSighashMempoolFlag(const ChainstateManager& chainman)
+static unsigned int UnifiedSighashMempoolFlag(const ChainstateManager&)
 {
-    return DeploymentEnabled(chainman, Consensus::DEPLOYMENT_BLAKE2B)
-               ? uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH} : uint32_t{0};
+    return SCRIPT_VERIFY_UNIFIED_SIGHASH;
 }
 
 /** Compute accurate total signature operation cost of a transaction.
@@ -1147,7 +1148,10 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 
     // To avoid rejecting low-sigop bare-multisig transactions, the sigops
     // are counted a second time more accurately.
-    if ((nSigOpsCost > MAX_STANDARD_TX_SIGOPS_COST) || (nBytesPerSigOpStrict && GetAccurateTransactionSigOpCost(tx, m_view, STANDARD_SCRIPT_VERIFY_FLAGS) > ws.m_vsize * WITNESS_SCALE_FACTOR / nBytesPerSigOpStrict)) {
+    const CBlockIndex* tip{m_active_chainstate.m_chain.Tip()};
+    const int interval{m_active_chainstate.m_chainman.GetConsensus().nSubsidyHalvingInterval};
+    const uint64_t next_cap{tip == nullptr ? Consensus::MIN_FLEX_BLOCK_WEIGHT : Consensus::CapForBlock(tip->nFlexCap, tip->nEpochWatermark, tip->nHeight + 1, interval)};
+    if ((nSigOpsCost > StandardTxSigopsLimit(next_cap)) || (nBytesPerSigOpStrict && GetAccurateTransactionSigOpCost(tx, m_view, STANDARD_SCRIPT_VERIFY_FLAGS) > ws.m_vsize * WITNESS_SCALE_FACTOR / nBytesPerSigOpStrict)) {
         MaybeRejectDbg(TxValidationResult::TX_NOT_STANDARD, "bad-txns-too-many-sigops",
                 strprintf("%d", nSigOpsCost));
     }
@@ -2397,15 +2401,8 @@ void Chainstate::InvalidChainFound(CBlockIndex* pindexNew)
 {
     AssertLockHeld(cs_main);
     // m_best_invalid feeds the fork warning ("we do not appear to fully agree
-    // with our peers"). A branch that continued SHA256d past the BLAKE2b fork
-    // height is the pre-fork majority chain, expected to outweigh ours by far
-    // (the fork block's target is shifted 2^20 easier); it is invalid by
-    // design, not a sign of corruption or a needed upgrade, so it is kept out
-    // of that heuristic. Only inherited data directories hold such branches
-    // (headers at or above the fork height are rejected at acceptance), and
-    // this keeps them consistent with freshly synced nodes.
-    if (!m_chainman.ContinuesSha256dPastFork(*pindexNew) &&
-            (!m_chainman.m_best_invalid || pindexNew->nChainWork > m_chainman.m_best_invalid->nChainWork)) {
+    // with our peers").
+    if (!m_chainman.m_best_invalid || pindexNew->nChainWork > m_chainman.m_best_invalid->nChainWork) {
         m_chainman.m_best_invalid = pindexNew;
     }
     SetBlockFailureFlags(pindexNew);
@@ -2476,8 +2473,8 @@ std::optional<std::pair<ScriptError, std::string>> CScriptCheck::operator()() {
         const uint256 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
         const std::span<const unsigned char> message{sighash.begin(), 32};
         const bool ok{hashed && (
-            Consensus::CheckSingleKeySpend(program, witness->stack, message) ||
-            Consensus::CheckMultisigSpend(program, witness->stack, message) ||
+            Consensus::CheckSingleKey44Spend(program, witness->stack, message) ||
+            Consensus::CheckMultisig44Spend(program, witness->stack, message) ||
             Consensus::CheckSingleKey87Spend(program, witness->stack, message) ||
             Consensus::CheckMultisig87Spend(program, witness->stack, message))};
         if (ok) return std::nullopt;
@@ -2788,15 +2785,11 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
         flags |= SCRIPT_VERIFY_TAPROOT;
     }
 
-    if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_BLAKE2B)) {
-        flags |= SCRIPT_VERIFY_UNIFIED_SIGHASH;
-    }
+    flags |= SCRIPT_VERIFY_UNIFIED_SIGHASH;
 
-    // RDTS (see RdtsActiveAt). Genesis has no parent, so the script flags
-    // start on the first block that has one. The rules themselves are on
-    // from the BLAKE2b height, which is the first block on this chain.
-    if (block_index.pprev != nullptr &&
-        consensusparams.RdtsActiveAt(block_index.nHeight)) {
+    // RDTS is on. Genesis has no parent, so the script flags start on the
+    // first block that has one.
+    if (block_index.pprev != nullptr) {
         flags |= REDUCED_DATA_MANDATORY_VERIFY_FLAGS;
     }
 
@@ -2814,16 +2807,18 @@ static void ApplyFlexWatermark(CBlockIndex& index, uint64_t block_weight, const 
     if (index.pprev == nullptr || index.nHeight <= 0) {
         index.nFlexCap = Consensus::MIN_FLEX_BLOCK_WEIGHT;
         index.nEpochWatermark.Clear();
-        index.nEpochWatermark.AddBlock(block_weight, index.nHeight, interval);
-        return;
-    }
-    index.nFlexCap = Consensus::CapForBlock(index.pprev->nFlexCap, index.pprev->nEpochWatermark, index.nHeight, interval);
-    if (index.nHeight % interval == 0) {
-        index.nEpochWatermark.Clear();
+        index.nEpochWatermark.AddBlock(block_weight, index.nFlexCap, index.nHeight);
     } else {
-        index.nEpochWatermark = index.pprev->nEpochWatermark;
+        index.nFlexCap = Consensus::CapForBlock(index.pprev->nFlexCap, index.pprev->nEpochWatermark, index.nHeight, interval);
+        if (index.nHeight % interval == 0) {
+            index.nEpochWatermark.Clear();
+        } else {
+            index.nEpochWatermark = index.pprev->nEpochWatermark;
+        }
+        index.nEpochWatermark.AddBlock(block_weight, index.nFlexCap, index.nHeight);
     }
-    index.nEpochWatermark.AddBlock(block_weight, index.nHeight, interval);
+    const uint64_t next_cap{Consensus::CapForBlock(index.nFlexCap, index.nEpochWatermark, index.nHeight + 1, interval)};
+    Consensus::SetBlockMessageReceiveLimit(Consensus::LimitsForCap(next_cap).block_message_bytes);
 }
 
 bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, CBlockIndex* pindex,
@@ -3038,16 +3033,10 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     std::vector<PrecomputedTransactionData> txsdata(block.vtx.size());
     CCheckQueueControl<CScriptCheck> control(fScriptChecks && parallel_script_checks ? &m_chainman.GetCheckQueue() : nullptr);
 
-    // RDTS (see RdtsActiveAt): active from the BLAKE2b fork height, with no
-    // expiry. When RDTS is inactive the start height is 0, so no input is
-    // treated as pre-activation and flags_per_input stays empty (keeping the
-    // script-execution cache enabled). Grandfathering below compares each
-    // input's creating height against the fork height: activation and the
-    // exemption boundary are the same instant by construction.
-    const bool reduced_data_active{params.GetConsensus().RdtsActiveAt(pindex->nHeight)};
-    const auto reduced_data_start_height = reduced_data_active
-        ? params.GetConsensus().RdtsActivationHeight()
-        : 0;
+    // RDTS is on from the first block. Start height 0: no input is treated
+    // as pre-activation.
+    const bool reduced_data_active{true};
+    const auto reduced_data_start_height = 0;
 
     // The reduced weight limit is checked by ContextualCheckBlock for blocks
     // arriving from the network; re-check it here so that a chainstate
@@ -3149,7 +3138,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         // * p2sh (when P2SH enabled in flags and excludes coinbase)
         // * witness (when witness enabled in flags and excludes coinbase)
         nSigOpsCost += GetTransactionSigOpCost(tx, view, flags);
-        if (nSigOpsCost > MAX_BLOCK_SIGOPS_COST) {
+        if (nSigOpsCost > Consensus::LimitsForCap(pindex->nFlexCap).sigops_cost) {
             state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "too many sigops");
             break;
         }
@@ -3833,7 +3822,7 @@ CBlockIndex* Chainstate::FindMostWorkChain()
             bool fMissingData = !(pindexTest->nStatus & BLOCK_HAVE_DATA);
             if (fFailedChain || fMissingData) {
                 // Candidate chain is not usable (either invalid or missing data)
-                if (fFailedChain && !m_chainman.ContinuesSha256dPastFork(*pindexNew) &&
+                if (fFailedChain &&
                         (m_chainman.m_best_invalid == nullptr || pindexNew->nChainWork > m_chainman.m_best_invalid->nChainWork)) {
                     m_chainman.m_best_invalid = pindexNew;  // see InvalidChainFound
                 }
@@ -4498,20 +4487,13 @@ void ChainstateManager::ReceivedBlockTransactions(const CBlock& block, CBlockInd
 
 static bool CheckBlockHeader(const CBlockHeader& block, BlockValidationState& state, const Consensus::Params& consensusParams, bool fCheckPOW = true)
 {
-    if (block.m_header_v2) {
-        if (!consensusParams.IsBlake2bHeight(block.m_height)) {
-            return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-version-sha256d", strprintf("Blocks require SHA256d PoW until height %s", consensusParams.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)));
-        }
+    if (!block.m_header_v2) {
+        return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-version-blake2b", "Blocks require header v2 / Blake2b PoW");
+    }
 
-        // The top two bits of flags are reserved for future hardforks (serving the same purpose as nVersion's top bit did for BLAKE2b)
-        if (block.m_flags & 0xc0) {
-            return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-flags-highbits", "High flag bits are set");
-        }
-    } else if (!block.AreHeaderV2FieldsNull()) {
-        return state.Invalid(
-            /*result=*/BlockValidationResult::BLOCK_MUTATED,
-            /*reject_reason=*/"error-headerv1-with-v2-fields",
-            /*debug_message=*/"THIS SHOULD BE IMPOSSIBLE, PLEASE REPORT IT");
+    // The top two bits of flags are reserved for future hardforks
+    if (block.m_flags & 0xc0) {
+        return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-flags-highbits", "High flag bits are set");
     }
 
     // Check proof of work matches claimed amount
@@ -4637,8 +4619,8 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     // Note that witness malleability is checked in ContextualCheckBlock, so no
     // checks that use witness data may be performed here.
 
-    // Size limits
-    if (block.vtx.empty() || static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > MAX_BLOCK_SERIALIZED_SIZE)
+    // Context-free sanity. The live cap is enforced in ContextualCheckBlock.
+    if (block.vtx.empty() || static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > CONTEXT_FREE_BLOCK_BYTES)
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
 
     // First transaction must be coinbase, the rest must not be
@@ -4676,7 +4658,9 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     {
         nSigOps += GetLegacySigOpCount(*tx);
     }
-    if (nSigOps * WITNESS_SCALE_FACTOR > MAX_BLOCK_SIGOPS_COST)
+    const int64_t sanity_sigops{Consensus::LimitsForCap(CONTEXT_FREE_BLOCK_BYTES).sigops_cost};
+    if (nSigOps > std::numeric_limits<uint64_t>::max() / WITNESS_SCALE_FACTOR ||
+        static_cast<int64_t>(nSigOps) * WITNESS_SCALE_FACTOR > sanity_sigops)
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "out-of-bounds SigOpCount");
 
     if (fCheckPOW && fCheckMerkleRoot)
@@ -4865,14 +4849,11 @@ static bool ContextualCheckBlockHeaderVolatile(const CBlockHeader& block, BlockV
     const Consensus::Params& consensusParams = chainman.GetConsensus();
     const auto height{pindexPrev ? (pindexPrev->nHeight + 1) : 0};
 
-    if (block.m_header_v2) {
-        if (block.m_height != height) {
-            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-header-height", "Height in block header does not match prevblock height+1");
-        }
-    } else {
-        if (consensusParams.IsBlake2bHeight(height)) {
-            return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-version-blake2b", "New blocks require BLAKE2b PoW");
-        }
+    if (!block.m_header_v2) {
+        return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-version-blake2b", "New blocks require header v2 / Blake2b PoW");
+    }
+    if (block.m_height != height) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-header-height", "Height in block header does not match prevblock height+1");
     }
 
     // Mandatory signaling for deployments approaching max_activation_height
@@ -4959,6 +4940,18 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
     uint64_t flex_cap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
     if (pindexPrev != nullptr) {
         flex_cap = Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, nHeight, interval);
+    }
+    const Consensus::BlockLimits limits{Consensus::LimitsForCap(flex_cap)};
+    if (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > limits.serialized_size) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
+    }
+    unsigned int legacy_sigops{0};
+    for (const auto& tx : block.vtx) {
+        legacy_sigops += GetLegacySigOpCount(*tx);
+    }
+    if (legacy_sigops > std::numeric_limits<uint64_t>::max() / WITNESS_SCALE_FACTOR ||
+        static_cast<uint64_t>(legacy_sigops) * WITNESS_SCALE_FACTOR > static_cast<uint64_t>(limits.sigops_cost)) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "out-of-bounds SigOpCount");
     }
     if (block_weight < 0 || static_cast<uint64_t>(block_weight) > flex_cap) {
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-weight", strprintf("%s : flex weight limit failed", __func__));
@@ -5691,38 +5684,17 @@ std::vector<CBlockIndex*> ChainstateManager::FindInheritedInvalidBlocks()
 
     std::vector<CBlockIndex*> violators;
 
-    const Consensus::Params& params{GetConsensus()};
-
     // One pass over the whole block index (not just the active chain, so a
-    // violator on a side branch is corrected too). A stored SHA256d block at
-    // or above the BLAKE2b fork height is the index-side analog of
-    // bad-version-blake2b: any branch that continued the old PoW past the fork
-    // was inherited from a client that was not enforcing the hardfork.
-    // Invalidating these truncates such a branch to the last shared pre-fork
-    // block, and the BLAKE2b chain, which extends past it, then outweighs it.
-    // The verdict is re-derived from the stored header alone, so it does not
-    // change as other blocks are invalidated and one scan suffices.
-    // Checkpoints are deliberately not consulted: separation is performed by
-    // the PoW change, and checkpoints are optional (-checkpoints=0).
+    // violator on a side branch is corrected too). This chain is header v2
+    // from genesis. A stored v1 header is invalid.
     for (auto& [_, index] : m_blockman.m_block_index) {
         if (index.nStatus & BLOCK_FAILED_MASK) continue;             // already handled
-        if (params.IsBlake2bHeight(index.nHeight) && !index.m_header_v2) {
+        if (!index.m_header_v2) {
             violators.push_back(&index);
         }
     }
 
     return violators;
-}
-
-bool ChainstateManager::ContinuesSha256dPastFork(const CBlockIndex& index) const
-{
-    const Consensus::Params& params{GetConsensus()};
-    if (!params.IsBlake2bHeight(index.nHeight)) return false;
-    // Above the fork height a branch is either BLAKE2b from the fork block on
-    // or SHA256d throughout (bad-version-blake2b admits no v1 block above a v2
-    // one), so the fork block's header decides for the whole branch.
-    const CBlockIndex* fork_block{index.GetAncestor(params.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B))};
-    return fork_block != nullptr && !fork_block->m_header_v2;
 }
 
 bool Chainstate::CorrectRdtsInvalidBlocks(bilingual_str& error)
@@ -5877,7 +5849,7 @@ bool ChainstateManager::LoadBlockIndex()
                     chainstate->TryAddBlockIndexCandidate(pindex);
                 }
             }
-            if (pindex->nStatus & BLOCK_FAILED_MASK && !ContinuesSha256dPastFork(*pindex) &&
+            if (pindex->nStatus & BLOCK_FAILED_MASK &&
                     (!m_best_invalid || pindex->nChainWork > m_best_invalid->nChainWork)) {
                 m_best_invalid = pindex;  // see Chainstate::InvalidChainFound
             }
@@ -5934,7 +5906,7 @@ void ChainstateManager::LoadExternalBlockFile(
         IOPRIO_IDLER(/*lowprio=*/true);
         file_in.SetIdlePriority();
 
-        BufferedFile blkdat{file_in, 2 * MAX_BLOCK_SERIALIZED_SIZE, MAX_BLOCK_SERIALIZED_SIZE + 8};
+        BufferedFile blkdat{file_in, 2 * static_cast<uint64_t>(node::MAX_BLOCKFILE_SIZE), static_cast<uint64_t>(node::MAX_BLOCKFILE_SIZE) + 8};
         // nRewind indicates where to resume scanning in case something goes wrong,
         // such as a block fails to deserialize.
         uint64_t nRewind = blkdat.GetPos();
@@ -5956,7 +5928,7 @@ void ChainstateManager::LoadExternalBlockFile(
                 }
                 // read size
                 blkdat >> nSize;
-                if (nSize < 80 || nSize > MAX_BLOCK_SERIALIZED_SIZE)
+                if (nSize < 80 || nSize > node::MAX_BLOCKFILE_SIZE)
                     continue;
             } catch (const std::exception&) {
                 // no valid block header found; don't complain

@@ -33,9 +33,9 @@ from test_framework.wallet import MiniWallet
 
 # RDTS activates at the BLAKE2b fork height (see -testactivationheight below)
 ACTIVATION_HEIGHT = 432
-# Consensus weight limits: the reduced one applies while RDTS is active
+# The live flex floor is the block weight cap at every height, including
+# before the fork. RDTS does not raise it back to a 4M heritage limit.
 REDUCED_DATA_MAX_BLOCK_WEIGHT = 2400000
-MAX_BLOCK_WEIGHT = 4000000
 # Weight the assembler keeps free for the header and coinbase (-blockreservedweight)
 DEFAULT_BLOCK_RESERVED_WEIGHT = 8000
 # A witness element of this size is legal pre-RDTS (520-byte limit) and
@@ -49,10 +49,8 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
         # Both nodes enforce reduced-data rules from the fork height. There is
         # no expiry.
         self.extra_args = [
-            [f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}',
-             '-acceptnonstdtxn=1'],
-            [f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}',
-             '-acceptnonstdtxn=1'],
+            ['-acceptnonstdtxn=1'],
+            ['-acceptnonstdtxn=1'],
         ]
 
     def setup_network(self):
@@ -69,7 +67,7 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
         block_time = tip_header['time'] + 1 + time_offset
         coinbase = create_coinbase(height)
         block = create_block(int(tip, 16), coinbase, ntime=block_time, txlist=txs,
-                             height=height, header_v2=height >= ACTIVATION_HEIGHT)
+                             height=height, header_v2=True)
         add_witness_commitment(block)
         block.solve()
         return block
@@ -140,7 +138,7 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
                 coinbase.vout.append(CTxOut(0, script))
             coinbase.rehash()
             block = create_block(int(tip, 16), coinbase, ntime=block_time,
-                                 height=height, header_v2=height >= ACTIVATION_HEIGHT)
+                                 height=height, header_v2=True)
             add_witness_commitment(block)
             return block
 
@@ -202,9 +200,8 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
         assert result is not None and 'Push value size limit exceeded' in result, f"Expected push-size rejection, got: {result}"
 
     def rdts_active_for_next_block(self, node):
-        """Whether the RDTS rules apply to the next block on node's tip."""
-        info = node.getblockchaininfo()
-        return info['blocks'] + 1 >= ACTIVATION_HEIGHT
+        """RDTS applies to every mined block."""
+        return True
 
     def assert_gbt_rdts(self, node, *, active):
         """Check getblocktemplate's RDTS surface: the rules entry and the
@@ -213,14 +210,13 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
         # is a v2 (BLAKE2b) header, ignored before the fork.
         tmpl = node.getblocktemplate({'rules': ['segwit', 'blake2b']})
         assert_equal('reduced_data' in tmpl['rules'], active)
-        assert_equal(tmpl['weightlimit'],
-                     REDUCED_DATA_MAX_BLOCK_WEIGHT if active else MAX_BLOCK_WEIGHT)
+        assert_equal(tmpl['weightlimit'], REDUCED_DATA_MAX_BLOCK_WEIGHT)
 
     def assert_rdts_deploymentinfo(self, node, *, active):
         """Check the reduced_data entry in getdeploymentinfo."""
         rd = node.getdeploymentinfo()['deployments']['reduced_data']
         assert_equal(rd['type'], 'flagday')
-        assert_equal(rd['height'], ACTIVATION_HEIGHT)
+        assert 'height' not in rd
         assert 'expiry_time' not in rd
         assert_equal(rd['active'], active)
 
@@ -231,81 +227,44 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
         wallet = MiniWallet(node_bip110)
 
         # =====================================================================
-        # Phase 1: Build the common pre-fork chain
+        # Phase 1: coins and always-on RDTS
         # =====================================================================
-        self.log.info("Phase 1: Building the common pre-fork chain")
+        self.log.info("Phase 1: Mining spendable coins; RDTS is already on")
 
-        self.log.info("Mining initial blocks for spendable coins...")
-        # Each heavy block spends one mature coin and pays it forward.
-        # Height 160 leaves about sixty of those coins spendable.
         self.generate(wallet, 160)
         self.sync_all()
 
-        assert_equal(self.rdts_active_for_next_block(node_bip110), False)
+        assert_equal(self.rdts_active_for_next_block(node_bip110), True)
+        self.assert_gbt_rdts(node_bip110, active=True)
+        self.assert_rdts_deploymentinfo(node_bip110, active=True)
+        self.assert_rdts_deploymentinfo(node_core, active=True)
 
-        # RPC surface pre-fork: no rules entry, deployment reported inactive.
-        self.assert_gbt_rdts(node_bip110, active=False)
-        self.assert_rdts_deploymentinfo(node_bip110, active=False)
-        self.assert_rdts_deploymentinfo(node_core, active=False)
-
-        # Pre-fork only the 4M weight limit applies: a block over 800k still connects.
         under_count, over_count = self.chain_counts(node_bip110, wallet)
         heavy = self.block_of_chain(node_bip110, wallet, over_count)
         assert heavy.get_weight() > REDUCED_DATA_MAX_BLOCK_WEIGHT
-        assert_equal(node_bip110.submitblock(heavy.serialize().hex()), None)
-        self.sync_all()
+        assert_equal(node_bip110.submitblock(heavy.serialize().hex()), 'bad-blk-weight')
 
-        # Mine to two blocks before the fork height
-        self.log.info("Mining to two blocks before the fork height...")
-        self.generate(node_bip110, ACTIVATION_HEIGHT - 2 - node_bip110.getblockcount())
-        self.sync_all()
-        assert_equal(node_bip110.getblockcount(), 430)
-
-        # Block 431 is outside the weight cap and the push-size rule. A user
-        # OP_RETURN is rejected at every height, so it is not in this block.
-        self.log.info("Test: block 431 (the last pre-fork block) is outside the weight cap")
-        self.assert_gbt_rdts(node_bip110, active=False)
-        self.assert_rdts_deploymentinfo(node_bip110, active=False)
+        self.log.info("Every block is under every RDTS rule")
+        self.disconnect_nodes(0, 1)
         tx_invalid = self.create_tx_with_large_output(wallet)
         rejected = self.create_block_for_node(node_bip110, [tx_invalid])
         assert_equal(node_bip110.submitblock(rejected.serialize().hex()), 'bad-txns-datacarrier')
         funding, spend = self.create_funding_and_violating_spend(wallet)
         heavy = self.block_of_chain(node_bip110, wallet, over_count, extra=[funding, spend])
-        assert_equal(node_bip110.submitblock(heavy.serialize().hex()), None)
-        self.sync_all()
-        assert_equal(node_bip110.getblockcount(), 431)
-
-        # Block 432 (the fork block) is under every RDTS rule: the RPC surface
-        # says so at tip 431, and each violation alone rejects the block. The
-        # violating spend uses a coin created in the same block, so it is not
-        # grandfathered. Disconnected: blocks failing only in ConnectBlock
-        # are relayed (compact blocks) before full validation, and the other
-        # node would adopt them.
-        self.log.info("Test: block 432 (the fork block) is under every RDTS rule")
-        self.disconnect_nodes(0, 1)
-        self.assert_gbt_rdts(node_bip110, active=True)
-        self.assert_rdts_deploymentinfo(node_bip110, active=True)
-        heavy = self.block_of_chain(node_bip110, wallet, over_count)
-        assert_equal(node_bip110.submitblock(heavy.serialize().hex()), 'bad-blk-weight-reduced_data')
+        assert_equal(node_bip110.submitblock(heavy.serialize().hex()), 'bad-blk-weight')
+        self.assert_block_rejected_for_push_size(node_bip110, self.create_block_for_node(node_bip110, [funding, spend]))
         tx_invalid = self.create_tx_with_large_output(wallet)
         block = self.create_block_for_node(node_bip110, [tx_invalid])
         assert_equal(node_bip110.submitblock(block.serialize().hex()), 'bad-txns-vout-script-toolarge')
-        funding, spend = self.create_funding_and_violating_spend(wallet)
-        self.assert_block_rejected_for_push_size(node_bip110, self.create_block_for_node(node_bip110, [funding, spend]))
-        assert_equal(node_bip110.getblockcount(), 431)
         self.connect_nodes(0, 1)
 
         # =====================================================================
-        # Phase 2: Test activation and chain split
+        # Phase 2: both nodes reject the same invalid block
         # =====================================================================
-        self.log.info("Phase 2: Testing activation and chain split behavior")
-
-        # Mine block 432 (the BLAKE2b fork block: RDTS activates here)
+        self.log.info("Phase 2: both nodes stay together on a valid chain")
         self.mine_blocks_on_node(node_bip110, 1)
         self.sync_all()
-        assert_equal(node_bip110.getblockcount(), 432)
         assert_equal(self.rdts_active_for_next_block(node_bip110), True)
-        self.log.info("Block 432 mined: the deployment is active")
 
         # RPC surface post-fork: rules entry present, deployment reported active.
         self.assert_gbt_rdts(node_bip110, active=True)
@@ -315,12 +274,13 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
         self.disconnect_nodes(0, 1)
 
         self.log.info("Test: both nodes reject a block with an 84-byte OP_RETURN")
+        height_before = node_bip110.getblockcount()
         tx_invalid = self.create_tx_with_large_output(wallet)
         block_invalid = self.create_block_for_node(node_bip110, [tx_invalid])
         assert_equal(node_bip110.submitblock(block_invalid.serialize().hex()), 'bad-txns-vout-script-toolarge')
         assert_equal(node_core.submitblock(block_invalid.serialize().hex()), 'bad-txns-vout-script-toolarge')
-        assert_equal(node_bip110.getblockcount(), 432)
-        assert_equal(node_core.getblockcount(), 432)
+        assert_equal(node_bip110.getblockcount(), height_before)
+        assert_equal(node_core.getblockcount(), height_before)
 
         self.connect_nodes(0, 1)
         self.log.info("Both nodes extend a valid chain and stay together")
@@ -329,21 +289,21 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
             node_bip110.submitblock(block.serialize().hex())
         self.sync_blocks()
         assert_equal(node_core.getbestblockhash(), node_bip110.getbestblockhash())
-        assert_equal(node_bip110.getblockcount(), 437)
+        assert_equal(node_bip110.getblockcount(), height_before + 5)
 
         # =====================================================================
         # Phase 3b: the RDTS weight limit
         # =====================================================================
-        self.log.info("Phase 3b: 800k WU limit enforced while the deployment is active")
+        self.log.info("Phase 3b: flex floor enforced while the deployment is active")
         heavy = self.block_of_chain(node_bip110, wallet, over_count)
         assert heavy.get_weight() > REDUCED_DATA_MAX_BLOCK_WEIGHT
-        assert_equal(node_bip110.submitblock(heavy.serialize().hex()), 'bad-blk-weight-reduced_data')
+        assert_equal(node_bip110.submitblock(heavy.serialize().hex()), 'bad-blk-weight')
         under = self.block_of_chain(node_bip110, wallet, under_count)
         assert under.get_weight() <= REDUCED_DATA_MAX_BLOCK_WEIGHT
         assert_equal(node_bip110.submitblock(under.serialize().hex()), None)
         # The boundary itself: exactly 800,000 WU connects, 800,004 does not.
         over = self.create_block_of_weight(node_bip110, REDUCED_DATA_MAX_BLOCK_WEIGHT + 4)
-        assert_equal(node_bip110.submitblock(over.serialize().hex()), 'bad-blk-weight-reduced_data')
+        assert_equal(node_bip110.submitblock(over.serialize().hex()), 'bad-blk-weight')
         exact = self.create_block_of_weight(node_bip110, REDUCED_DATA_MAX_BLOCK_WEIGHT)
         assert_equal(node_bip110.submitblock(exact.serialize().hex()), None)
         self.sync_all()
@@ -386,7 +346,7 @@ class TemporaryDeploymentTest(BitcoinTestFramework):
         block_invalid = self.create_block_for_node(node_bip110, [tx_invalid])
         assert_equal(node_bip110.submitblock(block_invalid.serialize().hex()), 'bad-txns-vout-script-toolarge')
         heavy = self.block_of_chain(node_bip110, wallet, over_count)
-        assert_equal(node_bip110.submitblock(heavy.serialize().hex()), 'bad-blk-weight-reduced_data')
+        assert_equal(node_bip110.submitblock(heavy.serialize().hex()), 'bad-blk-weight')
         self.assert_block_rejected_for_push_size(node_bip110, self.create_block_for_node(node_bip110, [post_fork_spend]))
 
         assert 'Unknown new rules' not in ''.join(node_bip110.getblockchaininfo()['warnings'])

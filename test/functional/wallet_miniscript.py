@@ -52,7 +52,7 @@ class WalletMiniscriptTest(BitcoinTestFramework):
                 assert sent["txid"]
                 assert_equal(isinstance(spendable, dict), True)
 
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             assert node.validateaddress(node.getnewaddress("", kind))["isvalid"]
 
 

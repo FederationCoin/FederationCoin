@@ -868,8 +868,9 @@ void InitParameterInteraction(ArgsManager& args)
         }
         args.SoftSetArg("-incrementalrelayfee", FormatMoney(CORE_INCREMENTAL_RELAY_FEE));
         if (!args.IsArgSet("-minrelaytxfee")) {
-            // Consensus requires 3 tokens per virtual byte. A higher
-            // incremental relay fee raises the relay floor with it.
+            // Product default minrelay is 0; consensus MinimumFee is the floor.
+            // -corepolicy keeps minrelay at least the Core incremental so RBF
+            // has a relay floor. Operator -minrelaytxfee still wins.
             args.ForceSetArg("-minrelaytxfee", FormatMoney(std::max<CAmount>(DEFAULT_MIN_RELAY_TX_FEE, incremental)));
         }
         args.SoftSetArg("-blockmintxfee", FormatMoney(DEFAULT_BLOCK_MIN_TX_FEE));
@@ -891,8 +892,8 @@ void InitParameterInteraction(ArgsManager& args)
         args.SoftSetArg("-permitephemeral", "anchor,send,dust");
         args.SoftSetArg("-spkreuse", "allow");
         args.SoftSetArg("-blockprioritysize", "0");
-        args.SoftSetArg("-blockmaxsize", strprintf("%u", MAX_BLOCK_SERIALIZED_SIZE));
-        args.SoftSetArg("-blockmaxweight", strprintf("%u", MAX_BLOCK_SERIALIZED_SIZE));
+        args.SoftSetArg("-blockmaxsize", strprintf("%u", CONTEXT_FREE_BLOCK_BYTES));
+        args.SoftSetArg("-blockmaxweight", strprintf("%llu", static_cast<unsigned long long>(Consensus::MAX_FLEX_BLOCK_WEIGHT)));
     }
 
     // when specifying an explicit binding address, you want to listen on it
@@ -1217,14 +1218,14 @@ bool AppInitParameterInteraction(const ArgsManager& args)
 
     if (args.IsArgSet("-blockreservedweight")) {
         const auto block_reserved_weight = args.GetIntArg("-blockreservedweight", DEFAULT_BLOCK_RESERVED_WEIGHT);
-        if (static_cast<uint64_t>(block_reserved_weight) > MAX_BLOCK_WEIGHT) {
-            return InitError(strprintf(_("Specified -blockreservedweight (%d) exceeds consensus maximum block weight (%d)"), block_reserved_weight, MAX_BLOCK_WEIGHT));
+        if (static_cast<uint64_t>(block_reserved_weight) > Consensus::MAX_FLEX_BLOCK_WEIGHT) {
+            return InitError(strprintf(_("Specified -blockreservedweight (%d) exceeds the flex cap ceiling"), block_reserved_weight));
         }
         if (block_reserved_weight < MINIMUM_BLOCK_RESERVED_WEIGHT) {
             return InitError(strprintf(_("Specified -blockreservedweight (%d) is lower than minimum safety value of (%d)"), block_reserved_weight, MINIMUM_BLOCK_RESERVED_WEIGHT));
         }
-        if (static_cast<uint64_t>(block_reserved_weight) > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
-            InitWarning(strprintf(_("Specified -blockreservedweight (%d) exceeds the block weight limit that applies while RDTS is active (%d); block templates will contain no transactions while that limit applies"), block_reserved_weight, REDUCED_DATA_MAX_BLOCK_WEIGHT));
+        if (static_cast<uint64_t>(block_reserved_weight) > Consensus::MIN_FLEX_BLOCK_WEIGHT) {
+            InitWarning(strprintf(_("Specified -blockreservedweight (%d) exceeds the flex cap floor (%d); block templates contain no transactions while the live cap is at that floor"), block_reserved_weight, Consensus::MIN_FLEX_BLOCK_WEIGHT));
         }
     }
 

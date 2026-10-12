@@ -37,10 +37,9 @@ struct FuzzedWallet {
     }
     void ImportDescriptors(const std::string& seed_insecure)
     {
+        // Secp tprv: only wpkh/BECH32 is an allowed receive type. pkh, sh(wpkh),
+        // and tr() are not offered, and tr() may not parse into a destination.
         const std::vector<std::string> DESCS{
-            "pkh(%s/%s/*)",
-            "sh(wpkh(%s/%s/*))",
-            "tr(%s/%s/*)",
             "wpkh(%s/%s/*)",
         };
 
@@ -50,7 +49,11 @@ struct FuzzedWallet {
 
                 FlatSigningProvider keys;
                 std::string error;
-                auto parsed_desc = std::move(Parse(descriptor, keys, error, /*require_checksum=*/false).at(0));
+                auto parsed = Parse(descriptor, keys, error, /*require_checksum=*/false);
+                if (parsed.empty()) {
+                    throw std::runtime_error("Parse failed [" + descriptor + "]: " + error);
+                }
+                auto parsed_desc = std::move(parsed.at(0));
                 assert(parsed_desc);
                 assert(error.empty());
                 assert(parsed_desc->IsRange());
@@ -67,12 +70,10 @@ struct FuzzedWallet {
     }
     CTxDestination GetDestination(FuzzedDataProvider& fuzzed_data_provider)
     {
-        auto type{fuzzed_data_provider.PickValueInArray(OUTPUT_TYPES)};
         if (fuzzed_data_provider.ConsumeBool()) {
-            return *Assert(wallet->GetNewDestination(type, ""));
-        } else {
-            return *Assert(wallet->GetNewChangeDestination(type));
+            return *Assert(wallet->GetNewDestination(OutputType::BECH32, ""));
         }
+        return *Assert(wallet->GetNewChangeDestination(OutputType::BECH32));
     }
     CScript GetScriptPubKey(FuzzedDataProvider& fuzzed_data_provider) { return GetScriptForDestination(GetDestination(fuzzed_data_provider)); }
     void FundTx(FuzzedDataProvider& fuzzed_data_provider, CMutableTransaction tx)
@@ -101,7 +102,7 @@ struct FuzzedWallet {
         coin_control.m_allow_other_inputs = fuzzed_data_provider.ConsumeBool();
         CallOneOf(
             fuzzed_data_provider, [&] { coin_control.destChange = GetDestination(fuzzed_data_provider); },
-            [&] { coin_control.m_change_type.emplace(fuzzed_data_provider.PickValueInArray(OUTPUT_TYPES)); },
+            [&] { coin_control.m_change_type.emplace(OutputType::BECH32); },
             [&] { /* no op (leave uninitialized) */ });
         coin_control.fAllowWatchOnly = fuzzed_data_provider.ConsumeBool();
         coin_control.m_include_unsafe_inputs = fuzzed_data_provider.ConsumeBool();

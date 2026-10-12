@@ -253,7 +253,7 @@ class ListTransactionsTest(BitcoinTestFramework):
 
         addr1 = self.nodes[0].getnewaddress("pizza1", 'mldsa87')
         addr2 = self.nodes[0].getnewaddress("pizza2", 'mldsa44')
-        addr3 = self.nodes[0].getnewaddress("pizza3", 'secp')
+        addr3 = self.nodes[0].getnewaddress("pizza3", 'bech32')
 
         self.log.info("Send to externally generated addresses")
         # send to an address beyond the next to be generated to test the keypool gap

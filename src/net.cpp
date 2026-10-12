@@ -14,7 +14,9 @@
 #include <common/args.h>
 #include <common/netif.h>
 #include <compat/compat.h>
+#include <consensus/block_limits.h>
 #include <consensus/consensus.h>
+#include <consensus/flex_weight.h>
 #include <crypto/sha256.h>
 #include <i2p.h>
 #include <key.h>
@@ -53,6 +55,14 @@
 #include <functional>
 #include <optional>
 #include <unordered_map>
+
+uint64_t CommandReceiveLimit(std::string_view command)
+{
+    if (command == "block" || command == "cmpctblock" || command == "blocktxn") {
+        return Consensus::BlockMessageReceiveLimit();
+    }
+    return std::min<uint64_t>(MAX_SIZE, MAX_PROTOCOL_MESSAGE_LENGTH);
+}
 
 TRACEPOINT_SEMAPHORE(net, closed_connection);
 TRACEPOINT_SEMAPHORE(net, evicted_inbound_connection);
@@ -786,8 +796,8 @@ int V1Transport::readHeader(Span<const uint8_t> msg_bytes)
         return -1;
     }
 
-    // reject messages larger than MAX_SIZE or MAX_PROTOCOL_MESSAGE_LENGTH
-    if (hdr.nMessageSize > MAX_SIZE || hdr.nMessageSize > MAX_PROTOCOL_MESSAGE_LENGTH) {
+    // Block messages follow the live cap. Other commands keep the 32,000,000 byte ceiling.
+    if (hdr.nMessageSize > CommandReceiveLimit(hdr.GetMessageType())) {
         LogDebug(BCLog::NET, "Header error: Size too large (%s, %u bytes), peer=%d\n", SanitizeString(hdr.GetMessageType()), hdr.nMessageSize, m_node_id);
         return -1;
     }
@@ -1236,18 +1246,17 @@ bool V2Transport::ProcessReceivedPacketBytes() noexcept
     // - 0x00 byte: indicating long message type encoding
     // - 12 bytes of message type
     // - payload
-    // BIP324's length field is 3 bytes, so a well-formed packet cannot exceed
-    // MAX_CONTENTS_LEN. The 32MB v1 header cap is above that, which means the
-    // "packet too large" branch is only live if the v1 cap is later lowered.
-    static constexpr size_t MAX_CONTENTS_LEN = std::min<size_t>(
+    // BIP324's length field is 3 bytes, so a packet cannot exceed MAX_CONTENTS_LEN
+    // (~16 MiB) even when the live block cap is larger. V1 block messages carry
+    // the full cap. While the cap is under that cipher max, v2 is tight to it.
+    const size_t max_contents = std::min<size_t>(
         BIP324Cipher::MAX_CONTENTS_LEN,
-        1 + CMessageHeader::MESSAGE_TYPE_SIZE +
-            std::min<size_t>(MAX_SIZE, MAX_PROTOCOL_MESSAGE_LENGTH));
+        1 + CMessageHeader::MESSAGE_TYPE_SIZE + static_cast<size_t>(std::min<uint64_t>(Consensus::BlockMessageReceiveLimit(), std::numeric_limits<size_t>::max())));
 
     if (m_recv_buffer.size() == BIP324Cipher::LENGTH_LEN) {
         // Length descriptor received.
         m_recv_len = m_cipher.DecryptLength(MakeByteSpan(m_recv_buffer));
-        if (m_recv_len > MAX_CONTENTS_LEN) {
+        if (m_recv_len > max_contents) {
             LogDebug(BCLog::NET, "V2 transport error: packet too large (%u bytes), peer=%d\n", m_recv_len, m_nodeid);
             return false;
         }
@@ -3945,7 +3954,7 @@ bool CConnman::OutboundTargetReached(bool historicalBlockServingLimit) const
     {
         // keep a large enough buffer to at least relay each block once
         const std::chrono::seconds timeLeftInCycle = GetMaxOutboundTimeLeftInCycle_();
-        const uint64_t buffer = timeLeftInCycle / std::chrono::minutes{10} * MAX_BLOCK_SERIALIZED_SIZE;
+        const uint64_t buffer = timeLeftInCycle / std::chrono::minutes{10} * Consensus::BlockMessageReceiveLimit();
         if (buffer >= nMaxOutboundLimit || nMaxOutboundTotalBytesSentInCycle >= nMaxOutboundLimit - buffer)
             return true;
     }

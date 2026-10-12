@@ -589,7 +589,7 @@ def check_node_connections(*, node, num_in, num_out):
 
 
 # Payment outputs appended to a transaction to make it large. A user
-# OP_RETURN is not valid. Each output is above dust at 3 tokens per virtual byte.
+# OP_RETURN is not valid. Each output is above dust at DUST_RELAY_TX_FEE.
 # The total serialized size of the txouts is about 66k vbytes.
 def gen_return_txouts():
     from .messages import CTxOut
@@ -614,7 +614,7 @@ def create_lots_of_big_transactions(mini_wallet, node, fee, tx_batch_size, txout
         assert tx.vout[0].nValue > pad_value
         tx.vout[0].nValue -= pad_value
         tx.vout.extend(txouts)
-        need = max(fee, Decimal(3 * tx.get_vsize()) / 100_000_000)
+        need = max(fee, Decimal(tx.get_vsize() // 12) / Decimal(100_000_000))
         extra = int((need - fee) * 100_000_000)
         if extra > 0:
             assert tx.vout[0].nValue > extra

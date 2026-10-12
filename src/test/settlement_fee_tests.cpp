@@ -21,6 +21,8 @@ BOOST_AUTO_TEST_CASE(minimum_fee_rate)
     BOOST_CHECK_EQUAL(MinimumFee(0), 0);
     BOOST_CHECK_EQUAL(MinimumFee(11), 0);
     BOOST_CHECK_EQUAL(MinimumFee(12), 1);
+    // 1075 % 12 is 7, so the floor is 89, not a rounded 90.
+    BOOST_CHECK_EQUAL(1075 % 12, 7);
     BOOST_CHECK_EQUAL(MinimumFee(1075), 89);
     BOOST_CHECK(FeeMeetsMinimumRate(0, 0));
     BOOST_CHECK(FeeMeetsMinimumRate(0, 11));

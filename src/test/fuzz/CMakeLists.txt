@@ -62,6 +62,7 @@ add_executable(fuzz
   merkleblock.cpp
   message.cpp
   miniscript.cpp
+  mldsa_spend.cpp
   mini_miner.cpp
   muhash.cpp
   multiplication_overflow.cpp

@@ -43,6 +43,7 @@
 #include <memory>
 #include <optional>
 #include <queue>
+#include <string_view>
 #include <thread>
 #include <unordered_set>
 #include <vector>
@@ -60,7 +61,8 @@ static constexpr std::chrono::minutes TIMEOUT_INTERVAL{20};
 static constexpr auto FEELER_INTERVAL = 2min;
 /** Run the extra block-relay-only connection loop once every 5 minutes. **/
 static constexpr auto EXTRA_BLOCK_RELAY_ONLY_PEER_INTERVAL = 5min;
-/** Maximum length of incoming protocol messages (no message over 4 MB is currently acceptable). */
+/** Maximum length of a non-block protocol message.
+ *  block, cmpctblock, and blocktxn use BlockMessageReceiveLimit(). */
 static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 32 * 1000 * 1000;
 /** Maximum length of the user agent string in `version` message */
 static const unsigned int MAX_SUBVERSION_LENGTH = 256;
@@ -94,6 +96,11 @@ static constexpr bool DEFAULT_DNSSEED{true};
 static constexpr bool DEFAULT_FIXEDSEEDS{true};
 static const size_t DEFAULT_MAXRECEIVEBUFFER = 5 * 1000;
 static const size_t DEFAULT_MAXSENDBUFFER    = 1 * 1000;
+
+/** Bytes currently accepted for a block, cmpctblock, or blocktxn payload.
+ *  Other commands use MAX_PROTOCOL_MESSAGE_LENGTH. The block figure is
+ *  Consensus::BlockMessageReceiveLimit(). */
+uint64_t CommandReceiveLimit(std::string_view command);
 
 static constexpr bool DEFAULT_V2_TRANSPORT{true};
 

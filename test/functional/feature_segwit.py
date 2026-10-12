@@ -19,7 +19,7 @@ class SegWitTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
-        self.extra_args = [["-addresstype=secp"]]
+        self.extra_args = [["-addresstype=bech32"]]
         self.rpc_timeout = 120
 
     def skip_test_if_missing_module(self):
@@ -30,7 +30,7 @@ class SegWitTest(BitcoinTestFramework):
         self.generate(node, 101)
 
         self.log.info("Live kinds receive and spend")
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             dest = node.getnewaddress("", kind)
             txid = node.sendtoaddress(dest, 1)
             assert txid

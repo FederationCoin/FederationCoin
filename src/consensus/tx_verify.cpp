@@ -8,10 +8,12 @@
 #include <chain.h>
 #include <coins.h>
 #include <consensus/amount.h>
+#include <consensus/checked_arith.h>
 #include <consensus/consensus.h>
 #include <consensus/params.h>
 #include <consensus/validation.h>
 #include <deploymentstatus.h>
+#include <limits>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
 #include <script/script.h>
@@ -89,6 +91,9 @@ std::pair<int, int64_t> CalculateSequenceLocks(const CTransaction &tx, int flags
             // smallest allowed timestamp of the block containing the
             // txout being spent, which is the median time past of the
             // block prior.
+            // Mask is 16 bits and the shift is 9, so the product fits in uint32.
+            static_assert(CTxIn::SEQUENCE_LOCKTIME_GRANULARITY < 32);
+            static_assert(CTxIn::SEQUENCE_LOCKTIME_MASK <= (std::numeric_limits<uint32_t>::max() >> CTxIn::SEQUENCE_LOCKTIME_GRANULARITY));
             nMinTime = std::max(nMinTime, nCoinTime + (int64_t)((txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) << CTxIn::SEQUENCE_LOCKTIME_GRANULARITY) - 1);
         } else {
             nMinHeight = std::max(nMinHeight, nCoinHeight + (int)(txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) - 1);
@@ -146,13 +151,27 @@ unsigned int GetP2SHSigOpCount(const CTransaction& tx, const CCoinsViewCache& in
 
 int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& inputs, uint32_t flags)
 {
-    int64_t nSigOps = GetLegacySigOpCount(tx) * WITNESS_SCALE_FACTOR;
+    // legacy count * WITNESS_SCALE_FACTOR. When the product does not fit in
+    // int64, return the maximum so the caller rejects instead of wrapping.
+    const auto scale = [](unsigned int legacy) {
+        uint64_t product{0};
+        if (!Consensus::CheckedMul(legacy, WITNESS_SCALE_FACTOR, product) ||
+            product > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            return std::numeric_limits<int64_t>::max();
+        }
+        return static_cast<int64_t>(product);
+    };
+    int64_t nSigOps = scale(GetLegacySigOpCount(tx));
 
     if (tx.IsCoinBase())
         return nSigOps;
 
     if (flags & SCRIPT_VERIFY_P2SH) {
-        nSigOps += GetP2SHSigOpCount(tx, inputs) * WITNESS_SCALE_FACTOR;
+        int64_t added{0};
+        if (!Consensus::CheckedAddSigned(nSigOps, scale(GetP2SHSigOpCount(tx, inputs)), added)) {
+            return std::numeric_limits<int64_t>::max();
+        }
+        nSigOps = added;
     }
 
     for (unsigned int i = 0; i < tx.vin.size(); i++)
@@ -160,7 +179,15 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
         const Coin& coin = inputs.AccessCoin(tx.vin[i].prevout);
         assert(!coin.IsSpent());
         const CTxOut &prevout = coin.out;
-        nSigOps += CountWitnessSigOps(tx.vin[i].scriptSig, prevout.scriptPubKey, &tx.vin[i].scriptWitness, flags);
+        const size_t witness_ops{CountWitnessSigOps(tx.vin[i].scriptSig, prevout.scriptPubKey, &tx.vin[i].scriptWitness, flags)};
+        if (witness_ops > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
+            return std::numeric_limits<int64_t>::max();
+        }
+        int64_t added{0};
+        if (!Consensus::CheckedAddSigned(nSigOps, static_cast<int64_t>(witness_ops), added)) {
+            return std::numeric_limits<int64_t>::max();
+        }
+        nSigOps = added;
     }
     return nSigOps;
 }
@@ -259,11 +286,15 @@ bool Consensus::CheckTxInputs(const CTransaction& tx, TxValidationState& state, 
                 strprintf("tried to spend coinbase at depth %d", nSpendHeight - coin.nHeight));
         }
 
-        // Check for negative or overflow input values
-        nValueIn += coin.out.nValue;
-        if (!MoneyRange(coin.out.nValue) || !MoneyRange(nValueIn)) {
+        // Each addend is checked before the sum. The sum itself must fit in int64.
+        if (!MoneyRange(coin.out.nValue)) {
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-inputvalues-outofrange");
         }
+        CAmount next_in{0};
+        if (!Consensus::CheckedAddSigned(nValueIn, coin.out.nValue, next_in) || !MoneyRange(next_in)) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-inputvalues-outofrange");
+        }
+        nValueIn = next_in;
     }
 
     const CAmount value_out = tx.GetValueOut();

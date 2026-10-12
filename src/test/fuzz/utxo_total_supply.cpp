@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chainparams.h>
+#include <clientversion.h>
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
 #include <kernel/coinstats.h>
@@ -24,7 +25,8 @@ FUZZ_TARGET(utxo_total_supply)
 {
     SeedRandomStateForTest(SeedRand::ZEROS);
     FuzzedDataProvider fuzzed_data_provider(buffer.data(), buffer.size());
-    const auto mock_time{ConsumeTime(fuzzed_data_provider, /*min=*/1296688602)}; // regtest genesis block timestamp
+    const auto genesis_time{static_cast<int64_t>(CreateChainParams(ArgsManager{}, ChainType::REGTEST)->GenesisBlock().nTime)};
+    const auto mock_time{ConsumeTime(fuzzed_data_provider, /*min=*/genesis_time, /*max=*/DEFAULT_SOFTWARE_EXPIRY - 1)};
     /** The testing setup that creates a chainman only (no chainstate) */
     ChainTestingSetup test_setup{
         ChainType::REGTEST,

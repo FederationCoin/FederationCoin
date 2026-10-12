@@ -13,8 +13,31 @@ class uint160;
 
 namespace Consensus {
 
-bool CheckSecpSingleKeySpend(const uint160& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
+/** Native SegWit P2WPKH witness arity: signature+hashtype, compressed pubkey. */
+static constexpr size_t SECP_SINGLE_WITNESS_ITEMS{2};
+/** BIP66 minimum DER (8 bytes) plus one sighash byte. Same bound as
+ *  IsValidSignatureEncoding. */
+static constexpr size_t BIP66_DER_SIGHASH_SIZE_MIN{9};
+/** BIP66 maximum DER (72 bytes) plus one sighash byte. Same bound as
+ *  IsValidSignatureEncoding. */
+static constexpr size_t BIP66_DER_SIGHASH_SIZE_MAX{73};
+/** Unified sighash message length (Blake2b-256). Not a raw transaction. */
+static constexpr size_t UNIFIED_SIGHASH_SIZE{32};
+
+/** True iff this witness stack shape is a native SegWit single-key spend
+ *  (BIP 141 P2WPKH) under our unified-sighash rule. Layout only: two items,
+ *  compressed 33-byte pubkey, DER+hashtype length in
+ *  [BIP66_DER_SIGHASH_SIZE_MIN, BIP66_DER_SIGHASH_SIZE_MAX], last byte
+ *  SIGHASH_ALL | SIGHASH_UNIFIED. Does not prove the coins move. */
 bool IsSecpSingleWitness(const std::vector<std::vector<unsigned char>>& witness);
+
+/** Consensus yes/no for spending a v0/20 output (20-byte Hash160 of a
+ *  compressed pubkey) with this witness and this 32-byte unified message.
+ *  Sequence: IsSecpSingleWitness, sighash size UNIFIED_SIGHASH_SIZE, pubkey
+ *  IsFullyValid and compressed, Hash160 matches program, BIP66 DER, ECDSA
+ *  verify of the DER against the message. A passing shape with a wrong
+ *  Hash160, a bad DER, or a bad ECDSA is still a fail. */
+bool CheckSecpSingleKeySpend(const uint160& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
 
 } // namespace Consensus
 

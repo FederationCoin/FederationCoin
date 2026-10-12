@@ -19,11 +19,13 @@ from test_framework.wallet import (
     COIN,
     DEFAULT_FEE,
     MiniWallet,
+    MiniWalletMode,
 )
 
 MAX_REPLACEMENT_CANDIDATES = 100
 TRUC_MAX_VSIZE = 10000
-TRUC_CHILD_MAX_VSIZE = 5000
+# Must match policy/truc_policy.h: SimplePaymentVsize(87) + 64 slack.
+TRUC_CHILD_MAX_VSIZE = 1965
 
 def cleanup(extra_args=None):
     def decorator(func):
@@ -69,7 +71,7 @@ class MempoolTRUC(BitcoinTestFramework):
     @cleanup(extra_args=["-datacarriersize=1000"])
     def test_truc_acceptance(self):
         node = self.nodes[0]
-        self.log.info("Test a child of a TRUC transaction cannot be more than 1000vB")
+        self.log.info(f"Test a child of a TRUC transaction cannot be more than {TRUC_CHILD_MAX_VSIZE}vB")
         tx_v3_parent_normal = self.wallet.send_self_transfer(from_node=node, version=3)
         self.check_mempool([tx_v3_parent_normal["txid"]])
         tx_v3_child_heavy = self.wallet.create_self_transfer(
@@ -564,15 +566,21 @@ class MempoolTRUC(BitcoinTestFramework):
     def test_truc_sibling_eviction(self):
         self.log.info("Test sibling eviction for TRUC")
         node = self.nodes[0]
-        tx_v3_parent = self.wallet.send_self_transfer_multi(from_node=node, num_outputs=2, version=3)
+        # P2WPKH so a 5-input v3 child stays under TRUC_CHILD_MAX_VSIZE (1965).
+        secp_wallet = MiniWallet(node, mode=MiniWalletMode.ADDRESS_SECP)
+        for _ in range(12):
+            self.wallet.send_to(from_node=node, scriptPubKey=secp_wallet.get_output_script(), amount=2 * COIN)
+        self.generate(node, 1)
+        secp_wallet.rescan_utxos()
+        tx_v3_parent = secp_wallet.send_self_transfer_multi(from_node=node, num_outputs=2, version=3)
         # This is the sibling to replace
-        tx_v3_child_1 = self.wallet.send_self_transfer(
+        tx_v3_child_1 = secp_wallet.send_self_transfer(
             from_node=node, utxo_to_spend=tx_v3_parent["new_utxos"][0], fee_rate=DEFAULT_FEE * 2, version=3
         )
         assert tx_v3_child_1["txid"] in node.getrawmempool()
 
         self.log.info("Test tx must be higher feerate than sibling to evict it")
-        tx_v3_child_2_rule6 = self.wallet.create_self_transfer(
+        tx_v3_child_2_rule6 = secp_wallet.create_self_transfer(
             utxo_to_spend=tx_v3_parent["new_utxos"][1], fee_rate=DEFAULT_FEE, version=3
         )
         rule6_str = f"insufficient fee (including sibling eviction), rejecting replacement {tx_v3_child_2_rule6['txid']}; new feerate"
@@ -580,8 +588,11 @@ class MempoolTRUC(BitcoinTestFramework):
         self.check_mempool([tx_v3_parent['txid'], tx_v3_child_1['txid']])
 
         self.log.info("Test tx must meet absolute fee rules to evict sibling")
-        tx_v3_child_2_rule4 = self.wallet.create_self_transfer(
-            utxo_to_spend=tx_v3_parent["new_utxos"][1], fee_rate=2 * DEFAULT_FEE + Decimal("0.00000001"), version=3
+        # One token above the sibling: higher feerate, not enough incremental relay fee.
+        tx_v3_child_2_rule4 = secp_wallet.create_self_transfer(
+            utxo_to_spend=tx_v3_parent["new_utxos"][1],
+            fee=tx_v3_child_1["fee"] + Decimal(1) / COIN,
+            version=3,
         )
         rule4_str = f"insufficient fee (including sibling eviction), rejecting replacement {tx_v3_child_2_rule4['txid']}, not enough additional fees to relay"
         assert_raises_rpc_error(-26, rule4_str, node.sendrawtransaction, tx_v3_child_2_rule4["hex"])
@@ -592,42 +603,42 @@ class MempoolTRUC(BitcoinTestFramework):
         utxos_for_conflict = []
         txids_v2_100 = []
         for _ in range(4):
-            confirmed_utxo = self.wallet.get_utxo(confirmed_only=True)
+            confirmed_utxo = secp_wallet.get_utxo(confirmed_only=True)
             utxos_for_conflict.append(confirmed_utxo)
             # 25 is within descendant limits
             chain_length = int(MAX_REPLACEMENT_CANDIDATES / 4)
-            chain = self.wallet.create_self_transfer_chain(chain_length=chain_length, utxo_to_spend=confirmed_utxo)
+            chain = secp_wallet.create_self_transfer_chain(chain_length=chain_length, utxo_to_spend=confirmed_utxo)
             for item in chain:
                 txids_v2_100.append(item["txid"])
                 node.sendrawtransaction(item["hex"])
         self.check_mempool(txids_v2_100 + [tx_v3_parent["txid"], tx_v3_child_1["txid"]])
 
         # Replacing 100 transactions is fine
-        tx_v3_replacement_only = self.wallet.create_self_transfer_multi(utxos_to_spend=utxos_for_conflict, fee_per_output=50_000_000)
+        tx_v3_replacement_only = secp_wallet.create_self_transfer_multi(utxos_to_spend=utxos_for_conflict, fee_per_output=50_000_000)
         # Override maxfeerate - it costs a lot to replace these 100 transactions.
         assert node.testmempoolaccept([tx_v3_replacement_only["hex"]], maxfeerate=0)[0]["allowed"]
         # Adding another one exceeds the limit.
         utxos_for_conflict.append(tx_v3_parent["new_utxos"][1])
-        tx_v3_child_2_rule5 = self.wallet.create_self_transfer_multi(utxos_to_spend=utxos_for_conflict, fee_per_output=50_000_000, version=3)
+        tx_v3_child_2_rule5 = secp_wallet.create_self_transfer_multi(utxos_to_spend=utxos_for_conflict, fee_per_output=50_000_000, version=3)
         rule5_str = f"too many potential replacements (including sibling eviction), rejecting replacement {tx_v3_child_2_rule5['txid']}; too many potential replacements (101 > 100)"
         assert_raises_rpc_error(-26, rule5_str, node.sendrawtransaction, tx_v3_child_2_rule5["hex"])
         self.check_mempool(txids_v2_100 + [tx_v3_parent["txid"], tx_v3_child_1["txid"]])
 
         self.log.info("Test sibling eviction is successful if it meets all RBF rules")
-        tx_v3_child_2 = self.wallet.create_self_transfer(
+        tx_v3_child_2 = secp_wallet.create_self_transfer(
             utxo_to_spend=tx_v3_parent["new_utxos"][1], fee_rate=DEFAULT_FEE*10, version=3
         )
         node.sendrawtransaction(tx_v3_child_2["hex"])
         self.check_mempool(txids_v2_100 + [tx_v3_parent["txid"], tx_v3_child_2["txid"]])
 
         self.log.info("Test that it's possible to do a sibling eviction and RBF at the same time")
-        utxo_unrelated_conflict = self.wallet.get_utxo(confirmed_only=True)
-        tx_unrelated_replacee = self.wallet.send_self_transfer(from_node=node, utxo_to_spend=utxo_unrelated_conflict)
+        utxo_unrelated_conflict = secp_wallet.get_utxo(confirmed_only=True)
+        tx_unrelated_replacee = secp_wallet.send_self_transfer(from_node=node, utxo_to_spend=utxo_unrelated_conflict)
         assert tx_unrelated_replacee["txid"] in node.getrawmempool()
 
         fee_to_beat = max(int(tx_v3_child_2["fee"] * COIN), int(tx_unrelated_replacee["fee"]*COIN))
 
-        tx_v3_child_3 = self.wallet.create_self_transfer_multi(
+        tx_v3_child_3 = secp_wallet.create_self_transfer_multi(
             utxos_to_spend=[tx_v3_parent["new_utxos"][0], utxo_unrelated_conflict], fee_per_output=fee_to_beat*2, version=3
         )
         node.sendrawtransaction(tx_v3_child_3["hex"])
@@ -689,18 +700,19 @@ class MempoolTRUC(BitcoinTestFramework):
             assert "bad-txns-min-fee" in zero_res["tx-results"][zero_parent["wtxid"]]["error"]
             self.check_mempool([])
 
-            # A relay floor at or below 3 sat/vB has no gap under the consensus rate.
-            if minrelayfeerate <= Decimal("0.00003000"):
+            # No gap when minrelay is 0: consensus floor is already the bound.
+            if minrelayfeerate == 0:
                 continue
 
-            parent_rate = Decimal("0.00003000")
+            tx_v3_parent = self.wallet.create_self_transfer(fee=0, fee_rate=0, confirmed_only=True, version=3)
+            self.wallet.pay_minimum_fee(tx_v3_parent)
             high_feerate = minrelayfeerate * 50
-            tx_v3_parent = self.wallet.create_self_transfer(fee_rate=parent_rate, confirmed_only=True, version=3)
             tx_v3_child = self.wallet.create_self_transfer(utxo_to_spend=tx_v3_parent["new_utxo"], fee_rate=high_feerate, version=3)
             result_truc = node.submitpackage([tx_v3_parent["hex"], tx_v3_child["hex"]], maxfeerate=0)
             assert_equal(result_truc["package_msg"], "success")
 
-            tx_v2_parent = self.wallet.create_self_transfer(fee_rate=parent_rate, confirmed_only=True, version=2)
+            tx_v2_parent = self.wallet.create_self_transfer(fee=0, fee_rate=0, confirmed_only=True, version=2)
+            self.wallet.pay_minimum_fee(tx_v2_parent)
             tx_v2_child = self.wallet.create_self_transfer(utxo_to_spend=tx_v2_parent["new_utxo"], fee_rate=high_feerate, version=2)
             result_non_truc = node.submitpackage([tx_v2_parent["hex"], tx_v2_child["hex"]], maxfeerate=0)
             assert_equal(result_non_truc["package_msg"], "transaction failed")

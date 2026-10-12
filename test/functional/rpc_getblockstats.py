@@ -56,7 +56,7 @@ class GetblockstatsTest(BitcoinTestFramework):
         self.generate(self.nodes[0], 1)
 
         wallet.sendtoaddress(address=wallet.getnewaddress("", "mldsa44"), amount=10, subtractfeefromamount=True)
-        wallet.sendtoaddress(address=wallet.getnewaddress("", "secp"), amount=10, subtractfeefromamount=False)
+        wallet.sendtoaddress(address=wallet.getnewaddress("", "bech32"), amount=10, subtractfeefromamount=False)
         wallet.settxfee(amount=0.003)
         wallet.sendtoaddress(address=wallet.getnewaddress(), amount=1, subtractfeefromamount=True)
         sent = wallet.send(outputs={"data": "21"})

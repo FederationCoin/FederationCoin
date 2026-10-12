@@ -6,7 +6,7 @@
 
 #include <chainparams.h>
 #include <consensus/merkle.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <consensus/validation.h>
 #include <node/miner.h>
 #include <pow.h>

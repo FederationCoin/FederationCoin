@@ -6,6 +6,7 @@
 #define BITCOIN_POLICY_TRUC_POLICY_H
 
 #include <consensus/amount.h>
+#include <consensus/spend_kind_weight.h>
 #include <policy/packages.h>
 #include <policy/policy.h>
 #include <primitives/transaction.h>
@@ -26,10 +27,19 @@ static constexpr unsigned int TRUC_DESCENDANT_LIMIT{2};
 /** Maximum number of transactions including a TRUC tx and all its mempool ancestors. */
 static constexpr unsigned int TRUC_ANCESTOR_LIMIT{2};
 
-/** Maximum sigop-adjusted virtual size of all v3 transactions. */
+/** Maximum sigop-adjusted virtual size of all v3 transactions.
+ *  1P1C parent bound: simplest 87 (1901 vB) fits; 6×1901 does not. */
 static constexpr int64_t TRUC_MAX_VSIZE{10000};
-/** Maximum sigop-adjusted virtual size of a tx which spends from an unconfirmed TRUC transaction. */
-static constexpr int64_t TRUC_CHILD_MAX_VSIZE{5000};
+/** Compact-size slack on top of a simplest Dilithium 87 1-in-1-out child. */
+static constexpr int64_t TRUC_CHILD_COMPACT_SIZE_SLACK{64};
+/** Maximum sigop-adjusted virtual size of a tx which spends from an unconfirmed TRUC transaction.
+ *  One simplest 87 child; fatter children use v2. Not the flex cap. */
+static constexpr int64_t TRUC_CHILD_MAX_VSIZE{
+    static_cast<int64_t>(*Consensus::SimplePaymentVsize(Consensus::SPEND_KIND_ROWS[2])) + TRUC_CHILD_COMPACT_SIZE_SLACK};
+static_assert(*Consensus::SimplePaymentVsize(Consensus::SPEND_KIND_ROWS[2]) <= TRUC_MAX_VSIZE);
+static_assert(6 * *Consensus::SimplePaymentVsize(Consensus::SPEND_KIND_ROWS[2]) > TRUC_MAX_VSIZE);
+static_assert(TRUC_CHILD_MAX_VSIZE >= static_cast<int64_t>(*Consensus::SimplePaymentVsize(Consensus::SPEND_KIND_ROWS[2])));
+static_assert(TRUC_CHILD_MAX_VSIZE != Consensus::MIN_FLEX_BLOCK_WEIGHT);
 // These limits are within the default ancestor/descendant limits.
 static_assert(TRUC_MAX_VSIZE + TRUC_CHILD_MAX_VSIZE <= DEFAULT_ANCESTOR_SIZE_LIMIT_KVB * 1000);
 static_assert(TRUC_MAX_VSIZE + TRUC_CHILD_MAX_VSIZE <= DEFAULT_DESCENDANT_SIZE_LIMIT_KVB * 1000);

@@ -36,7 +36,7 @@ class WalletTaprootTest(BitcoinTestFramework):
             assert_raises_rpc_error(-5, TAPROOT_DISABLED, node.getnewaddress, "", "bech32m")
         else:
             assert imported.get("error"), imported
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             assert node.validateaddress(node.getnewaddress("", kind))["isvalid"]
 
 

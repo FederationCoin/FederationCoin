@@ -207,9 +207,9 @@ static const std::map<OutputType, std::pair<const char*, const char*>> Untransla
         QT_TRANSLATE_NOOP("Output type name", "Dilithium 44"),
         QT_TRANSLATE_NOOP("Output type description", "Middle size. Quantum-safe single-key."),
     }},
-    {OutputType::SECP, {
-        QT_TRANSLATE_NOOP("Output type name", "secp"),
-        QT_TRANSLATE_NOOP("Output type description", "Cheap, not quantum-safe. The payment still goes."),
+    {OutputType::BECH32, {
+        QT_TRANSLATE_NOOP("Output type name", "SegWit"),
+        QT_TRANSLATE_NOOP("Output type description", "Cheap, not quantum-safe (secp256k1). The payment still goes."),
     }},
     {OutputType::LEGACY, {
         QT_TRANSLATE_NOOP("Output type name", "Base58 (Legacy)"),
@@ -218,10 +218,6 @@ static const std::map<OutputType, std::pair<const char*, const char*>> Untransla
     {OutputType::P2SH_SEGWIT, {
         QT_TRANSLATE_NOOP("Output type name", "Base58 (P2SH Segwit)"),
         QT_TRANSLATE_NOOP("Output type description", "Not a FederationCoin receive type."),
-    }},
-    {OutputType::BECH32, {
-        QT_TRANSLATE_NOOP("Output type name", "secp"),
-        QT_TRANSLATE_NOOP("Output type description", "Cheap, not quantum-safe. The payment still goes."),
     }},
     {OutputType::BECH32M, {
         QT_TRANSLATE_NOOP("Output type name", "Taproot (Bech32m)"),

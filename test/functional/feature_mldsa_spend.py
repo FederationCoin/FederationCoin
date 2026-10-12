@@ -2,7 +2,7 @@
 # Copyright (c) 2026 The Bitcoin Knots developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Three spend kinds: ML-DSA-44, ML-DSA-87, and secp cheap-out. Closed witness.
+"""Three spend kinds: ML-DSA-44, ML-DSA-87, and SegWit (P2WPKH). Closed witness.
 """
 
 from test_framework.blocktools import add_witness_commitment, create_block, create_coinbase

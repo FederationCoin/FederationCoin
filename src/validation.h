@@ -1036,13 +1036,6 @@ public:
      *  validity, so a single scan is sufficient. Lives on the manager because
      *  it needs only the block index. @sa Chainstate::CorrectRdtsInvalidBlocks */
     [[nodiscard]] std::vector<CBlockIndex*> FindInheritedInvalidBlocks() EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-    /** Whether the branch ending in @p index continued SHA256d proof-of-work
-     *  at or past the BLAKE2b fork height, i.e. its block at that height is not
-     *  a v2 header. Such a branch can only come from a data directory inherited
-     *  from a client that was not enforcing the hardfork; it is excluded from
-     *  the fork-warning heuristic (m_best_invalid), see
-     *  Chainstate::InvalidChainFound. False when the fork is unscheduled. */
-    bool ContinuesSha256dPastFork(const CBlockIndex& index) const;
     const Consensus::Params& GetConsensus() const { return m_options.chainparams.GetConsensus(); }
     bool ShouldCheckBlockIndex() const;
     const arith_uint256& MinimumChainWork() const { return *Assert(m_options.minimum_chain_work); }

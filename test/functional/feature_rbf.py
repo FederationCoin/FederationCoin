@@ -825,9 +825,16 @@ class ReplaceByFeeTest(BitcoinTestFramework):
             min_relay_feerate = node.getmempoolinfo()["minrelaytxfee"]
             assert_greater_than_or_equal(min_relay_feerate, incremental_setting_decimal)
 
-            low_feerate = min_relay_feerate * 2
+            target_vsize = 5000
             confirmed_utxo = self.wallet.get_utxo(confirmed_only=True)
-            replacee_tx = self.wallet.create_self_transfer(utxo_to_spend=confirmed_utxo, fee_rate=low_feerate, target_vsize=5000)
+            # Consensus MinimumFee is floor(vsize / 12). A 0 minrelay does not waive it.
+            consensus_min = Decimal(target_vsize // 12) / COIN
+            rate_fee = get_fee(target_vsize, min_relay_feerate * 2) if min_relay_feerate > 0 else Decimal(0)
+            replacee_tx = self.wallet.create_self_transfer(
+                utxo_to_spend=confirmed_utxo,
+                fee=max(rate_fee, consensus_min),
+                target_vsize=target_vsize,
+            )
             node.sendrawtransaction(replacee_tx['hex'])
 
             replacement_placeholder_tx = self.wallet.create_self_transfer(utxo_to_spend=confirmed_utxo)

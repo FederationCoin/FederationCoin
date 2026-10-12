@@ -11,6 +11,7 @@
 #include <clientversion.h>
 #include <common/system.h>
 #include <consensus/amount.h>
+#include <consensus/block_limits.h>
 #include <consensus/consensus.h>
 #include <consensus/epoch_watermark.h>
 #include <consensus/flex_weight.h>
@@ -1080,9 +1081,7 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
     // "reduced_data" unprefixed, as before the deployment's removal
     // (gbt_force semantics: clients need no special support, there is no
     // client-side block construction involved).
-    const bool rdts_active{pindexPrev != nullptr &&
-        consensusParams.RdtsActiveAt(pindexPrev->nHeight + 1)};
-    if (rdts_active) {
+    if (pindexPrev != nullptr) {
         aRules.push_back("reduced_data");
     }
 
@@ -1100,8 +1099,12 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
     result.pushKV("mintime", GetMinimumTime(pindexPrev, consensusParams.DifficultyAdjustmentInterval()));
     result.pushKV("mutable", std::move(aMutable));
     result.pushKV("noncerange", "00000000ffffffff");
-    int64_t nSigOpLimit = MAX_BLOCK_SIGOPS_COST;
-    int64_t nSizeLimit = MAX_BLOCK_SERIALIZED_SIZE;
+    const uint64_t flex_cap{pindexPrev == nullptr
+        ? Consensus::MIN_FLEX_BLOCK_WEIGHT
+        : Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, pindexPrev->nHeight + 1, consensusParams.nSubsidyHalvingInterval)};
+    const Consensus::BlockLimits limits{Consensus::LimitsForCap(flex_cap)};
+    int64_t nSigOpLimit = limits.sigops_cost;
+    int64_t nSizeLimit = static_cast<int64_t>(std::min<uint64_t>(limits.serialized_size, static_cast<uint64_t>(std::numeric_limits<int64_t>::max())));
     if (fPreSegWit) {
         CHECK_NONFATAL(nSigOpLimit % WITNESS_SCALE_FACTOR == 0);
         nSigOpLimit /= WITNESS_SCALE_FACTOR;
@@ -1111,11 +1114,6 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
     result.pushKV("sigoplimit", nSigOpLimit);
     result.pushKV("sizelimit", nSizeLimit);
     if (!fPreSegWit) {
-        // While RDTS is active the consensus weight limit is reduced;
-        // external miners (e.g. DATUM) must see the real cap.
-        const uint64_t flex_cap{pindexPrev == nullptr
-            ? Consensus::MIN_FLEX_BLOCK_WEIGHT
-            : Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, pindexPrev->nHeight + 1, consensusParams.nSubsidyHalvingInterval)};
         if (flex_cap > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
             result.pushKV("weightlimit", strprintf("%llu", static_cast<unsigned long long>(flex_cap)));
         } else {

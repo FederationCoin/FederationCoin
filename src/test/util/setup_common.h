@@ -9,7 +9,7 @@
 #include <common/pcp.h>
 #include <kernel/caches.h>
 #include <kernel/context.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <key.h>
 #include <node/caches.h>
 #include <node/context.h> // IWYU pragma: export

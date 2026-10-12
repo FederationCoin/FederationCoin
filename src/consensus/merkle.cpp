@@ -117,6 +117,7 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
         // For each of the lower bits in count that are 0, do 1 step. Each
         // corresponds to an inner value that existed before processing the
         // current leaf, and each needs a hash to combine it.
+        // count is at least 1 here, so some bit is set and level stays below 32.
         for (level = 0; !(count & ((uint32_t{1}) << level)); level++) {
             if (path) {
                 if (matchh) {

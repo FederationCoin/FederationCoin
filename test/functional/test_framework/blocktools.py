@@ -47,7 +47,8 @@ from .script_util import (
 )
 from .util import assert_equal
 
-MAX_BLOCK_SIGOPS = 20000
+# Legacy sigops before the witness scale. floor(2_400_000 / 50) / 4.
+MAX_BLOCK_SIGOPS = 12000
 MAX_BLOCK_SIGOPS_WEIGHT = MAX_BLOCK_SIGOPS * WITNESS_SCALE_FACTOR
 MAX_STANDARD_TX_WEIGHT = 400000
 

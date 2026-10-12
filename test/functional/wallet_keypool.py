@@ -56,7 +56,7 @@ class KeyPoolTest(BitcoinTestFramework):
         assert addr0_before_getting_data['ismine']
         assert addr0_before_getting_data['isactive']
 
-        addr_before_encrypting = nodes[0].getnewaddress("", "secp")
+        addr_before_encrypting = nodes[0].getnewaddress("", "bech32")
         addr_before_encrypting_data = nodes[0].getaddressinfo(addr_before_encrypting)
         assert addr0 == addr_before_encrypting
         # Address is still mine and active even after being removed from keypool

@@ -4,7 +4,7 @@
 
 #include <bench/bench.h>
 #include <consensus/consensus.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <node/miner.h>
 #include <primitives/transaction.h>
 #include <random.h>

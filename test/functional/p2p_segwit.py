@@ -24,7 +24,7 @@ class SegWitTest(BitcoinTestFramework):
     def run_test(self):
         node = self.nodes[0]
         self.generate(node, 101)
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             assert node.sendtoaddress(node.getnewaddress("", kind), 1)
         self.generate(node, 1)
         _, pub = generate_keypair()

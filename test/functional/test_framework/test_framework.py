@@ -391,9 +391,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         for args in self.extra_args:
             joined = " ".join(args)
             if "-addresstype=" not in joined:
-                args.append("-addresstype=secp")
+                args.append("-addresstype=bech32")
             if "-changetype=" not in joined:
-                args.append("-changetype=secp")
+                args.append("-changetype=bech32")
 
     def add_options(self, parser):
         """Override this method to add command-line options to the test"""
@@ -1009,7 +1009,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         """Product wallets are descriptor-only. BDB create is refused."""
         assert_raises_rpc_error(-4, "Legacy wallets are not supported", node.createwallet, wallet_name=wallet_name, descriptors=False)
         self.assert_closed_address_types(node)
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             addr = node.getnewaddress("", kind)
             assert node.validateaddress(addr)["isvalid"]
 

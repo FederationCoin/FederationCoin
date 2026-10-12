@@ -34,15 +34,15 @@ class ResendWalletTransactionsTest(BitcoinTestFramework):
     def run_test(self):
         node = self.nodes[0]  # alias
 
-        secp_mine = node.getnewaddress("", "secp")
+        secp_mine = node.getnewaddress("", "bech32")
         self.generatetoaddress(node, 101, secp_mine)
 
         peer_first = node.add_p2p_connection(P2PTxInvStore())
 
         self.log.info("Create a new transaction and wait until it's broadcast")
         parent_utxo, indep_utxo = node.listunspent()[:2]
-        addr = node.getnewaddress("", "secp")
-        txid = node.send(outputs=[{addr: 1}], inputs=[parent_utxo], change_type="secp")["txid"]
+        addr = node.getnewaddress("", "bech32")
+        txid = node.send(outputs=[{addr: 1}], inputs=[parent_utxo], change_type="bech32")["txid"]
 
         assert txid in node.getrawmempool()
         raw = node.getrawtransaction(txid, True)

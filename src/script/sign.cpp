@@ -8,7 +8,7 @@
 
 #include <consensus/amount.h>
 #include <consensus/mldsa87_spend.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <consensus/secp_spend.h>
 #include <key.h>
 #include <policy/policy.h>
@@ -83,8 +83,8 @@ bool CheckWitnessV0Spend(const CScript& scriptSig, const CScript& scriptPubKey, 
     }
     if (witness_program.size() == 32) {
         const uint256 program{Span<const unsigned char>{witness_program.data(), witness_program.size()}};
-        return Consensus::CheckSingleKeySpend(program, witness.stack, message) ||
-               Consensus::CheckMultisigSpend(program, witness.stack, message) ||
+        return Consensus::CheckSingleKey44Spend(program, witness.stack, message) ||
+               Consensus::CheckMultisig44Spend(program, witness.stack, message) ||
                Consensus::CheckSingleKey87Spend(program, witness.stack, message) ||
                Consensus::CheckMultisig87Spend(program, witness.stack, message);
     }

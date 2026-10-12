@@ -10,10 +10,12 @@
 #include <coins.h>
 #include <common/args.h>
 #include <consensus/amount.h>
+#include <consensus/block_limits.h>
 #include <consensus/consensus.h>
 #include <consensus/epoch_watermark.h>
 #include <consensus/flex_weight.h>
 #include <consensus/merkle.h>
+#include <consensus/settlement_fee.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
 #include <deploymentstatus.h>
@@ -81,15 +83,24 @@ void RegenerateCommitments(CBlock& block, ChainstateManager& chainman)
 BlockCreateOptions BlockCreateOptions::Clamped() const
 {
     BlockAssembler::Options options = *this;
-    CHECK_NONFATAL(options.block_reserved_size <= MAX_BLOCK_SERIALIZED_SIZE);
-    CHECK_NONFATAL(options.block_reserved_weight <= MAX_BLOCK_WEIGHT);
+    const uint64_t size_ceiling{std::min<uint64_t>(CONTEXT_FREE_BLOCK_BYTES, std::numeric_limits<size_t>::max())};
+    const uint64_t weight_ceiling{std::min<uint64_t>(Consensus::MAX_FLEX_BLOCK_WEIGHT, std::numeric_limits<size_t>::max())};
+    CHECK_NONFATAL(static_cast<uint64_t>(options.block_reserved_size) <= size_ceiling);
+    CHECK_NONFATAL(static_cast<uint64_t>(options.block_reserved_weight) <= weight_ceiling);
     CHECK_NONFATAL(options.block_reserved_weight >= MINIMUM_BLOCK_RESERVED_WEIGHT);
-    CHECK_NONFATAL(options.coinbase_output_max_additional_sigops <= MAX_BLOCK_SIGOPS_COST);
-    // Limit size to between block_reserved_size and MAX_BLOCK_SERIALIZED_SIZE-1K for sanity:
-    options.nBlockMaxSize = std::clamp<size_t>(options.nBlockMaxSize, options.block_reserved_size, MAX_BLOCK_SERIALIZED_SIZE);
-    // Limit weight to between block_reserved_weight and MAX_BLOCK_WEIGHT for sanity:
-    // block_reserved_weight can safely exceed -blockmaxweight, but the rest of the block template will be empty.
-    options.nBlockMaxWeight = std::clamp<size_t>(options.nBlockMaxWeight, options.block_reserved_weight, static_cast<size_t>(MAX_BLOCK_SERIALIZED_SIZE));
+    CHECK_NONFATAL(options.coinbase_output_max_additional_sigops <= Consensus::LimitsForCap(weight_ceiling).sigops_cost);
+    if (options.nBlockMaxSize < options.block_reserved_size) {
+        options.nBlockMaxSize = options.block_reserved_size;
+    }
+    if (static_cast<uint64_t>(options.nBlockMaxSize) > size_ceiling) {
+        options.nBlockMaxSize = static_cast<size_t>(size_ceiling);
+    }
+    if (options.nBlockMaxWeight < options.block_reserved_weight) {
+        options.nBlockMaxWeight = options.block_reserved_weight;
+    }
+    if (static_cast<uint64_t>(options.nBlockMaxWeight) > weight_ceiling) {
+        options.nBlockMaxWeight = static_cast<size_t>(weight_ceiling);
+    }
     return options;
 }
 
@@ -101,7 +112,7 @@ BlockAssembler::BlockAssembler(Chainstate& chainstate, const CTxMemPool* mempool
       m_options{options.Clamped()}
 {
     // Whether we need to account for byte usage (in addition to weight usage)
-    fNeedSizeAccounting = (options.nBlockMaxSize < MAX_BLOCK_SERIALIZED_SIZE);
+    fNeedSizeAccounting = (static_cast<uint64_t>(options.nBlockMaxSize) < CONTEXT_FREE_BLOCK_BYTES);
     m_effective_max_weight = m_options.nBlockMaxWeight;
 }
 
@@ -114,13 +125,13 @@ void ApplyArgsManOptions(const ArgsManager& args, BlockAssembler::Options& optio
     bool fWeightSet = false;
     if (args.IsArgSet("-blockmaxweight")) {
         options.nBlockMaxWeight = args.GetIntArg("-blockmaxweight", DEFAULT_BLOCK_MAX_WEIGHT);
-        options.nBlockMaxSize = MAX_BLOCK_SERIALIZED_SIZE;
+        options.nBlockMaxSize = static_cast<size_t>(std::min<uint64_t>(CONTEXT_FREE_BLOCK_BYTES, std::numeric_limits<size_t>::max()));
         fWeightSet = true;
     }
     if (args.IsArgSet("-blockmaxsize")) {
         options.nBlockMaxSize = args.GetIntArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE);
         if (!fWeightSet) {
-            options.nBlockMaxWeight = MAX_BLOCK_WEIGHT;
+            options.nBlockMaxWeight = static_cast<size_t>(std::min<uint64_t>(Consensus::MAX_FLEX_BLOCK_WEIGHT, std::numeric_limits<size_t>::max()));
         }
     }
     if (const auto blockmintxfee{args.GetArg("-blockmintxfee")}) {
@@ -172,7 +183,7 @@ std::shared_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     const uint64_t flex_cap{Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, nHeight, chainparams.GetConsensus().nSubsidyHalvingInterval)};
     m_effective_max_weight = std::min<size_t>(m_options.nBlockMaxWeight, static_cast<size_t>(std::min<uint64_t>(flex_cap, std::numeric_limits<size_t>::max())));
 
-    pblock->m_header_v2 = chainparams.GetConsensus().IsBlake2bHeight(nHeight);
+    pblock->m_header_v2 = true;
     pblock->nVersion = m_chainstate.m_chainman.m_versionbitscache.ComputeBlockVersion(pindexPrev, chainparams.GetConsensus());
     // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
@@ -260,7 +271,7 @@ bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost
     if (nBlockWeight + WITNESS_SCALE_FACTOR * packageSize >= m_effective_max_weight) {
         return false;
     }
-    if (nBlockSigOpsCost + packageSigOpsCost >= MAX_BLOCK_SIGOPS_COST) {
+    if (nBlockSigOpsCost + packageSigOpsCost >= Consensus::LimitsForCap(m_effective_max_weight).sigops_cost) {
         return false;
     }
     return true;
@@ -450,7 +461,8 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
             packageSigOpsCost = modit->nSigOpCostWithAncestors;
         }
 
-        if (packageFees < m_options.blockMinFeeRate.GetFee(packageSize)) {
+        if (packageFees < std::max(m_options.blockMinFeeRate.GetFee(packageSize),
+                                   MinimumFee(static_cast<int64_t>(packageSize)))) {
             // Everything else we might consider has a lower fee rate
             return;
         }

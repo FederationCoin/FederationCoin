@@ -5,6 +5,7 @@
 
 #include <script/interpreter.h>
 
+#include <consensus/secp_spend.h>
 #include <crypto/ripemd160.h>
 #include <crypto/sha1.h>
 #include <crypto/sha256.h>
@@ -117,9 +118,9 @@ bool static IsValidSignatureEncoding(const std::vector<unsigned char> &sig) {
     // * sighash: 1-byte value indicating what data is hashed (not part of the DER
     //   signature)
 
-    // Minimum and maximum size constraints.
-    if (sig.size() < 9) return false;
-    if (sig.size() > 73) return false;
+    // Minimum and maximum size constraints. BIP66 DER plus one sighash byte.
+    if (sig.size() < Consensus::BIP66_DER_SIGHASH_SIZE_MIN) return false;
+    if (sig.size() > Consensus::BIP66_DER_SIGHASH_SIZE_MAX) return false;
 
     // A signature is of type 0x30 (compound).
     if (sig[0] != 0x30) return false;

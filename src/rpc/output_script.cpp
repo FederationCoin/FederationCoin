@@ -176,9 +176,6 @@ static RPCHelpMan createmultisig()
             if (output_type == OutputType::DILITHIUM87 || output_type == OutputType::DILITHIUM44) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "createmultisig cannot create Dilithium multisig addresses");
             }
-            if (output_type == OutputType::SECP) {
-                output_type = OutputType::BECH32;
-            }
 
             // Get the public keys
             const UniValue& keys = request.params[1].get_array();

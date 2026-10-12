@@ -2,7 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <test/util/setup_common.h>
 
 #include <array>
@@ -60,7 +60,7 @@ BOOST_AUTO_TEST_CASE(two_of_three)
     AppendSkipped(one_signature, holders[1]);
     AppendSkipped(one_signature, holders[2]);
     BOOST_CHECK_EQUAL(one_signature[2].size(), 32U);
-    BOOST_CHECK(!Consensus::CheckMultisigSpend(*program, one_signature, sighash));
+    BOOST_CHECK(!Consensus::CheckMultisig44Spend(*program, one_signature, sighash));
 
     std::vector<std::vector<unsigned char>> two_signatures;
     AppendSigned(two_signatures, holders[0], sighash);
@@ -69,18 +69,18 @@ BOOST_AUTO_TEST_CASE(two_of_three)
     BOOST_CHECK_EQUAL(two_signatures.back().size(), 32U);
     const uint256 skipped{Span<const unsigned char>{two_signatures.back().data(), two_signatures.back().size()}};
     BOOST_CHECK(holders[2].hash == skipped);
-    BOOST_CHECK(Consensus::CheckMultisigSpend(*program, two_signatures, sighash));
+    BOOST_CHECK(Consensus::CheckMultisig44Spend(*program, two_signatures, sighash));
 
     std::vector<std::vector<unsigned char>> extra{two_signatures};
     extra.push_back({0x00});
-    BOOST_CHECK(!Consensus::CheckMultisigSpend(*program, extra, sighash));
+    BOOST_CHECK(!Consensus::CheckMultisig44Spend(*program, extra, sighash));
 
     const auto outsider{MakeHolder(9)};
     std::vector<std::vector<unsigned char>> other_keys;
     AppendSigned(other_keys, holders[0], sighash);
     AppendSigned(other_keys, holders[1], sighash);
     AppendSkipped(other_keys, outsider);
-    BOOST_CHECK(!Consensus::CheckMultisigSpend(*program, other_keys, sighash));
+    BOOST_CHECK(!Consensus::CheckMultisig44Spend(*program, other_keys, sighash));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

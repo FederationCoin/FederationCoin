@@ -91,7 +91,6 @@ class UnifiedSighashTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         # -corepolicy=0 so Knots datacarrier/spam policy does not mask results.
         args = [
-            f"-testactivationheight=blake2b@{ACTIVATION_HEIGHT}",
             "-corepolicy=0",
         ]
         self.extra_args = [args, list(args)]
@@ -193,7 +192,7 @@ class UnifiedSighashTest(BitcoinTestFramework):
         say which side it is on or the node refuses it.
         """
         return create_block(hashprev, coinbase, ntime, height=height,
-                            header_v2=height >= ACTIVATION_HEIGHT)
+                            header_v2=True)
 
     def mine(self, n=1):
         """Mine n blocks, one per BLOCK_SPACING, so block times are exact."""
@@ -209,7 +208,7 @@ class UnifiedSighashTest(BitcoinTestFramework):
         return hashes
 
     def fork_active_for_next_block(self):
-        return self.nodes[0].getblockcount() + 1 >= ACTIVATION_HEIGHT
+        return True
 
     def make_utxo(self, value, spk):
         """Fund an arbitrary scriptPubKey and return (outpoint, txout)."""
@@ -238,8 +237,7 @@ class UnifiedSighashTest(BitcoinTestFramework):
     def run_bitcoin_tx(self, args):
         # The tool decides from the chain parameters, so it has to be given the
         # activation height the node was started with or it sees no fork at all.
-        out = subprocess.run([self.bitcoin_tx_path(), "-regtest",
-                              f"-testactivationheight=blake2b@{ACTIVATION_HEIGHT}"] + args,
+        out = subprocess.run([self.bitcoin_tx_path(), "-regtest"] + args,
                              capture_output=True, text=True)
         assert_equal(out.returncode, 0)
         return out.stdout.strip()
@@ -289,18 +287,9 @@ class UnifiedSighashTest(BitcoinTestFramework):
         self.mocktime = FIRST_BLOCK_TIME - BLOCK_SPACING
 
         self.mine(COINBASE_MATURITY + 20)
-        assert node.getblockcount() < ACTIVATION_HEIGHT
-        assert not self.fork_active_for_next_block()
+        assert self.fork_active_for_next_block()
 
-        # The schedule must actually have reached consensus. Twice during
-        # development the option parsed and was then silently dropped, leaving
-        # a fork that could never activate while every other test still passed.
-        hf = node.getdeploymentinfo().get("blake2b")
-        assert hf is not None, "the hardfork schedule did not reach consensus params"
-        assert_equal(hf["height"], ACTIVATION_HEIGHT)
-        assert_equal(hf["active"], False)
-
-        self.log.info("Before activation: legacy is valid, opting in is not yet")
+        self.log.info("Unified sighash is valid from genesis; legacy without the bit still works")
         op_a, utxo_a = self.make_p2pk_utxo(10 * COIN)
         op_b, utxo_b = self.make_p2pk_utxo(7 * COIN)
         self.mine(1)
@@ -313,57 +302,41 @@ class UnifiedSighashTest(BitcoinTestFramework):
         unified_tx = self.build_spend([op_a, op_b], [utxo_a, utxo_b])
         sign_input_unified(unified_tx, 0, utxo_a.scriptPubKey, self.privkey, [utxo_a, utxo_b])
         sign_input_unified(unified_tx, 1, utxo_b.scriptPubKey, self.privkey, [utxo_a, utxo_b])
-        # Relay takes it: refusing would only stop a node whose blocks lag from
-        # passing on what the rest of the network accepts. A block below the
-        # height still cannot carry it, which is checked immediately below.
         assert_equal(self.submit(unified_tx), None)
-        self.log.info("  before activation an opt-in signature relays")
 
-        # The mempool refusing it is policy. A miner can skip the mempool, so
-        # prove consensus refuses it too: a block below the activation height
-        # carrying a valid opt-in signature must be rejected outright. If it
-        # were accepted, this node would follow a chain other nodes reject.
         early_peer = node.add_p2p_connection(P2PDataStore())
         early_tip = int(node.getbestblockhash(), 16)
         early_height = node.getblockcount() + 1
-        assert early_height < ACTIVATION_HEIGHT, "this must be below activation to mean anything"
         early_block = self.build_block(early_tip, create_coinbase(early_height),
                                        node.getblock(node.getbestblockhash())["time"] + 1,
                                        early_height)
         early_block.vtx.append(unified_tx)
         self.seal_block(early_block)
-        early_peer.send_blocks_and_test([early_block], node, success=False,
-                                        reject_reason="mandatory-script-verify-flag-failed")
-        assert_equal(node.getblockcount(), early_height - 1)
+        early_peer.send_blocks_and_test([early_block], node, success=True)
+        assert_equal(node.getblockcount(), early_height)
         node.disconnect_p2ps()
-        self.log.info("  a pre-activation block carrying one is rejected at consensus")
+        self.log.info("  an opted-in signature is valid in a block")
 
-        # The one narrow incompatibility, pinned on both sides. A legacy signature
-        # whose hash type already carries the bit is refused by relay as soon as
-        # the fork is scheduled, because the mempool reads the bit without waiting
-        # for the height. Consensus is unchanged and a block below the height
-        # still carries it, which is what makes this a relay change and not a
-        # rule change.
         op_l, utxo_l = self.make_p2pk_utxo(3 * COIN)
         self.mine(1)
         legacy_bit = self.build_spend([op_l], [utxo_l])
         sign_input_legacy(legacy_bit, 0, utxo_l.scriptPubKey, self.privkey,
                           SIGHASH_ALL | SIGHASH_UNIFIED)
         assert self.submit(legacy_bit) is not None, \
-            "a legacy signature carrying the bit must not relay once the fork is scheduled"
+            "a legacy signature carrying the bit must not relay"
         bit_peer = node.add_p2p_connection(P2PDataStore())
         bit_tip = int(node.getbestblockhash(), 16)
         bit_height = node.getblockcount() + 1
-        assert bit_height < ACTIVATION_HEIGHT
         bit_block = self.build_block(bit_tip, create_coinbase(bit_height),
                                      node.getblock(node.getbestblockhash())["time"] + 1,
                                      bit_height)
         bit_block.vtx.append(legacy_bit)
         self.seal_block(bit_block)
-        bit_peer.send_blocks_and_test([bit_block], node, success=True)
-        assert_equal(node.getblockcount(), bit_height)
+        bit_peer.send_blocks_and_test([bit_block], node, success=False,
+                                      reject_reason="mandatory-script-verify-flag-failed")
+        assert_equal(node.getblockcount(), bit_height - 1)
         node.disconnect_p2ps()
-        self.log.info("  a legacy signature carrying the bit: not relayed, still mined")
+        self.log.info("  a legacy signature carrying the bit is not mined")
 
         # Taproot opts in through the same bit. Kept until after activation so
         # both sides of the boundary are exercised on one output.
@@ -410,39 +383,12 @@ class UnifiedSighashTest(BitcoinTestFramework):
         ctl_b = node.signrawtransactionwithkey(ctl_a["hex"], [wifD], prevtxs_ctl)
         assert ctl_b["complete"], "legacy two-step multisig must work, as a control"
 
-        self.log.info("Advance to one block below activation")
+        self.log.info("Advance to a stable height used by later rollback cases")
         edge_op, edge_utxo = self.make_p2pk_utxo(3 * COIN)
         self.mine(ACTIVATION_HEIGHT - node.getblockcount() - 2)
         assert_equal(node.getblockcount(), ACTIVATION_HEIGHT - 2)
 
-        # Pin the early side of the boundary. Everything above shows the fork
-        # off well before activation and on from it, and none of it notices an
-        # implementation that starts one block early. The block at
-        # ACTIVATION_HEIGHT - 1 is the last that must still refuse an opt-in
-        # signature, so build exactly that block and require the refusal.
-        assert_equal(node.getdeploymentinfo()["blake2b"]["active"],
-                     self.fork_active_for_next_block())
-        assert not self.fork_active_for_next_block(), \
-            "the block at ACTIVATION_HEIGHT - 1 must not enforce the fork"
-        edge_tx = self.build_spend([edge_op], [edge_utxo])
-        sign_input_unified(edge_tx, 0, edge_utxo.scriptPubKey, self.privkey, [edge_utxo])
-        edge_peer = node.add_p2p_connection(P2PDataStore())
-        edge_height = node.getblockcount() + 1
-        assert_equal(edge_height, ACTIVATION_HEIGHT - 1)
-        edge_block = self.build_block(int(node.getbestblockhash(), 16),
-                                      create_coinbase(edge_height),
-                                      node.getblock(node.getbestblockhash())["time"] + 1,
-                                      edge_height)
-        edge_block.vtx.append(edge_tx)
-        self.seal_block(edge_block)
-        edge_peer.send_blocks_and_test([edge_block], node, success=False,
-                                       reject_reason="mandatory-script-verify-flag-failed")
-        assert_equal(node.getblockcount(), ACTIVATION_HEIGHT - 2)
-        node.disconnect_p2ps()
-        self.log.info("  the last pre-activation block still refuses an opt-in signature")
-
-        # Naming the byte explicitly below the height: the rules are the fork's
-        # wherever it is scheduled, so this is an ordinary opted-in signature.
+        # Naming the unified hash type is always available.
         early_op, early_utxo = self.make_p2pk_utxo(3 * COIN)
         early_unsigned = self.build_spend([early_op], [early_utxo])
         early_unsigned.vin[0].scriptSig = b""
@@ -460,15 +406,9 @@ class UnifiedSighashTest(BitcoinTestFramework):
         op_x, utxo_x = self.make_p2pk_utxo(3 * COIN)
         self.mine(1)
         assert_equal(node.getblockcount(), ACTIVATION_HEIGHT - 1)
-        assert self.fork_active_for_next_block(), "the next block should enforce the fork"
-        # The RPC answers the same question as fork_active_for_next_block: does the
-        # block built on this one enforce the fork. Pin them together rather than
-        # asserting a constant, so the two cannot drift apart unnoticed.
-        assert_equal(node.getdeploymentinfo()["blake2b"]["active"],
-                     self.fork_active_for_next_block())
-        assert_equal(node.getdeploymentinfo()["blake2b"]["active"], True)
+        assert self.fork_active_for_next_block()
 
-        self.log.info("Mempool at the activation boundary")
+        self.log.info("Mempool at a later height")
         # The next block is the first one that enforces the fork, so the
         # mempool must already refuse legacy signatures here. Otherwise they
         # sit in the mempool, the block assembler picks them up, and block
@@ -494,11 +434,9 @@ class UnifiedSighashTest(BitcoinTestFramework):
         # mined into the first block that enforces the fork.
         assert boundary_txid in node.getblock(boundary_block)["tx"], \
             "the fork-signed transaction should have been mined"
-        self.log.info("  block production continued across the boundary")
+        self.log.info("  block production continued")
 
-        assert_equal(node.getdeploymentinfo()["blake2b"]["active"], True)
-
-        self.log.info("From activation: opting in works, and legacy still works")
+        self.log.info("Opting in works, and legacy still works")
         op_c, utxo_c = self.make_p2pk_utxo(9 * COIN)
         op_d, utxo_d = self.make_p2pk_utxo(6 * COIN)
         self.mine(1)
@@ -1364,11 +1302,7 @@ class UnifiedSighashTest(BitcoinTestFramework):
         node.sendrawtransaction(ts_processed["hex"])
         self.log.info("  the script path opted in through miniscript satisfaction")
 
-        self.log.info("Reorg back across the activation height")
-        # A fork-signed transaction mined above the activation height, then the
-        # chain rolled back below it. Spends a utxo funded before the rollback
-        # point, or the entry would be dropped for missing inputs and the path
-        # under test never reached.
+        self.log.info("Reorg back across a later height")
         op_r, utxo_r = self.op_reserved, self.utxo_reserved
         reorg_tx = self.build_spend([op_r], [utxo_r])
         sign_input_unified(reorg_tx, 0, utxo_r.scriptPubKey, self.privkey, [utxo_r])
@@ -1377,29 +1311,18 @@ class UnifiedSighashTest(BitcoinTestFramework):
         assert reorg_txid in node.getblock(reorg_block)["tx"]
         height_before_rollback = node.getblockcount()
 
-        # Roll back to below the activation height: the next block would be
-        # ACTIVATION_HEIGHT - 1, which does not enforce the fork.
         rollback_to = node.getblockhash(ACTIVATION_HEIGHT - 1)
         node.invalidateblock(rollback_to)
         assert_equal(node.getblockcount(), ACTIVATION_HEIGHT - 2)
 
-        # The mempool takes an opt-in wherever the fork is scheduled, so the
-        # entry comes back rather than being re-checked against the next block's
-        # rules. Consensus still refuses it there, and the assembler does not
-        # skip such an entry, so no template can be built until the height is
-        # reached again. This is the window the deployment avoids by not asking
-        # a node below the height for a template.
-        assert reorg_txid in node.getrawmempool(), \
-            "the mempool is keyed on the fork being scheduled, not on the height"
-        assert_raises_rpc_error(-1, "TestBlockValidity failed", node.getblocktemplate,
-                                {"rules": ["segwit", "blake2b"]})
+        assert reorg_txid in node.getrawmempool()
+        node.getblocktemplate({"rules": ["segwit", "blake2b"]})
 
         node.reconsiderblock(rollback_to)
         assert_equal(node.getblockcount(), height_before_rollback)
         node.getblocktemplate({"rules": ["segwit", "blake2b"]})
-        # The reorg invalidated the wallet's cached utxo set.
         self.wallet.rescan_utxos()
-        self.log.info("  entry returns, no template below the height, both resume above it")
+        self.log.info("  entry returns, templates still build after the reorg")
 
         self.log.info("A block containing a bad opt-in signature is rejected outright")
         # Fresh outputs: the earlier stale_tx spent inputs that good_tx has
@@ -1443,7 +1366,6 @@ class UnifiedSighashTest(BitcoinTestFramework):
         self.sync_blocks(timeout=120)
         assert_equal(self.nodes[1].getbestblockhash(), final_tip)
         assert_equal(self.nodes[1].getblockcount(), final_height)
-        assert_equal(self.nodes[1].getdeploymentinfo()["blake2b"]["active"], True)
         self.log.info("  reindex and a fresh peer both reach the same chain")
 
         self.log.info("An opt-in transaction relays to a peer and is accepted there")

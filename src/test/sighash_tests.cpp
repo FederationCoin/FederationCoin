@@ -461,32 +461,17 @@ BOOST_AUTO_TEST_CASE(unified_sighash_needs_spent_outputs)
     BOOST_CHECK(!SignatureHashUnified(hash, script0, tx, 0, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::BASE, bare));
 }
 
-BOOST_AUTO_TEST_CASE(unified_sighash_signing_rules_follow_the_schedule)
+BOOST_AUTO_TEST_CASE(unified_sighash_signing_rules_are_always_unified)
 {
-    // The one decision every signer in the process routes through. It reads the
-    // schedule and not the chain, so a node whose blocks lag cannot answer it
-    // differently from one that is caught up.
-    Consensus::Params unscheduled;
-    unscheduled.Blake2bHeight = std::numeric_limits<int>::max();
-    Consensus::Params scheduled;
-    scheduled.Blake2bHeight = 100;
-
+    Consensus::Params params;
     ArgsManager plain;
     SetupSighashRulesArgs(plain);
-
-    // Where the fork is not scheduled there is nothing to opt into.
-    BOOST_CHECK(SighashRulesForSigning(plain, unscheduled) == SighashRules::LEGACY);
-    // Where it is, every signature opts in, whatever the chain has reached. One
-    // made ahead of the height relays and waits for it.
-    BOOST_CHECK(SighashRulesForSigning(plain, scheduled) == SighashRules::UNIFIED);
+    BOOST_CHECK(SighashRulesForSigning(plain, params) == SighashRules::UNIFIED);
 
     ArgsManager old_sigs;
     SetupSighashRulesArgs(old_sigs);
     old_sigs.ForceSetArg("-walletoldsigs", "1");
-    // The escape hatch overrides it, and is the only way to give up replay
-    // protection wherever the fork is scheduled.
-    BOOST_CHECK(SighashRulesForSigning(old_sigs, scheduled) == SighashRules::LEGACY);
-    BOOST_CHECK(SighashRulesForSigning(old_sigs, unscheduled) == SighashRules::LEGACY);
+    BOOST_CHECK(SighashRulesForSigning(old_sigs, params) == SighashRules::LEGACY);
 }
 
 BOOST_AUTO_TEST_CASE(unified_sighash_hash_type_names_round_trip)

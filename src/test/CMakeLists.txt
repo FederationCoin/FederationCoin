@@ -61,6 +61,7 @@ add_executable(test_bitcoin
   merkle_tests.cpp
   merkleblock_tests.cpp
   miner_tests.cpp
+  flex_cap_dos_tests.cpp
   flex_weight_tests.cpp
   mldsa_multisig_tests.cpp
   mldsa_verify_tests.cpp
@@ -68,6 +69,7 @@ add_executable(test_bitcoin
   mldsa87_multisig_tests.cpp
   mldsa87_verify_tests.cpp
   mldsa87_witness_tests.cpp
+  mldsa_spend_spec_tests.cpp
   secp_single_spend_tests.cpp
   miniminer_tests.cpp
   miniscript_tests.cpp
@@ -137,6 +139,7 @@ add_executable(test_bitcoin
   validation_chainstatemanager_tests.cpp
   validation_flush_tests.cpp
   validation_tests.cpp
+  witness_spend_kind_tests.cpp
   validationinterface_tests.cpp
   versionbits_tests.cpp
   ../stats/test/stats_tests.cpp
@@ -152,6 +155,7 @@ target_json_data_sources(test_bitcoin
   data/key_io_valid.json
   data/script_tests.json
   data/unified_sighash.json
+  data/federation_spend_vectors.json
   data/sighash.json
   data/tx_invalid.json
   data/tx_valid.json

@@ -6,7 +6,7 @@
 
 #include <addresstype.h>
 #include <consensus/mldsa87_spend.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <hash.h>
 #include <key.h>
 #include <key_io.h>
@@ -928,7 +928,7 @@ protected:
     }
 public:
     WPKHDescriptor(std::unique_ptr<PubkeyProvider> prov) : DescriptorImpl(Vector(std::move(prov)), "wpkh") {}
-    std::optional<OutputType> GetOutputType() const override { return OutputType::SECP; }
+    std::optional<OutputType> GetOutputType() const override { return OutputType::BECH32; }
     bool IsSingleType() const final { return true; }
 
     std::optional<int64_t> ScriptSize() const override { return 1 + 1 + 20; }
@@ -1152,7 +1152,7 @@ protected:
     bool IsSegwit() const
     {
         const auto inner = m_subdescriptor_args[0]->GetOutputType();
-        return inner == OutputType::BECH32 || inner == OutputType::SECP;
+        return inner == OutputType::BECH32;
     }
 
 public:

@@ -18,11 +18,10 @@ void SetupSighashRulesArgs(ArgsManager& argsman)
                    ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
 }
 
-SighashRules SighashRulesForSigning(const ArgsManager& args, const Consensus::Params& params)
+SighashRules SighashRulesForSigning(const ArgsManager& args, const Consensus::Params&)
 {
     if (args.GetBoolArg("-walletoldsigs", DEFAULT_WALLET_OLD_SIGS)) return SighashRules::LEGACY;
-    return DeploymentEnabled(params, Consensus::DEPLOYMENT_BLAKE2B) ? SighashRules::UNIFIED
-                                                                    : SighashRules::LEGACY;
+    return SighashRules::UNIFIED;
 }
 
 SighashRules SighashRulesForSigning()
@@ -32,7 +31,5 @@ SighashRules SighashRulesForSigning()
 
 SighashRules SighashRulesForVerifying()
 {
-    return DeploymentEnabled(Params().GetConsensus(), Consensus::DEPLOYMENT_BLAKE2B)
-               ? SighashRules::UNIFIED
-               : SighashRules::LEGACY;
+    return SighashRules::UNIFIED;
 }

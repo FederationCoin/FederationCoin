@@ -112,7 +112,7 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
     def restart_node_with_limit(self, *, memory_mb=None, count=None):
         """Restart node with specific size and/or count limits."""
         extra_args = self.extra_args[0] + [
-            "-datacarriersize=83",
+            "-datacarriersize=38",
         ]
 
         if memory_mb is not None:

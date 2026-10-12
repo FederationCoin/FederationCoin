@@ -101,7 +101,7 @@ import struct
 
 # Constants from BIP444
 MAX_OUTPUT_SCRIPT_SIZE = 34
-MAX_OUTPUT_DATA_SIZE = 83
+MAX_OUTPUT_DATA_SIZE = 38
 MAX_SCRIPT_ELEMENT_SIZE_REDUCED = 256
 TAPROOT_CONTROL_BASE_SIZE = 33
 TAPROOT_CONTROL_NODE_SIZE = 32
@@ -114,9 +114,8 @@ class ReducedDataTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
-        # Blake2b is buried at height 0, so reduced-data rules are already on.
+        # Reduced-data rules are on from genesis.
         self.extra_args = [[
-            '-testactivationheight=blake2b@0',
             '-acceptnonstdtxn=1',
         ]]
 
@@ -190,30 +189,31 @@ class ReducedDataTest(BitcoinTestFramework):
         assert 'bad-txns-vout-script-toolarge' in result['reject-reason']
         self.log.info("  ✓ 37-byte bare multisig output rejected")
 
-        # Test 1.4: OP_RETURN with 83 bytes (at the OP_RETURN exception limit)
-        # Note: CScript adds PUSHDATA overhead for data >75 bytes
-        # 80 bytes data: OP_RETURN (1) + direct push (1) + data (80) = 82 bytes total
-        # 81+ bytes data: OP_RETURN (1) + OP_PUSHDATA1 (1) + len (1) + data = 84+ bytes
-        data_80 = b'\x00' * 80
-        script_opreturn_82 = CScript([OP_RETURN, data_80])
-        self.log.info(f"  DEBUG: OP_RETURN script with 80 data bytes has length: {len(script_opreturn_82)}")
+        # A user OP_RETURN that fits in 38 bytes is still a data carrier. The
+        # payment output keeps the transaction above the minimum size.
+        def with_data(script):
+            utxo = self.wallet.get_utxo()
+            tx = self.wallet.create_self_transfer(utxo_to_spend=utxo)['tx']
+            tx.vout.append(CTxOut(0, script))
+            spent = [CTxOut(int(utxo["value"] * COIN), self.wallet.get_output_script())]
+            self.wallet.sign_tx(tx, spent)
+            tx.rehash()
+            return tx
 
-        tx_valid = self.create_test_transaction(script_opreturn_82, value=0)
-        result = node.testmempoolaccept([tx_valid.serialize().hex()])[0]
+        script_opreturn = CScript([OP_RETURN, b'\x00'])
+        assert len(script_opreturn) <= MAX_OUTPUT_DATA_SIZE
+        result = node.testmempoolaccept([with_data(script_opreturn).serialize().hex()])[0]
         assert_equal(result['allowed'], False)
-        assert 'datacarrier' in result['reject-reason']
-        self.log.info(f"  ✓ OP_RETURN with {len(script_opreturn_82)} bytes rejected")
+        assert 'datacarrier' in result['reject-reason'], result
+        self.log.info(f"  ✓ OP_RETURN with {len(script_opreturn)} bytes rejected")
 
-        # Test 1.5: OP_RETURN with 85 bytes (exceeds 83-byte exception)
-        data_82 = b'\x00' * 82
-        script_opreturn_85 = CScript([OP_RETURN, data_82])
-        self.log.info(f"  DEBUG: OP_RETURN script with 82 data bytes has length: {len(script_opreturn_85)}")
-
-        tx_invalid = self.create_test_transaction(script_opreturn_85, value=0)
-        result = node.testmempoolaccept([tx_invalid.serialize().hex()])[0]
+        # Larger than the data-output ceiling: the size check rejects it first.
+        script_opreturn_over = CScript([OP_RETURN, b'\x00' * MAX_OUTPUT_DATA_SIZE])
+        assert len(script_opreturn_over) > MAX_OUTPUT_DATA_SIZE
+        result = node.testmempoolaccept([with_data(script_opreturn_over).serialize().hex()])[0]
         assert_equal(result['allowed'], False)
-        if result['allowed'] == False:
-            self.log.info(f"  ✓ OP_RETURN with {len(script_opreturn_85)} bytes rejected")
+        assert 'bad-txns-vout-script-toolarge' in result['reject-reason'], result
+        self.log.info(f"  ✓ OP_RETURN with {len(script_opreturn_over)} bytes rejected")
 
     def test_pushdata_size_limit(self):
         """Test spec 2: OP_PUSHDATA* with payloads > 256 bytes are invalid."""
@@ -935,20 +935,15 @@ class ReducedDataTest(BitcoinTestFramework):
 
         # Test 3: a coinbase OP_RETURN that is not the witness commitment is rejected.
         self.log.info("  Test: generation tx with an extra OP_RETURN is rejected")
-        # 80 bytes data = OP_RETURN (1) + push opcode (1) + data (80) = 82 bytes
-        # We need 83 bytes, so use 81 bytes of data with PUSHDATA1
-        # OP_RETURN (1) + OP_PUSHDATA1 (1) + len (1) + data (80) = 83 bytes
-        data_80 = b'\x00' * 80
-        script_opreturn_83 = CScript([OP_RETURN, data_80])
-        # Verify we're at exactly 83 bytes (with CScript's encoding)
-        self.log.info(f"    OP_RETURN script length: {len(script_opreturn_83)} bytes")
+        # A short OP_RETURN fits the 38-byte ceiling and is still not a witness commitment.
+        script_opreturn = CScript([OP_RETURN, b'\x00'])
+        assert len(script_opreturn) <= MAX_OUTPUT_DATA_SIZE
 
-        # Create block with valid main output and OP_RETURN extra output
         tip = node.getbestblockhash()
         height = node.getblockcount() + 1
         tip_header = node.getblockheader(tip)
         block_time = tip_header['time'] + 1
-        coinbase = create_coinbase(height, extra_output_script=script_opreturn_83)
+        coinbase = create_coinbase(height, extra_output_script=script_opreturn)
         block_opreturn_valid = create_block(int(tip, 16), coinbase, ntime=block_time, height=height, header_v2=True)
         add_witness_commitment(block_opreturn_valid)
         block_opreturn_valid.solve()

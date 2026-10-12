@@ -65,6 +65,15 @@ from test_framework.util import (
 from test_framework.wallet_util import generate_keypair
 
 DEFAULT_FEE = Decimal("0.0001")
+# Consensus MinimumFee: floor(vsize / 12). Matches src/consensus/settlement_fee.h.
+MIN_FEE_VSIZE_DIVISOR = 12
+
+
+def minimum_fee_tokens(vsize):
+    """floor(vsize / 12) tokens. Zero when vsize is not positive."""
+    if vsize <= 0:
+        return 0
+    return vsize // MIN_FEE_VSIZE_DIVISOR
 
 class MiniWalletMode(Enum):
     """Determines the transaction type the MiniWallet is creating and spending.
@@ -201,6 +210,64 @@ class MiniWallet:
         self.sign_tx(tx, spent)
         self._register_tx_outputs(tx)
         return True
+
+    def pay_minimum_fee(self, tx_info):
+        """Raise the fee to floor(weight/4 / 12), matching C++ MinimumFee. Resigns in place."""
+        def _sync():
+            tx_info["txid"] = tx_info["tx"].rehash()
+            tx_info["wtxid"] = tx_info["tx"].getwtxid()
+            tx_info["hex"] = tx_info["tx"].serialize().hex()
+            utxo = tx_info.get("new_utxo")
+            if utxo is not None:
+                utxo["value"] = Decimal(tx_info["tx"].vout[0].nValue) / COIN
+                utxo["txid"] = tx_info["txid"]
+                utxo["wtxid"] = tx_info["wtxid"]
+            for i, u in enumerate(tx_info.get("new_utxos") or []):
+                u["value"] = Decimal(tx_info["tx"].vout[i].nValue) / COIN
+                u["txid"] = tx_info["txid"]
+                u["wtxid"] = tx_info["wtxid"]
+
+        while True:
+            tx = tx_info["tx"]
+            need = minimum_fee_tokens(tx.get_weight() // 4)
+            have = int(tx_info["fee"] * COIN)
+            extra = need - have
+            if extra <= 0:
+                return tx_info
+            assert tx.vout[0].nValue > extra
+            tx.vout[0].nValue -= extra
+            assert self.resign(tx)
+            tx_info["fee"] += Decimal(extra) / COIN
+            _sync()
+
+    def pay_minrelay(self, tx_info, node):
+        """Pay at least floor(weight/4 / 12), and the node's minrelay if it is above that."""
+        self.pay_minimum_fee(tx_info)
+        minrelay = node.getmempoolinfo()["minrelaytxfee"]
+        if minrelay <= 0:
+            return tx_info
+        need = get_fee(tx_info["tx"].get_vsize(), minrelay)
+        extra = int((need - tx_info["fee"]) * COIN)
+        if extra <= 0:
+            return tx_info
+        tx = tx_info["tx"]
+        assert tx.vout[0].nValue > extra
+        tx.vout[0].nValue -= extra
+        assert self.resign(tx)
+        tx_info["fee"] += Decimal(extra) / COIN
+        tx_info["txid"] = tx.rehash()
+        tx_info["wtxid"] = tx.getwtxid()
+        tx_info["hex"] = tx.serialize().hex()
+        utxo = tx_info.get("new_utxo")
+        if utxo is not None:
+            utxo["value"] = Decimal(tx.vout[0].nValue) / COIN
+            utxo["txid"] = tx_info["txid"]
+            utxo["wtxid"] = tx_info["wtxid"]
+        for i, u in enumerate(tx_info.get("new_utxos") or []):
+            u["value"] = Decimal(tx.vout[i].nValue) / COIN
+            u["txid"] = tx_info["txid"]
+            u["wtxid"] = tx_info["wtxid"]
+        return tx_info
 
     def _bulk_tx(self, tx, target_vsize):
         """Grow one transaction to target_vsize with payment outputs.
@@ -424,8 +491,8 @@ class MiniWallet:
         assert_greater_than_or_equal(tx.vout[0].nValue, amount + fee)
         tx.vout[0].nValue -= (amount + fee)           # change output -> MiniWallet
         tx.vout.append(CTxOut(amount, scriptPubKey))  # arbitrary output -> to be returned
-        # Consensus floor is floor(vsize / 12). Knots min-relay is 3 sat/vB.
-        need = max(fee, tx.get_vsize() // 12, 3 * tx.get_vsize())
+        # Consensus floor is floor(vsize / 12).
+        need = max(fee, tx.get_vsize() // 12)
         extra = need - fee
         if extra > 0:
             assert_greater_than_or_equal(tx.vout[0].nValue, extra)
@@ -538,9 +605,19 @@ class MiniWallet:
             assert False
         if target_vsize and not fee:  # respect fee_rate if target vsize is passed
             fee = get_fee(target_vsize, fee_rate)
-        send_value = utxo_to_spend["value"] - (fee or (fee_rate * vsize / 1000))
+            if fee_rate > 0:
+                floor = Decimal(minimum_fee_tokens(target_vsize)) / COIN
+                if fee < floor:
+                    fee = floor
+        if fee:
+            paid = fee
+        elif fee_rate > 0:
+            paid = max(fee_rate * vsize / 1000, Decimal(minimum_fee_tokens(int(vsize))) / COIN)
+        else:
+            paid = Decimal(0)
+        send_value = utxo_to_spend["value"] - paid
         if send_value <= 0:
-            raise RuntimeError(f"UTXO value {utxo_to_spend['value']} is too small to cover fees {(fee or (fee_rate * vsize / 1000))}")
+            raise RuntimeError(f"UTXO value {utxo_to_spend['value']} is too small to cover fees {paid}")
         # create tx
         tx = self.create_self_transfer_multi(
             utxos_to_spend=[utxo_to_spend],
@@ -550,12 +627,16 @@ class MiniWallet:
         )
         # A P2WSH spend is not one fixed size. Measure once and rebuild so the fee matches the feerate.
         if not target_vsize and not fee:
-            actual = Decimal(tx["tx"].get_vsize())
-            if actual != vsize:
-                send_value = utxo_to_spend["value"] - (fee_rate * actual / 1000)
+            actual = tx["tx"].get_vsize()
+            if fee_rate > 0:
+                paid = max(fee_rate * Decimal(actual) / 1000, Decimal(minimum_fee_tokens(actual)) / COIN)
+            else:
+                paid = Decimal(0)
+            new_send = utxo_to_spend["value"] - paid
+            if int(COIN * new_send) != tx["tx"].vout[0].nValue:
                 tx = self.create_self_transfer_multi(
                     utxos_to_spend=[utxo_to_spend],
-                    amount_per_output=int(COIN * send_value),
+                    amount_per_output=int(COIN * new_send),
                     **kwargs,
                 )
         tx["new_utxo"] = tx.pop("new_utxos")[0]

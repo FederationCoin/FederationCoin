@@ -8,6 +8,7 @@
 #include <compat/compat.h>
 #include <cstdint>
 #include <bip324.h>
+#include <consensus/block_limits.h>
 #include <net.h>
 #include <net_processing.h>
 #include <protocol.h>
@@ -1496,7 +1497,7 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
             auto decoy_data = m_rng.randbytes<uint8_t>(m_rng.randrange(1000));
             tester.SendPacket(/*content=*/decoy_data, /*aad=*/{}, /*ignore=*/true);
         }
-        auto msg_data_1 = m_rng.randbytes<uint8_t>(m_rng.randrange(4000000));
+        auto msg_data_1 = m_rng.randbytes<uint8_t>(m_rng.randrange(static_cast<size_t>(Consensus::BlockMessageReceiveLimit())));
         tester.SendMessage(uint8_t(28), msg_data_1);
         for (unsigned d = 0; d < num_decoys_2; ++d) {
             auto decoy_data = m_rng.randbytes<uint8_t>(m_rng.randrange(1000));
@@ -1570,8 +1571,9 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         tester.ReceiveGarbage();
         tester.ReceiveVersion();
         tester.CompareSessionIDs();
-        auto msg_data_1 = m_rng.randbytes<uint8_t>(4000000); // test that receiving 4M payload works
-        auto msg_data_2 = m_rng.randbytes<uint8_t>(4000000); // test that sending 4M payload works
+        const size_t block_payload{static_cast<size_t>(Consensus::BlockMessageReceiveLimit())};
+        auto msg_data_1 = m_rng.randbytes<uint8_t>(block_payload); // receiving a live-cap block payload works
+        auto msg_data_2 = m_rng.randbytes<uint8_t>(block_payload); // sending a live-cap block payload works
         tester.SendMessage(uint8_t(m_rng.randrange(223) + 33), {}); // unknown short id
         tester.SendMessage(uint8_t(2), msg_data_1); // "block" short id
         tester.AddMessage("blocktxn", msg_data_2); // schedule blocktxn to be sent to us

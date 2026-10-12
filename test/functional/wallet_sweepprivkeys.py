@@ -23,7 +23,7 @@ class SweepPrivKeysTest(BitcoinTestFramework):
         self.assert_legacy_wallet_refused(node)
         assert_equal(node.getwalletinfo()["descriptors"], True)
         assert_raises_rpc_error(-6, "No value to sweep", node.sweepprivkeys, {'privkeys': [], 'label': 'closed'})
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             assert_equal(node.validateaddress(node.getnewaddress("", kind))["isvalid"], True)
         assert_raises_rpc_error(-5, "Unknown address type", node.getnewaddress, "", "legacy")
 

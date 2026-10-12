@@ -6,13 +6,11 @@
 // NOTE: This file is intended to be customised by the end user, and includes only local node policy logic
 
 #include <policy/policy.h>
+#include <policy/witness_spend_kind.h>
 
 #include <coins.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
-#include <consensus/mldsa87_spend.h>
-#include <consensus/mldsa_spend.h>
-#include <consensus/secp_spend.h>
 #include <consensus/validation.h>
 #include <kernel/mempool_options.h>
 #include <policy/feerate.h>
@@ -47,12 +45,12 @@ CAmount GetDustThreshold(const CTxOut& txout, const CFeeRate& dustRelayFeeIn)
     // need a CTxIn of at least 148 bytes to spend:
     // so dust is a spendable txout less than
     // 182*dustRelayFee/1000 (in satoshis).
-    // 546 satoshis at the default rate of 3000 sat/kvB.
+    // Dust threshold at DUST_RELAY_TX_FEE atoms/kvB.
     // A typical spendable segwit P2WPKH txout is 31 bytes big, and will
     // need a CTxIn of at least 67 bytes to spend:
     // so dust is a spendable txout less than
     // 98*dustRelayFee/1000 (in satoshis).
-    // 294 satoshis at the default rate of 3000 sat/kvB.
+    // Dust threshold at DUST_RELAY_TX_FEE atoms/kvB.
     if (txout.scriptPubKey.IsUnspendable())
         return 0;
 
@@ -476,75 +474,17 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
             return false;
         }
 
-        // Closed ML-DSA-44 spends use this same v0/32 output. They are not
-        // P2WSH scripts; do not apply the 80-byte P2WSH item cap or the 1650
-        // witness-size cap to them. Extra items stay nonstandard via Absent.
-        if (witnessversion == 0 && witnessprogram.size() == 20 && Consensus::IsSecpSingleWitness(tx.vin[i].scriptWitness.stack)) {
-            continue;
-        }
-        if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE &&
-            (Consensus::MlDsaSpendKindOf(tx.vin[i].scriptWitness.stack) != Consensus::MlDsaSpendKind::Absent ||
-             Consensus::MlDsa87SpendKindOf(tx.vin[i].scriptWitness.stack) != Consensus::MlDsa87SpendKind::Absent)) {
+        const auto kind = MatchPolicyWitnessKind(witnessversion, witnessprogram.size(),
+                                                 tx.vin[i].scriptWitness.stack, p2sh);
+        if (kind) {
+            if (!ApplyPolicyWitnessKind(*kind, tx.vin[i], p2sh, reason_prefix, out_reason, ignore_rejects)) {
+                return false;
+            }
             continue;
         }
 
         if (GetSerializeSize(tx.vin[i].scriptWitness.stack) > g_script_size_policy_limit) {
             MaybeReject("witness-size");
-        }
-
-        // Check P2WSH standard limits
-        if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
-            if (tx.vin[i].scriptWitness.stack.back().size() > MAX_STANDARD_P2WSH_SCRIPT_SIZE)
-                MaybeReject("script-size");
-            size_t sizeWitnessStack = tx.vin[i].scriptWitness.stack.size() - 1;
-            if (sizeWitnessStack > MAX_STANDARD_P2WSH_STACK_ITEMS)
-                MaybeReject("stackitem-count");
-            for (unsigned int j = 0; j < sizeWitnessStack; j++) {
-                if (tx.vin[i].scriptWitness.stack[j].size() > MAX_STANDARD_P2WSH_STACK_ITEM_SIZE)
-                    MaybeReject("stackitem-size");
-            }
-        }
-
-        // Check policy limits for Taproot spends:
-        // - MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE limit for stack item size
-        // - No annexes
-        if (witnessversion == 1 && witnessprogram.size() == WITNESS_V1_TAPROOT_SIZE && !p2sh) {
-            // Taproot spend (non-P2SH-wrapped, version 1, witness program size 32; see BIP 341)
-            Span stack{tx.vin[i].scriptWitness.stack};
-            if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == ANNEX_TAG) {
-                // Annexes are nonstandard as long as no semantics are defined for them.
-                MaybeReject("taproot-annex");
-                // If reject reason is ignored, continue as if the annex wasn't there.
-                SpanPopBack(stack);
-            }
-            if (stack.size() >= 2) {
-                // Script path spend (2 or more stack elements after removing optional annex)
-                const auto& control_block = SpanPopBack(stack);
-                SpanPopBack(stack); // Ignore script
-                if (control_block.empty()) {
-                    // Empty control block is invalid
-                    out_reason = reason_prefix + "taproot-control-missing";
-                    return false;
-                }
-                if ((control_block[0] & TAPROOT_LEAF_MASK) == TAPROOT_LEAF_TAPSCRIPT) {
-                    // Leaf version 0xc0 (aka Tapscript, see BIP 342)
-                    if (!ignore_rejects.count(reason_prefix + "taproot-stackitem-size")) {
-                    for (const auto& item : stack) {
-                            if (item.size() > MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE) {
-                                out_reason = reason_prefix + "taproot-stackitem-size";
-                                return false;
-                            }
-                        }
-                    }
-                }
-            } else if (stack.size() == 1) {
-                // Key path spend (1 stack element after removing optional annex)
-                // (no policy rules apply)
-            } else {
-                // 0 stack elements; this is already invalid by consensus rules
-                out_reason = reason_prefix + "taproot-witness-missing";
-                return false;
-            }
         }
     }
     return true;
@@ -625,28 +565,10 @@ std::pair<CScript, unsigned int> GetScriptForTransactionInput(CScript prevScript
         return std::make_pair(p2sh ? prevScript : txin.scriptSig, WITNESS_SCALE_FACTOR);
     }
 
-    Span stack{txin.scriptWitness.stack};
-
-    if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
-        if (Consensus::MlDsaSpendKindOf(txin.scriptWitness.stack) != Consensus::MlDsaSpendKind::Absent ||
-            Consensus::MlDsa87SpendKindOf(txin.scriptWitness.stack) != Consensus::MlDsa87SpendKind::Absent) {
-            return std::make_pair(CScript(), 0);
-        }
-        if (stack.empty()) return std::make_pair(CScript(), 0);  // invalid
-        auto& script_data = stack.back();
-        prevScript = CScript(script_data.begin(), script_data.end());
-        return std::make_pair(prevScript, 1);
-    }
-
-    if (witnessversion == 1 && witnessprogram.size() == WITNESS_V1_TAPROOT_SIZE && !p2sh) {
-        if (stack.size() >= 2 && !stack.back().empty() && stack.back()[0] == ANNEX_TAG) {
-            SpanPopBack(stack);
-        }
-        if (stack.size() >= 2) {
-            SpanPopBack(stack);  // Ignore control block
-            prevScript = CScript(stack.back().begin(), stack.back().end());
-            return std::make_pair(prevScript, 1);
-        }
+    const auto kind = MatchPolicyWitnessKind(witnessversion, witnessprogram.size(),
+                                             txin.scriptWitness.stack, p2sh);
+    if (kind) {
+        return ExtractPolicyWitnessScript(*kind, txin, p2sh);
     }
 
     return std::make_pair(CScript(), 0);

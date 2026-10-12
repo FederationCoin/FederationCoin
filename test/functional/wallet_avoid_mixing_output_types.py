@@ -8,7 +8,7 @@ A wallet may have different types of UTXOs to choose from during coin selection,
 where output type is one of the following:
     - Dilithium 87
     - Dilithium 44
-    - secp
+    - SegWit (bech32)
 
 This test verifies that mixing different output types is avoided unless
 absolutely necessary. Both wallets start with zero funds. Alice mines
@@ -33,7 +33,7 @@ from test_framework.blocktools import COINBASE_MATURITY
 ADDRESS_TYPES = [
     "mldsa87",
     "mldsa44",
-    "secp",
+    "bech32",
 ]
 
 
@@ -47,7 +47,7 @@ def is_mldsa44_address(node, addr):
     return addr_info['desc'].startswith('mldsa(')
 
 
-def is_secp_address(node, addr):
+def is_bech32_address(node, addr):
     addr_info = node.getaddressinfo(addr)
     return addr_info['desc'].startswith('wpkh(')
 
@@ -66,17 +66,17 @@ def is_same_type(node, tx):
         )
     has_87 = False
     has_44 = False
-    has_secp = False
+    has_bech32 = False
 
     for addr in inputs:
         if is_mldsa87_address(node, addr):
             has_87 = True
         if is_mldsa44_address(node, addr):
             has_44 = True
-        if is_secp_address(node, addr):
-            has_secp = True
+        if is_bech32_address(node, addr):
+            has_bech32 = True
 
-    return (sum([has_87, has_44, has_secp]) == 1)
+    return (sum([has_87, has_44, has_bech32]) == 1)
 
 
 def generate_payment_values(n, m):
@@ -99,7 +99,7 @@ class AddressInputTypeGrouping(BitcoinTestFramework):
         self.noban_tx_relay = True
         self.extra_args = [
             [
-                "-addresstype=secp",
+                "-addresstype=bech32",
                 "-txindex",
             ],
             [
@@ -138,12 +138,12 @@ class AddressInputTypeGrouping(BitcoinTestFramework):
             A.sendtoaddress(B.getnewaddress(address_type="mldsa44"), v)
 
         for v in generate_payment_values(3, 10):
-            self.log.debug(f"Making payment of {v} BTC to secp")
-            A.sendtoaddress(B.getnewaddress(address_type="secp"), v)
+            self.log.debug(f"Making payment of {v} BTC to SegWit")
+            A.sendtoaddress(B.getnewaddress(address_type="bech32"), v)
 
         for v in generate_payment_values(3, 10):
-            self.log.debug(f"Making payment of {v} BTC to secp")
-            A.sendtoaddress(B.getnewaddress(address_type="secp"), v)
+            self.log.debug(f"Making payment of {v} BTC to SegWit")
+            A.sendtoaddress(B.getnewaddress(address_type="bech32"), v)
 
         self.generate(A, 1)
 

@@ -26,9 +26,8 @@ enum BuriedDeployment : int16_t {
     DEPLOYMENT_DERSIG,
     DEPLOYMENT_CSV,
     DEPLOYMENT_SEGWIT,
-    DEPLOYMENT_BLAKE2B,
 };
-constexpr bool ValidDeployment(BuriedDeployment dep) { return dep <= DEPLOYMENT_BLAKE2B; }
+constexpr bool ValidDeployment(BuriedDeployment dep) { return dep <= DEPLOYMENT_SEGWIT; }
 
 enum DeploymentPos : uint16_t {
     DEPLOYMENT_TESTDUMMY,
@@ -105,9 +104,6 @@ struct Params {
      * Note that segwit v0 script rules are enforced on all blocks except the
      * BIP 16 exception blocks. */
     int SegwitHeight;
-    /** Block height at which BLAKE2b hardfork becomes active */
-    int Blake2bHeight{std::numeric_limits<int>::max()};
-    uint8_t Blake2bTargetShift{20};
     /** Don't warn about unknown BIP 9 activations below this height.
      * This prevents us from warning about the CSV and segwit activations. */
     int MinBIP9WarningHeight;
@@ -165,25 +161,8 @@ struct Params {
             return CSVHeight;
         case DEPLOYMENT_SEGWIT:
             return SegwitHeight;
-        case DEPLOYMENT_BLAKE2B:
-            return Blake2bHeight;
         } // no default case, so the compiler can warn about missing cases
         return std::numeric_limits<int>::max();
-    }
-
-    bool IsBlake2bHeight(int height) const
-    {
-        return height >= Blake2bHeight;
-    }
-
-    /** RDTS activates at the BLAKE2b hardfork. There is no separate schedule
-     *  and no expiry. */
-    int RdtsActivationHeight() const { return Blake2bHeight; }
-
-    /** Whether the RDTS rules apply to a block at the given height. */
-    bool RdtsActiveAt(int height) const
-    {
-        return IsBlake2bHeight(height);
     }
 };
 

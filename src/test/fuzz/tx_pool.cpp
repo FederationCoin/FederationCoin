@@ -99,7 +99,7 @@ void Finish(FuzzedDataProvider& fuzzed_data_provider, MockedTxPool& tx_pool, Cha
     WITH_LOCK(::cs_main, tx_pool.check(chainstate.CoinsTip(), chainstate.m_chain.Height() + 1));
     {
         BlockAssembler::Options options;
-        options.nBlockMaxWeight = fuzzed_data_provider.ConsumeIntegralInRange(0U, MAX_BLOCK_WEIGHT);
+        options.nBlockMaxWeight = fuzzed_data_provider.ConsumeIntegralInRange<unsigned>(0U, static_cast<unsigned>(Consensus::MIN_FLEX_BLOCK_WEIGHT));
         options.blockMinFeeRate = CFeeRate{ConsumeMoney(fuzzed_data_provider, /*max=*/COIN)};
         auto assembler = BlockAssembler{chainstate, &tx_pool, options, g_setup->m_node};
         auto block_template = assembler.CreateNewBlock();

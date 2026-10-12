@@ -160,7 +160,7 @@ FUZZ_TARGET(mini_miner_selection, .init = initialize_miner)
             }
         }
 
-        const auto block_adjusted_max_weight = MAX_BLOCK_WEIGHT - DEFAULT_BLOCK_RESERVED_WEIGHT;
+        const auto block_adjusted_max_weight = Consensus::MIN_FLEX_BLOCK_WEIGHT - DEFAULT_BLOCK_RESERVED_WEIGHT;
         // Stop if pool reaches block_adjusted_max_weight because BlockAssembler will stop when the
         // block template reaches that, but the MiniMiner will keep going.
         if (pool.GetTotalTxSize() + GetVirtualTransactionSize(*tx) >= block_adjusted_max_weight) break;
@@ -185,7 +185,7 @@ FUZZ_TARGET(mini_miner_selection, .init = initialize_miner)
 
     node::BlockAssembler::Options miner_options;
     miner_options.blockMinFeeRate = target_feerate;
-    miner_options.nBlockMaxWeight = MAX_BLOCK_WEIGHT;
+    miner_options.nBlockMaxWeight = Consensus::MIN_FLEX_BLOCK_WEIGHT;
     miner_options.test_block_validity = false;
     miner_options.coinbase_output_script = CScript() << OP_0;
 

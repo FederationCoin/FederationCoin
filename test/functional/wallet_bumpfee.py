@@ -35,6 +35,7 @@ from test_framework.util import (
     find_vout_for_address,
 )
 from test_framework.wallet import MiniWallet, MiniWalletMode
+from test_framework.mempool_util import relay_feerate_sat_vb_str
 
 
 WALLET_PASSPHRASE = "test"
@@ -577,7 +578,7 @@ def test_setfeerate(self, rbf_node, dest_address):
     new = Decimal("10000.001")
     test_response(requested=new, error=True, msg=f"The requested fee rate of {new} token/vB cannot be greater than the wallet max fee rate of 10000.000 token/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
     new = Decimal("0.999")
-    test_response(requested=new, error=True, msg=f"The requested fee rate of {new} token/vB cannot be less than the minimum relay fee rate of 3.000 token/vB. The current setting of 0 (unset) for this wallet remains unchanged.")
+    test_response(requested=new, error=True, msg=f"The requested fee rate of {new} token/vB cannot be less than the minimum relay fee rate of {relay_feerate_sat_vb_str(rbf_node)}. The current setting of 0 (unset) for this wallet remains unchanged.")
     fee_rate = Decimal("4.001")
     test_response(requested=fee_rate, expected=fee_rate, msg=f"Fee rate for transactions with this wallet successfully set to {fee_rate} token/vB")
     new = Decimal("3.999")
@@ -608,7 +609,7 @@ def test_setfeerate(self, rbf_node, dest_address):
 def test_settxfee(self, rbf_node, dest_address):
     self.log.info('Test settxfee')
     assert_raises_rpc_error(-8, "txfee cannot be less than min relay tx fee", rbf_node.settxfee, Decimal('0.0000005'))
-    assert_raises_rpc_error(-8, "txfee cannot be less than min relay tx fee", rbf_node.settxfee, Decimal('0.000015'))
+    assert_raises_rpc_error(-8, "txfee cannot be less than min relay tx fee", rbf_node.settxfee, Decimal('0.000005'))
     # check that bumpfee reacts correctly to the use of settxfee (paytxfee)
     rbfid = spend_one_input(rbf_node, dest_address)
     requested_feerate = Decimal("0.00025000")

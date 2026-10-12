@@ -155,9 +155,13 @@ FUZZ_TARGET(script, .init = initialize_script)
         const bool valid{IsValidDestination(tx_destination_1)};
 
         if (!std::get_if<PubKeyDestination>(&tx_destination_1)) {
-            // Only try to round trip non-pubkey destinations since PubKeyDestination has no encoding
-            Assert(dest.empty() != valid);
-            Assert(tx_destination_1 == DecodeDestination(encoded_dest));
+            // PubKeyDestination has no encoding. Parked Bech32m / Taproot still
+            // have a scriptPubKey but are not valid destinations, and Decode
+            // refuses the encoding.
+            if (valid) {
+                Assert(!dest.empty());
+                Assert(tx_destination_1 == DecodeDestination(encoded_dest));
+            }
             Assert(valid == IsValidDestinationString(encoded_dest));
         }
 

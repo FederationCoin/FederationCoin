@@ -2203,6 +2203,9 @@ bool LegacyDataSPKM::DeleteRecordsWithDB(WalletBatch& batch)
 
 util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const OutputType type)
 {
+    if (!OutputTypeIsAllowed(type)) {
+        return util::Error{Untranslated("Bech32m / Taproot addresses are not valid on this chain.")};
+    }
     // Returns true if this descriptor supports getting new addresses. Conditions where we may be unable to fetch them (e.g. locked) are caught later
     if (!CanGetAddresses()) {
         return util::Error{_("No addresses available")};

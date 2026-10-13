@@ -63,7 +63,9 @@ FUZZ_TARGET(script, .init = initialize_script)
                which_type == TxoutType::PUBKEY ||
                which_type == TxoutType::PUBKEYHASH ||
                which_type == TxoutType::SCRIPTHASH ||
-               which_type == TxoutType::MULTISIG);
+               which_type == TxoutType::MULTISIG ||
+               which_type == TxoutType::CHECKMODERNSIG ||
+               which_type == TxoutType::CHECKMODERNPOLICY);
     }
     if (which_type == TxoutType::NONSTANDARD) {
         assert(!is_standard_ret);

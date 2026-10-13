@@ -23,11 +23,19 @@ public:
     static constexpr unsigned GARBAGE_TERMINATOR_LEN{16};
     static constexpr unsigned REKEY_INTERVAL{224};
     static constexpr unsigned LENGTH_LEN{3};
+    static constexpr unsigned V3_LENGTH_LEN{8};
     static constexpr unsigned HEADER_LEN{1};
     static constexpr unsigned EXPANSION = LENGTH_LEN + HEADER_LEN + FSChaCha20Poly1305::EXPANSION;
+    static constexpr unsigned V3_EXPANSION = V3_LENGTH_LEN + HEADER_LEN + FSChaCha20Poly1305::EXPANSION;
     /** Largest contents a 3-byte BIP324 length field can name. */
     static constexpr size_t MAX_CONTENTS_LEN{(size_t{1} << 24) - 1};
+    /** Largest AEAD contents in one FCN-P2P-v3 frame. Same as v2. */
+    static constexpr size_t MAX_AEAD_FRAME{MAX_CONTENTS_LEN};
     static constexpr std::byte IGNORE_BIT{0x80};
+    /** FCN-P2P-v3: another frame follows for the same message. */
+    static constexpr std::byte MORE_BIT{0x40};
+    /** DecryptV3 fails if any other header bit is set. */
+    static constexpr std::byte V3_HEADER_USED{IGNORE_BIT | MORE_BIT};
 
 private:
     std::optional<FSChaCha20> m_send_l_cipher;
@@ -84,6 +92,22 @@ public:
      * Contents.size() must equal the length returned by DecryptLength.
      */
     bool Decrypt(Span<const std::byte> input, Span<const std::byte> aad, bool& ignore, Span<std::byte> contents) noexcept;
+
+    /** Encrypt a v3 frame (8-byte length, IGNORE and MORE in the header).
+     *  output.size() == contents.size() + V3_EXPANSION.
+     *  contents.size() <= MAX_AEAD_FRAME. */
+    void EncryptV3(Span<const std::byte> contents, Span<const std::byte> aad, bool ignore, bool more, Span<std::byte> output) noexcept;
+
+    /** Encrypt a v3 frame with an explicit header byte. Tests use this to
+     *  set reserved bits; DecryptV3 must fail those. */
+    void EncryptV3(Span<const std::byte> contents, Span<const std::byte> aad, std::byte header, Span<std::byte> output) noexcept;
+
+    /** Decrypt the 8-byte v3 length. input.size() == V3_LENGTH_LEN. */
+    uint64_t DecryptLengthV3(Span<const std::byte> input) noexcept;
+
+    /** Decrypt a v3 frame. input.size() + V3_LENGTH_LEN == contents.size() + V3_EXPANSION.
+     *  Fails if the header has bits other than IGNORE and MORE. */
+    bool DecryptV3(Span<const std::byte> input, Span<const std::byte> aad, bool& ignore, bool& more, Span<std::byte> contents) noexcept;
 
     /** Get the Session ID. Only after Initialize(). */
     Span<const std::byte> GetSessionID() const noexcept { return m_session_id; }

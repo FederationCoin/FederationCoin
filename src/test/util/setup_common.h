@@ -165,7 +165,7 @@ struct TestChain100Setup : public TestingSetup {
     //! Mine a series of new blocks on the active chain.
     void mineBlocks(int num_blocks);
 
-    /** Witness v0 program for coinbase_mldsa. The only spendable coinbase lock. */
+    /** CHECKMODERNSIG locking script for coinbase_mldsa. The only spendable coinbase lock. */
     CScript MldsaScriptPubKey() const;
 
     /**

@@ -10,6 +10,7 @@
 #include <consensus/mldsa87_spend.h>
 #include <consensus/mldsa44_spend.h>
 #include <consensus/secp_spend.h>
+#include <script/modern_sig.h>
 #include <key.h>
 #include <policy/policy.h>
 #include <span.h>
@@ -542,6 +543,9 @@ static bool SignStep(const SigningProvider& provider, const BaseSignatureCreator
 
     case TxoutType::ANCHOR:
         return true;
+    case TxoutType::CHECKMODERNSIG:
+    case TxoutType::CHECKMODERNPOLICY:
+        return false;
     } // no default case, so the compiler can warn about missing cases
     assert(false);
 }
@@ -567,19 +571,15 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
 {
     if (sigdata.complete) return true;
 
-    int witver = 0;
-    std::vector<unsigned char> witprog;
-    const bool native_v0 = fromPubKey.IsWitnessProgram(witver, witprog) && witver == 0;
-    if (native_v0 && witprog.size() == 32) {
+    if (const auto parsed{MatchModernSingle(fromPubKey)}; parsed && parsed->kind) {
         if (const auto* mtx_creator = dynamic_cast<const MutableTransactionSignatureCreator*>(&creator)) {
             const PrecomputedTransactionData* txdata = mtx_creator->GetTxData();
             if (txdata && txdata->m_spent_outputs_ready) {
                 const CTransaction txConst(mtx_creator->GetTransaction());
                 uint256 sighash;
-                const uint256 program{Span<const unsigned char>{witprog.data(), witprog.size()}};
                 if (SignatureHashUnified(sighash, CScript{}, txConst, mtx_creator->GetInputIndex(), SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, *txdata)) {
                     const std::span<const unsigned char> message{sighash.begin(), 32};
-                    if (SignWitnessV0Input(provider, program, message, sigdata.scriptWitness)) {
+                    if (SignWitnessV0Input(provider, parsed->fingerprint, message, sigdata.scriptWitness)) {
                         sigdata.witness = true;
                         sigdata.scriptSig.clear();
                         const unsigned int verify_flags{STANDARD_SCRIPT_VERIFY_FLAGS |
@@ -593,6 +593,10 @@ bool ProduceSignature(const SigningProvider& provider, const BaseSignatureCreato
             }
         }
     }
+
+    int witver = 0;
+    std::vector<unsigned char> witprog;
+    const bool native_v0 = fromPubKey.IsWitnessProgram(witver, witprog) && witver == 0;
 
     std::vector<valtype> result;
     TxoutType whichType;
@@ -876,6 +880,7 @@ bool IsSegWitOutput(const SigningProvider& provider, const CScript& script)
     int version;
     valtype program;
     if (script.IsWitnessProgram(version, program)) return true;
+    if (IsModernSigTemplate(script)) return true;
     if (script.IsPayToScriptHash()) {
         std::vector<valtype> solutions;
         auto whichtype = Solver(script, solutions);

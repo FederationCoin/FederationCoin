@@ -76,6 +76,13 @@ uint64_t ShrinkCap(uint64_t cap);
  *  Otherwise the cap stays. One stretch takes one branch. */
 uint64_t DecideNextCap(uint64_t cap, uint64_t pegged_blocks, uint64_t slack_blocks, int interval);
 
+/** Largest live cap the chain can have reached at height: MIN_FLEX grown
+ *  at every subsidy boundary from 1 through height, never cut. Stops at
+ *  AtCeiling. epochs is height / interval, floor toward zero. height <= 0
+ *  or interval <= 0 is MIN_FLEX. CheckBlock uses this when the parent
+ *  watermark is not connected. */
+uint64_t WorstCaseCapAtHeight(int height, int interval);
+
 } // namespace Consensus
 
 #endif // BITCOIN_CONSENSUS_FLEX_WEIGHT_H

@@ -4,6 +4,7 @@
 
 #include <consensus/amount.h>
 #include <pubkey.h>
+#include <script/modern_sig.h>
 #include <test/fuzz/util.h>
 #include <test/util/script.h>
 #include <util/check.h>
@@ -140,6 +141,25 @@ CScript ConsumeScript(FuzzedDataProvider& fuzzed_data_provider, const bool maybe
                 [&] {
                     // Push a scriptnum
                     r_script << ConsumeScriptNum(fuzzed_data_provider);
+                },
+                [&] {
+                    const uint256 fingerprint{ConsumeUInt256(fuzzed_data_provider)};
+                    const int32_t param{fuzzed_data_provider.ConsumeBool() ? PARAM_DILITHIUM_87 : PARAM_DILITHIUM_44};
+                    if (fuzzed_data_provider.ConsumeBool()) {
+                        const CScript single{BuildModernSingle(fingerprint, ALGO_DILITHIUM, param)};
+                        r_script.insert(r_script.end(), single.begin(), single.end());
+                        return;
+                    }
+                    const uint8_t n{fuzzed_data_provider.ConsumeIntegralInRange<uint8_t>(1, MODERN_POLICY_MAX_KEYS)};
+                    const uint8_t threshold{fuzzed_data_provider.ConsumeIntegralInRange<uint8_t>(1, n)};
+                    std::vector<uint256> hashes;
+                    hashes.reserve(n);
+                    for (uint8_t i{0}; i < n; ++i) {
+                        hashes.push_back(ConsumeUInt256(fuzzed_data_provider));
+                    }
+                    if (const auto built{BuildModernPolicy(threshold, hashes, ALGO_DILITHIUM, param)}) {
+                        r_script.insert(r_script.end(), built->begin(), built->end());
+                    }
                 });
         }
     }
@@ -222,6 +242,11 @@ CTxDestination ConsumeTxDestination(FuzzedDataProvider& fuzzed_data_provider) no
                 program = {0, 0};
             }
             tx_destination = WitnessUnknown{fuzzed_data_provider.ConsumeIntegralInRange<unsigned int>(2, 16), program};
+        },
+        [&] {
+            const uint256 fingerprint{ConsumeUInt256(fuzzed_data_provider)};
+            const int32_t param{fuzzed_data_provider.ConsumeBool() ? PARAM_DILITHIUM_87 : PARAM_DILITHIUM_44};
+            tx_destination = ModernSigDestination{BuildModernSingle(fingerprint, ALGO_DILITHIUM, param)};
         })};
     Assert(call_size == std::variant_size_v<CTxDestination>);
     return tx_destination;

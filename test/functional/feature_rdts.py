@@ -176,7 +176,7 @@ class ReducedDataTest(BitcoinTestFramework):
         tx_invalid = self.create_test_transaction(script_p2pk)
         result = node.testmempoolaccept([tx_invalid.serialize().hex()])[0]
         assert_equal(result['allowed'], False)
-        assert 'bad-txns-vout-script-toolarge' in result['reject-reason']
+        assert 'bad-txns-vout-script' in result['reject-reason']
         self.log.info("  ✓ 35-byte P2PK output rejected")
 
         # Test 1.3: 37-byte bare multisig (exceeds limit - should fail)
@@ -186,7 +186,7 @@ class ReducedDataTest(BitcoinTestFramework):
         tx_invalid = self.create_test_transaction(script_bare_multisig)
         result = node.testmempoolaccept([tx_invalid.serialize().hex()])[0]
         assert_equal(result['allowed'], False)
-        assert 'bad-txns-vout-script-toolarge' in result['reject-reason']
+        assert 'bad-txns-vout-script' in result['reject-reason']
         self.log.info("  ✓ 37-byte bare multisig output rejected")
 
         # A user OP_RETURN that fits in 38 bytes is still a data carrier. The
@@ -204,7 +204,7 @@ class ReducedDataTest(BitcoinTestFramework):
         assert len(script_opreturn) <= MAX_OUTPUT_DATA_SIZE
         result = node.testmempoolaccept([with_data(script_opreturn).serialize().hex()])[0]
         assert_equal(result['allowed'], False)
-        assert 'datacarrier' in result['reject-reason'], result
+        assert 'bad-txns-datacarrier' in result['reject-reason'], result
         self.log.info(f"  ✓ OP_RETURN with {len(script_opreturn)} bytes rejected")
 
         # Larger than the data-output ceiling: the size check rejects it first.
@@ -212,7 +212,7 @@ class ReducedDataTest(BitcoinTestFramework):
         assert len(script_opreturn_over) > MAX_OUTPUT_DATA_SIZE
         result = node.testmempoolaccept([with_data(script_opreturn_over).serialize().hex()])[0]
         assert_equal(result['allowed'], False)
-        assert 'bad-txns-vout-script-toolarge' in result['reject-reason'], result
+        assert 'bad-txns-vout-script' in result['reject-reason'], result
         self.log.info(f"  ✓ OP_RETURN with {len(script_opreturn_over)} bytes rejected")
 
     def test_pushdata_size_limit(self):
@@ -930,7 +930,7 @@ class ReducedDataTest(BitcoinTestFramework):
 
         block_invalid = create_block_with_generation_output(script_p2pk)
         result = node.submitblock(block_invalid.serialize().hex())
-        assert_equal(result, 'bad-txns-vout-script-toolarge')
+        assert_equal(result, 'bad-txns-vout-script')
         self.log.info("  ✓ 35-byte P2PK generation tx output rejected")
 
         # Test 3: a coinbase OP_RETURN that is not the witness commitment is rejected.
@@ -969,7 +969,7 @@ class ReducedDataTest(BitcoinTestFramework):
         block_opreturn_invalid.solve()
 
         result = node.submitblock(block_opreturn_invalid.serialize().hex())
-        assert_equal(result, 'bad-txns-vout-script-toolarge')
+        assert_equal(result, 'bad-txns-vout-script')
         self.log.info("  ✓ Generation tx with 84-byte OP_RETURN output rejected")
 
     def test_p2a_witness_rejected(self):

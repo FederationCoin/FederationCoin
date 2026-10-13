@@ -24,12 +24,10 @@ enum class PolicyWitnessKind {
     Taproot,
 };
 
-/** First matching kind for this program version/length and witness stack.
- *  Nullopt when no named kind claims the envelope. Unmatched v0/32 is
- *  nonstandard (not leftover Bitcoin P2WSH). Taproot matches so Apply can
- *  fail closed while the interpreter is parked. */
-std::optional<PolicyWitnessKind> MatchPolicyWitnessKind(int witnessversion,
-                                                       size_t program_size,
+/** First matching kind for this locking script and witness stack.
+ *  Dilithium matches opcode + registry kind, not v0/32. Nullopt when no
+ *  named kind claims the output. Unmatched v0/32 is nonstandard. */
+std::optional<PolicyWitnessKind> MatchPolicyWitnessKind(const CScript& scriptPubKey,
                                                        const std::vector<std::vector<unsigned char>>& stack,
                                                        bool p2sh);
 

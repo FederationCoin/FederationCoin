@@ -15,6 +15,7 @@
 #include <policy/policy.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <test/util/setup_common.h>
 #include <util/rbf.h>
 #include <validation.h>
@@ -67,11 +68,6 @@ Holder87 Make87(unsigned char mark)
     return holder;
 }
 
-CScript ProgramScript(const uint256& program)
-{
-    return CScript() << OP_0 << ToByteVector(program);
-}
-
 struct SpendKeys {
     CKey secp;
     CPubKey secp_pub;
@@ -99,12 +95,12 @@ struct SpendKeys {
         if (!(d87_a.hash < d87_b.hash)) std::swap(d87_a, d87_b);
 
         spk[static_cast<int>(Kind::Segwit)] = GetScriptForDestination(WitnessV0KeyHash{secp_pub});
-        spk[static_cast<int>(Kind::D44)] = ProgramScript(Consensus::MlDsa44SingleKeyProgram(d44.key.pubkey));
-        spk[static_cast<int>(Kind::D87)] = ProgramScript(Consensus::MlDsa87SingleKeyProgram(d87.key.pubkey));
+        spk[static_cast<int>(Kind::D44)] = BuildModernSingle(Consensus::MlDsa44SingleKeyProgram(d44.key.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_44);
+        spk[static_cast<int>(Kind::D87)] = BuildModernSingle(Consensus::MlDsa87SingleKeyProgram(d87.key.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_87);
         const std::array<uint256, 2> d44_hashes{d44_a.hash, d44_b.hash};
         const std::array<uint256, 2> d87_hashes{d87_a.hash, d87_b.hash};
-        spk[static_cast<int>(Kind::D44Policy)] = ProgramScript(*Assert(Consensus::MlDsa44PolicyProgram(2, d44_hashes)));
-        spk[static_cast<int>(Kind::D87Policy)] = ProgramScript(*Assert(Consensus::MlDsa87PolicyProgram(2, d87_hashes)));
+        spk[static_cast<int>(Kind::D44Policy)] = *Assert(Consensus::MlDsa44PolicyProgram(2, d44_hashes));
+        spk[static_cast<int>(Kind::D87Policy)] = *Assert(Consensus::MlDsa87PolicyProgram(2, d87_hashes));
     }
 };
 
@@ -142,16 +138,18 @@ void SignInput(const SpendKeys& keys, Kind from, CMutableTransaction& tx, const 
         for (const Holder44* holder : {&keys.d44_a, &keys.d44_b}) {
             std::array<unsigned char, Consensus::MLDSA44_SIGNATURE_SIZE> signature{};
             BOOST_REQUIRE(Consensus::MlDsa44Sign(holder->key, message, signature));
-            tx.vin[0].scriptWitness.stack.emplace_back(holder->key.pubkey.begin(), holder->key.pubkey.end());
-            tx.vin[0].scriptWitness.stack.emplace_back(signature.begin(), signature.end());
+            std::vector<unsigned char> item(holder->key.pubkey.begin(), holder->key.pubkey.end());
+            item.insert(item.end(), signature.begin(), signature.end());
+            tx.vin[0].scriptWitness.stack.push_back(std::move(item));
         }
         return;
     }
     for (const Holder87* holder : {&keys.d87_a, &keys.d87_b}) {
         std::array<unsigned char, Consensus::MLDSA87_SIGNATURE_SIZE> signature{};
         BOOST_REQUIRE(Consensus::MlDsa87Sign(holder->key, message, signature));
-        tx.vin[0].scriptWitness.stack.emplace_back(holder->key.pubkey.begin(), holder->key.pubkey.end());
-        tx.vin[0].scriptWitness.stack.emplace_back(signature.begin(), signature.end());
+        std::vector<unsigned char> item(holder->key.pubkey.begin(), holder->key.pubkey.end());
+        item.insert(item.end(), signature.begin(), signature.end());
+        tx.vin[0].scriptWitness.stack.push_back(std::move(item));
     }
 }
 
@@ -244,12 +242,12 @@ static void SetTipCap(node::NodeContext& node, uint64_t cap)
     CBlockIndex* tip{node.chainman->ActiveChain().Tip()};
     BOOST_REQUIRE(tip);
     tip->nFlexCap = cap;
-    Consensus::SetBlockMessageReceiveLimit(Consensus::LimitsForCap(cap).block_message_bytes);
+    Consensus::SetBlockMessageAdmitWeight(cap);
 }
 
 static void RestoreFloorLimit()
 {
-    Consensus::SetBlockMessageReceiveLimit(Consensus::LimitsForCap(Consensus::MIN_FLEX_BLOCK_WEIGHT).block_message_bytes);
+    Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
 }
 
 static std::array<std::deque<SpendCoin>, KIND_COUNT> FundKinds(TestChain100Setup& setup, const SpendKeys& keys, uint64_t cap)

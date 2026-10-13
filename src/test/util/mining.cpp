@@ -8,6 +8,7 @@
 #include <consensus/merkle.h>
 #include <consensus/mldsa44_spend.h>
 #include <consensus/validation.h>
+#include <script/modern_sig.h>
 #include <key_io.h>
 #include <node/context.h>
 #include <pow.h>
@@ -41,7 +42,7 @@ std::vector<std::shared_ptr<CBlock>> CreateBlockChain(size_t total_height, const
     std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> coinbase_seed{};
     coinbase_seed[31] = 1;
     assert(Consensus::MlDsa44Keygen(coinbase_seed, coinbase_key));
-    const CScript coinbase_script = CScript() << OP_0 << ToByteVector(Consensus::MlDsa44SingleKeyProgram(coinbase_key.pubkey));
+    const CScript coinbase_script = BuildModernSingle(Consensus::MlDsa44SingleKeyProgram(coinbase_key.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_44);
     for (size_t height{0}; height < total_height; ++height) {
         CBlock& block{*(ret.at(height) = std::make_shared<CBlock>())};
 

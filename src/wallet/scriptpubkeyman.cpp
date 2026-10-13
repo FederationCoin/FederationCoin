@@ -149,6 +149,18 @@ IsMineResult IsMineInner(const LegacyDataSPKM& keystore, const CScript& scriptPu
     case TxoutType::WITNESS_V1_TAPROOT:
     case TxoutType::ANCHOR:
         break;
+    case TxoutType::CHECKMODERNSIG: {
+        if (vSolutions.empty() || vSolutions[0].size() != 32) break;
+        const uint256 program{Span<const unsigned char>{vSolutions[0].data(), vSolutions[0].size()}};
+        uint8_t kind{0};
+        CKeyID key_id;
+        if (keystore.GetMldsaProgram(program, kind, key_id) && keystore.HaveKey(key_id)) {
+            ret = std::max(ret, IsMineResult::SPENDABLE);
+        }
+        break;
+    }
+    case TxoutType::CHECKMODERNPOLICY:
+        break;
     case TxoutType::PUBKEY:
         keyID = CPubKey(vSolutions[0]).GetID();
         if (!PermitsUncompressed(sigversion) && vSolutions[0].size() != 33) {
@@ -267,14 +279,12 @@ SigningResult ScriptPubKeyMan::SignMessageBIP322(MessageSignatureFormat format, 
 
     // Sign the transaction.
     //
-    // Deliberately does not opt in to the hardfork signature hash, and must not
-    // be changed to. This is a BIP322 message signature, not a spend: it is
-    // verified against a hash type of exactly SIGHASH_ALL, so opting in would
-    // produce a signature this node's own verifier rejects, and would not be
-    // recognized by other implementations either.
+    // BIP322 on this chain verifies with SCRIPT_VERIFY_UNIFIED_SIGHASH, so the
+    // proof must opt in. SIGHASH_ALL stays required; the UNIFIED bit rides with
+    // it. Bitcoin-era BIP322 vectors are ERR_INVALID here.
     std::map<int, bilingual_str> errors;
     if (!::SignTransaction(to_sign, keystore, coins, SIGHASH_ALL, errors,
-                           /*inputs_amount_sum=*/nullptr, /*sighash_rules=*/SighashRules::LEGACY)) {
+                           /*inputs_amount_sum=*/nullptr, /*sighash_rules=*/SighashRules::UNIFIED)) {
         // TODO: this may be a multisig which successfully signed but needed additional signatures
         return SigningResult::SIGNING_FAILED;
     }

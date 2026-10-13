@@ -35,9 +35,10 @@ class SubDustFeePenaltyTest(BitcoinTestFramework):
 
         info = self.nodes[0].getmempoolinfo()
         self.minrelay_per_kvb = info['minrelaytxfee'] * COIN  # sats per kvB
-        # GetDustThreshold: serialize(CTxOut) + 67 for a witness program.
+        # GetDustThreshold: serialize(CTxOut) + 67 for a witness program, else +148.
         spk = self.wallet.get_output_script()
-        n_size = len(CTxOut(nValue=0, scriptPubKey=spk).serialize()) + 67
+        n_size = len(CTxOut(nValue=0, scriptPubKey=spk).serialize())
+        n_size += 67 if spk.IsWitnessProgram() else 148
         self.dust_threshold = int(get_fee(n_size, info['dustrelayfee']) * COIN)
 
         self.test_dust_output_increases_required_fee()

@@ -13,6 +13,7 @@
 #include <consensus/mldsa87_spend.h>
 #include <consensus/validation.h>
 #include <script/mldsa_merge.h>
+#include <script/modern_sig.h>
 #include <core_io.h>
 #include <index/txindex.h>
 #include <key_io.h>
@@ -582,6 +583,8 @@ static RPCHelpMan decodescript()
         case TxoutType::WITNESS_UNKNOWN:
         case TxoutType::WITNESS_V1_TAPROOT:
         case TxoutType::ANCHOR:
+        case TxoutType::CHECKMODERNSIG:
+        case TxoutType::CHECKMODERNPOLICY:
             // Should not be wrapped
             return false;
         } // no default case, so the compiler can warn about missing cases
@@ -625,6 +628,8 @@ static RPCHelpMan decodescript()
             case TxoutType::WITNESS_V0_SCRIPTHASH:
             case TxoutType::WITNESS_V1_TAPROOT:
             case TxoutType::ANCHOR:
+            case TxoutType::CHECKMODERNSIG:
+            case TxoutType::CHECKMODERNPOLICY:
                 // Should not be wrapped
                 return false;
             } // no default case, so the compiler can warn about missing cases
@@ -740,10 +745,7 @@ static RPCHelpMan combinerawtransaction()
         if (coin.IsSpent()) {
             throw JSONRPCError(RPC_VERIFY_ERROR, "Input not found or already spent");
         }
-        int witness_version{0};
-        std::vector<unsigned char> witness_program;
-        if (coin.out.scriptPubKey.IsWitnessProgram(witness_version, witness_program) &&
-            witness_version == 0 && witness_program.size() == 32) {
+        if (MatchModernPolicy(coin.out.scriptPubKey)) {
             std::vector<std::vector<std::vector<unsigned char>>> stacks;
             stacks.reserve(txVariants.size());
             for (const CMutableTransaction& txv : txVariants) {
@@ -769,6 +771,16 @@ static RPCHelpMan combinerawtransaction()
             }
             mergedTx.vin[i].scriptSig.clear();
             mergedTx.vin[i].scriptWitness.stack = *merged;
+            continue;
+        }
+        if (MatchModernSingle(coin.out.scriptPubKey)) {
+            for (const CMutableTransaction& txv : txVariants) {
+                if (txv.vin.size() > i && txv.vin[i].scriptWitness.stack.size() == 2) {
+                    mergedTx.vin[i].scriptSig.clear();
+                    mergedTx.vin[i].scriptWitness = txv.vin[i].scriptWitness;
+                    break;
+                }
+            }
             continue;
         }
 

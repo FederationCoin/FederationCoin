@@ -4,6 +4,7 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the scanblocks RPC call."""
 from test_framework.address import address_to_scriptpubkey
+from test_framework.script import CScript, OP_0
 from test_framework.blockfilter import (
     bip158_basic_element_hash,
     bip158_relevant_scriptpubkeys,
@@ -34,10 +35,11 @@ class ScanblocksTest(BitcoinTestFramework):
         wallet.send_to(from_node=node, scriptPubKey=spk_1, amount=1 * COIN)
 
         parent_key = "trB6nMbsSD2SBxuhNXhn4z1LDdKasWu6ENda7foJDVBd31u37KcqP9syhfEAfn5HgCiY6rxNjEhDYXuywbHJNZaEumJ3nkHfi9C2GGVfBBYBGEB"
-        # childkey 5 of `parent_key`. P2PKH is nonstandard in the mempool;
-        # mine it as coinbase so the pkh() scan still hits this block.
+        # childkey 5 of `parent_key`. Mine the v0/20 form so the wpkh() scan
+        # still hits this block.
         pkh_spk = address_to_scriptpubkey("fK2QXo2rBd1SZwNwss9MWbXsPUPyu9Fufa")
-        blockhash = self.generatetodescriptor(node, 1, f'raw({pkh_spk.hex()})')[0]
+        wp_spk = CScript([OP_0, bytes(pkh_spk)[3:23]])
+        blockhash = self.generatetodescriptor(node, 1, f'raw({wp_spk.hex()})')[0]
         height = node.getblockheader(blockhash)['height']
         self.wait_until(lambda: all(i["synced"] for i in node.getindexinfo().values()))
 
@@ -76,7 +78,7 @@ class ScanblocksTest(BitcoinTestFramework):
 
         # make sure the blockhash is present when using the first mined block as start_height
         assert blockhash in node.scanblocks(
-            "start", [{"desc": f"pkh({parent_key}/*)", "range": [0, 100]}], height)['relevant_blocks']
+            "start", [{"desc": f"wpkh({parent_key}/*)", "range": [0, 100]}], height)['relevant_blocks']
 
         # check that false-positives are included in the result now; note that
         # finding a false-positive at runtime would take too long, hence we simply

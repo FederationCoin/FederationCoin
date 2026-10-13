@@ -6,6 +6,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 
+from test_framework.address import ADDRESS_BCRT1_UNSPENDABLE
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.wallet import MiniWallet
 from test_framework.util import (
@@ -24,7 +25,7 @@ class RPCGenerateTest(BitcoinTestFramework):
         self.test_generateblock()
 
     def test_generatetoaddress(self):
-        self.generatetoaddress(self.nodes[0], 1, 'fQna6UCypCszqVSDYdkbtmGiv2vAYP9zmo')
+        self.generatetoaddress(self.nodes[0], 1, ADDRESS_BCRT1_UNSPENDABLE)
         assert_raises_rpc_error(-5, "Invalid address", self.generatetoaddress, self.nodes[0], 1, '3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy')
 
     def test_generateblock(self):
@@ -57,13 +58,11 @@ class RPCGenerateTest(BitcoinTestFramework):
         assert_equal(len(block['tx']), 1)
         assert_equal(block['tx'][0]['vout'][0]['scriptPubKey']['address'], combo_address)
 
-        self.log.info('Generate an empty block to a combo descriptor with uncompressed pubkey')
+        self.log.info('Uncompressed combo is P2PKH; CheckOutputSizes admits 25 bytes')
         combo_key = '0408ef68c46d20596cc3f6ddf7c8794f71913add807f1dc55949fa805d764d191c0b7ce6894c126fce0babc6663042f3dde9b0cf76467ea315514e5a6731149c67'
-        combo_address = 'fKCVgir3SKCiib19FPHfL6MiXhcFn3t8MK'
-        hash = self.generateblock(node, 'combo(' + combo_key + ')', [])['hash']
-        block = node.getblock(hash, 2)
-        assert_equal(len(block['tx']), 1)
-        assert_equal(block['tx'][0]['vout'][0]['scriptPubKey']['address'], combo_address)
+        combo_hash = self.generateblock(node, 'combo(' + combo_key + ')', [])['hash']
+        combo_spk = node.getblock(combo_hash, 2)['tx'][0]['vout'][0]['scriptPubKey']
+        assert_equal(combo_spk['type'], 'pubkeyhash')
 
         # Generate some extra mempool transactions to verify they don't get mined
         for _ in range(10):

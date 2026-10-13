@@ -342,10 +342,17 @@ public:
          return false;
     }
 
-    /** Native witness v0: secp P2WPKH or Dilithium 44/87. Fail closed without
-     *  the spending transaction and unified precomputes. */
+    /** Native witness v0: secp P2WPKH. Fail closed without the spending
+     *  transaction and unified precomputes. Dilithium uses GetUnifiedSighash. */
     virtual bool EvalWitnessV0(const std::vector<unsigned char>& program, const CScriptWitness& witness) const
     {
+        return false;
+    }
+
+    /** UNIFIED message over empty scriptCode (script_type 1). False without txdata. */
+    virtual bool GetUnifiedSighash(uint256& hash_out) const
+    {
+        (void)hash_out;
         return false;
     }
 
@@ -401,6 +408,7 @@ public:
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
     bool EvalWitnessV0(const std::vector<unsigned char>& program, const CScriptWitness& witness) const override;
+    bool GetUnifiedSighash(uint256& hash_out) const override;
 
     bool m_require_sighash_all{false};
 };
@@ -439,6 +447,11 @@ public:
     {
         return m_checker.EvalWitnessV0(program, witness);
     }
+
+    bool GetUnifiedSighash(uint256& hash_out) const override
+    {
+        return m_checker.GetUnifiedSighash(hash_out);
+    }
 };
 
 /** Compute the BIP341 tapleaf hash from leaf version & script. */
@@ -460,8 +473,9 @@ int FindAndDelete(CScript& script, const CScript& b);
 
 namespace Consensus {
 /** Native witness v0: empty scriptSig, UNIFIED message over empty scriptCode,
- *  secp P2WPKH or Dilithium 44/87 (single or policy). */
-bool CheckWitnessV0Spend(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness& witness, const CTransaction& tx, unsigned int nIn, const PrecomputedTransactionData& txdata);
+ *  secp P2WPKH. Unmatched v0/32 is EVAL_FALSE (not P2WSH, not Dilithium). */
+template <class T>
+bool CheckWitnessV0Spend(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness& witness, const T& tx, unsigned int nIn, const PrecomputedTransactionData& txdata);
 } // namespace Consensus
 
 #endif // BITCOIN_SCRIPT_INTERPRETER_H

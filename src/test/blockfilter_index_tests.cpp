@@ -169,8 +169,8 @@ BOOST_FIXTURE_TEST_CASE(blockfilter_index_initial_sync, BuildChainTestingSetup)
     }
     CKey coinbase_key_A = GenerateRandomKey();
     CKey coinbase_key_B = GenerateRandomKey();
-    CScript coinbase_script_pub_key_A = GetScriptForDestination(PKHash(coinbase_key_A.GetPubKey()));
-    CScript coinbase_script_pub_key_B = GetScriptForDestination(PKHash(coinbase_key_B.GetPubKey()));
+    CScript coinbase_script_pub_key_A = GetScriptForDestination(WitnessV0KeyHash(coinbase_key_A.GetPubKey()));
+    CScript coinbase_script_pub_key_B = GetScriptForDestination(WitnessV0KeyHash(coinbase_key_B.GetPubKey()));
     std::vector<std::shared_ptr<CBlock>> chainA, chainB;
     BOOST_REQUIRE(BuildChain(tip, coinbase_script_pub_key_A, 10, chainA));
     BOOST_REQUIRE(BuildChain(tip, coinbase_script_pub_key_B, 10, chainB));

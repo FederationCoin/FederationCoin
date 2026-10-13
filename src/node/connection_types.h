@@ -85,6 +85,7 @@ enum class TransportProtocolType : uint8_t {
     DETECTING, //!< Peer could be v1 or v2
     V1, //!< Unencrypted, plaintext protocol
     V2, //!< BIP324 protocol
+    V3, //!< FCN-P2P-v3 application frames after BIP324 handshake
 };
 
 /** Convert TransportProtocolType enum to a string value */

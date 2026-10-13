@@ -4,11 +4,10 @@
 
 #include <policy/witness_spend_kind.h>
 
-#include <consensus/mldsa44_spend.h>
-#include <consensus/mldsa87_spend.h>
 #include <consensus/secp_spend.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <span.h>
 
 #include <vector>
@@ -24,39 +23,36 @@ bool RejectIfNotIgnored(std::string& out_reason,
     return !ignore_rejects.count(out_reason);
 }
 
-bool MatchesP2WPKH(int witnessversion, size_t program_size, const std::vector<std::vector<unsigned char>>& stack)
+std::optional<PolicyWitnessKind> KindFromModern(const ModernSigKind* kind)
 {
-    return witnessversion == 0 && program_size == WITNESS_V0_KEYHASH_SIZE && Consensus::IsSecpSingleWitness(stack);
-}
-
-bool MatchesMlDsa44(int witnessversion, size_t program_size, const std::vector<std::vector<unsigned char>>& stack)
-{
-    return witnessversion == 0 && program_size == WITNESS_V0_SCRIPTHASH_SIZE &&
-           Consensus::ClassifyMlDsa44Witness(stack) != Consensus::MlDsa44WitnessLayout::Neither;
-}
-
-bool MatchesMlDsa87(int witnessversion, size_t program_size, const std::vector<std::vector<unsigned char>>& stack)
-{
-    return witnessversion == 0 && program_size == WITNESS_V0_SCRIPTHASH_SIZE &&
-           Consensus::ClassifyMlDsa87Witness(stack) != Consensus::MlDsa87WitnessLayout::Neither;
-}
-
-bool MatchesTaproot(int witnessversion, size_t program_size, bool p2sh)
-{
-    return witnessversion == 1 && program_size == WITNESS_V1_TAPROOT_SIZE && !p2sh;
+    if (kind == LookupModernSigKind(ALGO_DILITHIUM, PARAM_DILITHIUM_44)) return PolicyWitnessKind::MlDsa44;
+    if (kind == LookupModernSigKind(ALGO_DILITHIUM, PARAM_DILITHIUM_87)) return PolicyWitnessKind::MlDsa87;
+    return std::nullopt;
 }
 
 } // namespace
 
-std::optional<PolicyWitnessKind> MatchPolicyWitnessKind(int witnessversion,
-                                                       size_t program_size,
+std::optional<PolicyWitnessKind> MatchPolicyWitnessKind(const CScript& scriptPubKey,
                                                        const std::vector<std::vector<unsigned char>>& stack,
                                                        bool p2sh)
 {
-    if (MatchesP2WPKH(witnessversion, program_size, stack)) return PolicyWitnessKind::P2WPKH;
-    if (MatchesMlDsa44(witnessversion, program_size, stack)) return PolicyWitnessKind::MlDsa44;
-    if (MatchesMlDsa87(witnessversion, program_size, stack)) return PolicyWitnessKind::MlDsa87;
-    if (MatchesTaproot(witnessversion, program_size, p2sh)) return PolicyWitnessKind::Taproot;
+    int witnessversion{0};
+    std::vector<unsigned char> witnessprogram;
+    if (scriptPubKey.IsWitnessProgram(witnessversion, witnessprogram)) {
+        if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_KEYHASH_SIZE && Consensus::IsSecpSingleWitness(stack)) {
+            return PolicyWitnessKind::P2WPKH;
+        }
+        if (witnessversion == 1 && witnessprogram.size() == WITNESS_V1_TAPROOT_SIZE && !p2sh) {
+            return PolicyWitnessKind::Taproot;
+        }
+        return std::nullopt;
+    }
+    if (const auto single{MatchModernSingle(scriptPubKey)}; single && single->kind) {
+        return KindFromModern(single->kind);
+    }
+    if (const auto policy{MatchModernPolicy(scriptPubKey)}; policy && policy->kind) {
+        return KindFromModern(policy->kind);
+    }
     return std::nullopt;
 }
 

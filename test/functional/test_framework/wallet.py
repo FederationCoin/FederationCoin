@@ -14,6 +14,7 @@ from typing import (
 )
 from test_framework.address import (
     address_to_scriptpubkey,
+    encode_modern_sig_address,
     key_to_p2pkh,
     key_to_p2sh_p2wpkh,
     key_to_p2wpkh,
@@ -42,16 +43,14 @@ from test_framework.script import (
     CScript,
     OP_0,
     OP_DROP,
-    OP_NOP,
-    OP_TRUE,
     SIGHASH_ALL,
     SIGHASH_UNIFIED,
     UnifiedSignatureHash,
     hash160,
-    sign_input_legacy,
     taproot_construct,
 )
 from test_framework.script_util import (
+    fingerprint_to_modern_single_script,
     key_to_p2pk_script,
     key_to_p2pkh_script,
     key_to_p2sh_p2wpkh_script,
@@ -93,8 +92,8 @@ class MiniWalletMode(Enum):
          mode       |    description    |  address  | standard | scriptSig  | signing
     ----------------+-------------------+-----------+----------+------------+----------
     ADDRESS_OP_TRUE | ML-DSA-44 default |  bech32   |   yes    |    no      |   yes
-    RAW_OP_TRUE     | anyone-can-spend  |  - (raw)  |   no     |    yes     |   no
-    RAW_P2PK        | p2pkh             |  base58   |   yes    |    yes     |   yes
+    RAW_OP_TRUE     | secp P2WPKH (raw) |  - (raw)  |   yes    |    no      |   yes
+    RAW_P2PK        | secp P2WPKH       |  - (raw)  |   yes    |    no      |   yes
     ADDRESS_MLDSA87 | ML-DSA-87         |  bech32   |   yes    |    no      |   yes
     ADDRESS_SECP    | secp P2WPKH       |  bech32   |   yes    |    no      |   yes
     """
@@ -116,26 +115,29 @@ class MiniWallet:
         assert isinstance(mode, MiniWalletMode)
         if mode == MiniWalletMode.RAW_OP_TRUE:
             assert tag_name is None
-            self._scriptPubKey = bytes(CScript([OP_TRUE]))
+            self._priv_key = ECKey()
+            self._priv_key.set((1).to_bytes(32, 'big'), True)
+            pub = self._priv_key.get_pubkey().get_bytes()
+            self._scriptPubKey = CScript([OP_0, hash160(pub)])
         elif mode == MiniWalletMode.RAW_P2PK:
             # use simple deterministic private key (k=1)
             assert tag_name is None
             self._priv_key = ECKey()
             self._priv_key.set((1).to_bytes(32, 'big'), True)
             pub_key = self._priv_key.get_pubkey()
-            self._scriptPubKey = key_to_p2pkh_script(pub_key.get_bytes())
+            self._scriptPubKey = CScript([OP_0, hash160(pub_key.get_bytes())])
         elif mode == MiniWalletMode.ADDRESS_OP_TRUE:
             seed = MINIWALLET_SEED if tag_name is None else hashlib.sha256(tag_name.encode()).hexdigest()
             self._mldsa = keygen(self._test_node.binary, seed)
             program = bytes.fromhex(self._mldsa["program"])
-            self._scriptPubKey = CScript([OP_0, program])
-            self._address = program_to_witness(0, program)
+            self._scriptPubKey = fingerprint_to_modern_single_script(program, 1)
+            self._address = encode_modern_sig_address(self._scriptPubKey)
         elif mode == MiniWalletMode.ADDRESS_MLDSA87:
             seed = MINIWALLET_SEED if tag_name is None else hashlib.sha256(tag_name.encode()).hexdigest()
             self._mldsa87 = keygen87(self._test_node.binary, seed)
             program = bytes.fromhex(self._mldsa87["program"])
-            self._scriptPubKey = CScript([OP_0, program])
-            self._address = program_to_witness(0, program)
+            self._scriptPubKey = fingerprint_to_modern_single_script(program, 2)
+            self._address = encode_modern_sig_address(self._scriptPubKey)
         elif mode == MiniWalletMode.ADDRESS_SECP:
             assert tag_name is None
             self._priv_key = ECKey()
@@ -278,34 +280,18 @@ class MiniWallet:
         if target_vsize <= tx.get_vsize():
             return
 
-        def pay(length):
-            return CTxOut(nValue=0, scriptPubKey=CScript([OP_TRUE] * length))
+        def pay():
+            return CTxOut(nValue=0, scriptPubKey=CScript([OP_0, bytes(32)]))
 
-        # Each 34-byte anyone-can-pay output is 8+1+34 bytes (~43 vB).
+        # Each v0/32 dummy output is 8+1+34 bytes (~43 vB). Do not exceed target.
         need = target_vsize - tx.get_vsize()
         if need > 50:
             n = min(need // 43, 20000)
-            tx.vout.extend(pay(34) for _ in range(n))
+            tx.vout.extend(pay() for _ in range(n))
             while tx.get_vsize() > target_vsize and tx.vout:
                 tx.vout.pop()
-        while tx.get_vsize() + 10 <= target_vsize:
-            tx.vout.append(pay(1))
-            if tx.get_vsize() > target_vsize:
-                tx.vout.pop()
-                break
-            while len(tx.vout[-1].scriptPubKey) < 25 and tx.get_vsize() < target_vsize:
-                grown = CScript(bytes(tx.vout[-1].scriptPubKey) + bytes([OP_TRUE]))
-                tx.vout[-1] = CTxOut(nValue=0, scriptPubKey=grown)
-                if tx.get_vsize() > target_vsize:
-                    tx.vout[-1] = CTxOut(nValue=0, scriptPubKey=CScript(bytes(grown)[:-1]))
-                    break
-        if tx.vout and tx.get_vsize() < target_vsize:
-            need = target_vsize - tx.get_vsize()
-            room = 34 - len(tx.vout[-1].scriptPubKey)
-            extra = min(need, room)
-            if extra > 0:
-                script = bytes(tx.vout[-1].scriptPubKey) + bytes([OP_TRUE]) * extra
-                tx.vout[-1] = CTxOut(nValue=0, scriptPubKey=CScript(script))
+        while tx.get_vsize() + 43 <= target_vsize:
+            tx.vout.append(pay())
         assert tx.get_vsize() <= target_vsize
 
     def get_balance(self):
@@ -351,22 +337,7 @@ class MiniWallet:
             self.scan_tx(tx)
 
     def sign_tx(self, tx, spent_utxos=None, fixed_length=True):
-        if self._mode == MiniWalletMode.RAW_P2PK:
-            # for exact fee calculation, create only signatures with fixed size by default (>49.89% probability):
-            # 65 bytes: high-R val (33 bytes) + low-S val (32 bytes)
-            # with the DER header/skeleton data of 6 bytes added, plus 2 bytes scriptSig overhead
-            # (OP_PUSHn and SIGHASH_ALL), this leads to a scriptSig target size of 73 bytes
-            tx.vin[0].scriptSig = b''
-            while not len(tx.vin[0].scriptSig) == 107:
-                pub_key = self._priv_key.get_pubkey()
-                tx.vin[0].scriptSig = CScript([pub_key.get_bytes()])
-                sign_input_legacy(tx, 0, self._scriptPubKey, self._priv_key)
-                if not fixed_length:
-                    break
-        elif self._mode == MiniWalletMode.RAW_OP_TRUE:
-            for i in tx.vin:
-                i.scriptSig = CScript([OP_NOP] * 43)  # pad to identical size
-        elif self._mode == MiniWalletMode.ADDRESS_OP_TRUE:
+        if self._mode == MiniWalletMode.ADDRESS_OP_TRUE:
             if spent_utxos is None:
                 spent_utxos = self._spent_for_tx(tx)
             assert spent_utxos is not None and len(spent_utxos) == len(tx.vin)
@@ -390,7 +361,11 @@ class MiniWallet:
                 signature = sign87(self._test_node.binary, self._mldsa87["secret"], sighash)
                 tx.wit.vtxinwit[i].scriptWitness.stack = [bytes.fromhex(self._mldsa87["pubkey"]), signature]
             tx.rehash()
-        elif self._mode == MiniWalletMode.ADDRESS_SECP:
+        elif self._mode in (
+            MiniWalletMode.ADDRESS_SECP,
+            MiniWalletMode.RAW_OP_TRUE,
+            MiniWalletMode.RAW_P2PK,
+        ):
             if spent_utxos is None:
                 spent_utxos = self._spent_for_tx(tx)
             assert spent_utxos is not None and len(spent_utxos) == len(tx.vin)
@@ -591,16 +566,16 @@ class MiniWallet:
         assert fee_rate >= 0
         assert fee >= 0
         # calculate fee
-        if self._mode == MiniWalletMode.RAW_OP_TRUE:
-            vsize = Decimal(96)
-        elif self._mode == MiniWalletMode.ADDRESS_OP_TRUE:
+        if self._mode == MiniWalletMode.ADDRESS_OP_TRUE:
             vsize = Decimal(1100)  # one ML-DSA-44 key and signature, witness-discounted
         elif self._mode == MiniWalletMode.ADDRESS_MLDSA87:
             vsize = Decimal(2000)  # one ML-DSA-87 key and signature, witness-discounted
-        elif self._mode == MiniWalletMode.ADDRESS_SECP:
+        elif self._mode in (
+            MiniWalletMode.ADDRESS_SECP,
+            MiniWalletMode.RAW_OP_TRUE,
+            MiniWalletMode.RAW_P2PK,
+        ):
             vsize = Decimal(140)
-        elif self._mode == MiniWalletMode.RAW_P2PK:
-            vsize = Decimal(192)  # P2PK (73+34 bytes scriptSig + 25 bytes scriptPubKey + 60 bytes other)
         else:
             assert False
         if target_vsize and not fee:  # respect fee_rate if target vsize is passed
@@ -644,8 +619,6 @@ class MiniWallet:
         return tx
 
     def sendrawtransaction(self, *, from_node, tx_hex, maxfeerate=0, **kwargs):
-        if self._mode == MiniWalletMode.RAW_OP_TRUE and 'ignore_rejects' not in kwargs:
-            kwargs['ignore_rejects'] = ('scriptsig-not-pushonly', 'scriptpubkey', 'bad-txns-input-script-unknown')
         tx_hex = self._resign_hex(tx_hex)
         txid = from_node.sendrawtransaction(hexstring=tx_hex, maxfeerate=maxfeerate, **kwargs)
         self.scan_tx(from_node.decoderawtransaction(tx_hex))

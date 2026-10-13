@@ -16,6 +16,7 @@
 #include <limits>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <util/check.h>
 #include <util/moneystr.h>
@@ -195,10 +196,11 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
 bool Consensus::CheckOutputSizes(const CTransaction& tx, TxValidationState& state)
 {
     for (const auto& txout : tx.vout) {
-        if (txout.scriptPubKey.empty()) continue;
-        if (txout.scriptPubKey.size() > ((txout.scriptPubKey[0] == OP_RETURN) ? MAX_OUTPUT_DATA_SIZE : MAX_OUTPUT_SCRIPT_SIZE)) {
-            return state.Invalid(TxValidationResult::TX_PREMATURE_SPEND, "bad-txns-vout-script-toolarge");
-        }
+        const CScript& script{txout.scriptPubKey};
+        if (IsWitnessCommitmentScript(script)) continue;
+        if (IsModernSigTemplate(script) && script.size() <= DILITHIUM_POLICY_SCRIPT_MAX) continue;
+        if (script.size() <= MAX_OUTPUT_SCRIPT_SIZE) continue;
+        return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vout-script");
     }
     return true;
 }

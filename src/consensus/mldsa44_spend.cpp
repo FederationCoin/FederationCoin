@@ -5,6 +5,7 @@
 #include <consensus/mldsa44_spend.h>
 
 #include <crypto/mldsa_randombytes.h>
+#include <script/modern_sig.h>
 
 #include <cassert>
 #include <cstdint>
@@ -59,9 +60,9 @@ uint256 MlDsa44SingleKeyProgram(std::span<const unsigned char> pubkey)
     return MlDsa44KeyHash(pubkey);
 }
 
-std::optional<uint256> MlDsa44PolicyProgram(uint8_t threshold, std::span<const uint256> key_hashes)
+std::optional<CScript> MlDsa44PolicyProgram(uint8_t threshold, std::span<const uint256> key_hashes)
 {
-    return MlDsaTaggedPolicyProgram<MlDsa44Kind>(threshold, key_hashes);
+    return BuildModernPolicy(threshold, key_hashes, ALGO_DILITHIUM, PARAM_DILITHIUM_44);
 }
 
 bool CheckSingleKey44Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash)
@@ -69,9 +70,9 @@ bool CheckSingleKey44Spend(const uint256& program, const std::vector<std::vector
     return CheckSingleKeySpendOf<MlDsa44Kind>(program, witness, sighash);
 }
 
-bool CheckMultisig44Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash)
+bool CheckMultisig44Spend(uint8_t threshold, std::span<const uint256> hashes, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash)
 {
-    return CheckMultisigSpendOf<MlDsa44Kind>(program, witness, sighash);
+    return CheckPolicySpendOf<MlDsa44Kind>(threshold, hashes, witness, sighash);
 }
 
 MlDsa44WitnessLayout ClassifyMlDsa44Witness(const std::vector<std::vector<unsigned char>>& witness)

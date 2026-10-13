@@ -36,6 +36,7 @@
 #include <pow.h>
 #include <random.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <rpc/blockchain.h>
 #include <rpc/register.h>
 #include <rpc/server.h>
@@ -376,7 +377,7 @@ TestChain100Setup::TestChain100Setup(
 CScript TestChain100Setup::MldsaScriptPubKey() const
 {
     const uint256 program{Consensus::MlDsa44SingleKeyProgram(coinbase_mldsa.pubkey)};
-    return CScript() << OP_0 << ToByteVector(program);
+    return BuildModernSingle(program, ALGO_DILITHIUM, PARAM_DILITHIUM_44);
 }
 
 void TestChain100Setup::mineBlocks(int num_blocks)
@@ -531,10 +532,8 @@ CMutableTransaction TestChain100Setup::CreateValidMempoolTransaction(CTransactio
                                                                      bool submit)
 {
     COutPoint input{input_transaction->GetHash(), input_vout};
-    int witness_version{0};
-    std::vector<unsigned char> witness_program;
     CScript destination = output_destination;
-    if (!(destination.IsWitnessProgram(witness_version, witness_program) && witness_version == 0 && witness_program.size() == 32)) {
+    if (!IsModernSigTemplate(destination)) {
         destination = MldsaScriptPubKey();
     }
     CTxOut output{output_amount, destination};

@@ -16,7 +16,7 @@ from test_framework.messages import (
     blake2b,
 )
 from test_framework.key import ECKey
-from test_framework.mldsa import key_hash87, keygen, keygen87, policy_program87, sign, sign87
+from test_framework.mldsa import key_hash87, keygen, keygen87, policy_program, policy_program87, sign, sign87
 from test_framework.script import (
     CScript,
     OP_0,
@@ -32,6 +32,7 @@ from test_framework.script import (
     hash160,
     sha256,
 )
+from test_framework.script_util import fingerprint_to_modern_single_script
 from test_framework.authproxy import JSONRPCException
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.wallet import MiniWallet, MiniWalletMode
@@ -39,12 +40,6 @@ from test_framework.wallet import MiniWallet, MiniWalletMode
 
 def key_hash(pubkey):
     return blake2b(bytes([0x0F]) + b"FCN-MLDSA44-KEY" + pubkey)
-
-
-def policy_program(threshold, hashes):
-    ordered = sorted(hashes)
-    preimage = bytes([0x12]) + b"FCN-MLDSA44-POLICY" + bytes([threshold, len(ordered)]) + b"".join(ordered)
-    return blake2b(preimage)
 
 
 class MldsaSpendTest(BitcoinTestFramework):
@@ -71,15 +66,6 @@ class MldsaSpendTest(BitcoinTestFramework):
         sent = wallet.send_to(from_node=node, scriptPubKey=script_pubkey, amount=amount)
         self.generate(node, 1)
         return sent["txid"], sent["sent_vout"], amount
-
-    def fund_mined(self, node, wallet, script_pubkey):
-        tx = wallet.create_self_transfer()['tx']
-        tx.vout[0].scriptPubKey = script_pubkey
-        assert wallet.resign(tx)
-        value = tx.vout[0].nValue
-        tx.rehash()
-        self.generateblock(node, wallet.get_address(), [tx.serialize().hex()])
-        return tx.rehash(), 0, value
 
     def spend(self, txid, vout, value, script_pubkey, fee=2000):
         tx = CTransaction()
@@ -128,11 +114,15 @@ class MldsaSpendTest(BitcoinTestFramework):
         self.assert_script_reject(node, spend)
 
         legacy = CScript([OP_DUP, OP_HASH160, hash160(b"\x02" * 33), OP_EQUALVERIFY, OP_CHECKSIG])
-        txid, vout, value = self.fund_mined(node, wallet, legacy)
-        spend = self.spend(txid, vout, value, dest)
-        spend.vin[0].scriptSig = CScript([b"\x30" * 70, b"\x02" * 33])
-        spend.rehash()
-        self.assert_script_reject(node, spend)
+        tx = wallet.create_self_transfer()['tx']
+        tx.vout[0].scriptPubKey = legacy
+        assert wallet.resign(tx)
+        tx.rehash()
+        try:
+            node.sendrawtransaction(tx.serialize().hex(), 0)
+            assert False, "P2PKH output must be nonstandard"
+        except JSONRPCException as exc:
+            assert "scriptpubkey" in exc.error["message"], exc.error
 
     def accept_secp(self, node, wallet, dest):
         key = ECKey()
@@ -154,7 +144,7 @@ class MldsaSpendTest(BitcoinTestFramework):
 
     def single_key_87(self, node, wallet, dest):
         key = keygen87(node.binary, "33" * 32)
-        script_pubkey = CScript([OP_0, bytes.fromhex(key["program"])])
+        script_pubkey = fingerprint_to_modern_single_script(bytes.fromhex(key["program"]), 2)
         txid, vout, value = self.fund(node, wallet, script_pubkey)
         spend = self.spend(txid, vout, value, dest, fee=4000)
         spent = [CTxOut(value, script_pubkey)]
@@ -227,8 +217,7 @@ class MldsaSpendTest(BitcoinTestFramework):
             pubkey = bytes.fromhex(key["pubkey"])
             holders.append({"pubkey": pubkey, "secret": key["secret"], "hash": key_hash(pubkey)})
         holders.sort(key=lambda h: h["hash"])
-        program = policy_program(2, [h["hash"] for h in holders])
-        script_pubkey = CScript([OP_0, program])
+        script_pubkey = policy_program(2, [h["hash"] for h in holders])
         txid, vout, value = self.fund(node, wallet, script_pubkey, amount=20 * COIN)
         spent = [CTxOut(value, script_pubkey)]
         fee = 4000
@@ -240,18 +229,12 @@ class MldsaSpendTest(BitcoinTestFramework):
         two = self.spend(txid, vout, value, dest, fee=fee)
         self.fill_slots(node, two, spent, holders, signers={0, 1})
         skip = two.wit.vtxinwit[0].scriptWitness.stack[-1]
-        assert skip == holders[2]["hash"]
-        assert len(skip) == 32
+        assert skip == b""
         result = node.submitblock(self.block_with(node, two).serialize().hex())
         assert result is None, result
 
         outsider = keygen(node.binary, "09" * 32)
-        outsider_hash = key_hash(bytes.fromhex(outsider["pubkey"]))
-        bad = self.spend(txid, vout, value, dest, fee=fee)
-        # Rebuild against the already-spent outpoint is fine: the previous
-        # block spent it only if two was accepted. two was accepted, so this
-        # is a different tx spending a spent coin, or we use a fresh funding
-        # if needed. Fund a second policy output for the outsider case.
+        fee = 4000
         txid2, vout2, value2 = self.fund(node, wallet, script_pubkey, amount=20 * COIN)
         spent2 = [CTxOut(value2, script_pubkey)]
         bad = self.spend(txid2, vout2, value2, dest, fee=fee)
@@ -259,10 +242,11 @@ class MldsaSpendTest(BitcoinTestFramework):
         sighash = UnifiedSignatureHash(b"", bad, 0, hashtype, spent2, True)
         sig0 = sign(node.binary, holders[0]["secret"], sighash)
         sig1 = sign(node.binary, holders[1]["secret"], sighash)
+        sig_out = sign(node.binary, outsider["secret"], sighash)
         bad.wit.vtxinwit[0].scriptWitness.stack = [
-            holders[0]["pubkey"], sig0,
-            holders[1]["pubkey"], sig1,
-            outsider_hash,
+            holders[0]["pubkey"] + sig0,
+            holders[1]["pubkey"] + sig1,
+            bytes.fromhex(outsider["pubkey"]) + sig_out,
         ]
         bad.rehash()
         self.assert_script_reject(node, bad)
@@ -273,10 +257,9 @@ class MldsaSpendTest(BitcoinTestFramework):
         stack = []
         for i, holder in enumerate(holders):
             if i in signers:
-                stack.append(holder["pubkey"])
-                stack.append(sign(node.binary, holder["secret"], sighash))
+                stack.append(holder["pubkey"] + sign(node.binary, holder["secret"], sighash))
             else:
-                stack.append(holder["hash"])
+                stack.append(b"")
         tx.wit.vtxinwit[0].scriptWitness.stack = stack
         tx.rehash()
 
@@ -287,8 +270,7 @@ class MldsaSpendTest(BitcoinTestFramework):
             pubkey = bytes.fromhex(key["pubkey"])
             holders.append({"pubkey": pubkey, "secret": key["secret"], "hash": key_hash87(key["pubkey"])})
         holders.sort(key=lambda h: h["hash"])
-        program = policy_program87(2, [h["hash"] for h in holders])
-        script_pubkey = CScript([OP_0, program])
+        script_pubkey = policy_program87(2, [h["hash"] for h in holders])
         txid, vout, value = self.fund(node, wallet, script_pubkey, amount=20 * COIN)
         spent = [CTxOut(value, script_pubkey)]
         fee = 8000
@@ -300,8 +282,7 @@ class MldsaSpendTest(BitcoinTestFramework):
         two = self.spend(txid, vout, value, dest, fee=fee)
         self.fill_slots87(node, two, spent, holders, signers={0, 1})
         skip = two.wit.vtxinwit[0].scriptWitness.stack[-1]
-        assert skip == holders[2]["hash"]
-        assert len(skip) == 32
+        assert skip == b""
         result = node.submitblock(self.block_with(node, two).serialize().hex())
         assert result is None, result
 
@@ -311,10 +292,9 @@ class MldsaSpendTest(BitcoinTestFramework):
         stack = []
         for i, holder in enumerate(holders):
             if i in signers:
-                stack.append(holder["pubkey"])
-                stack.append(sign87(node.binary, holder["secret"], sighash))
+                stack.append(holder["pubkey"] + sign87(node.binary, holder["secret"], sighash))
             else:
-                stack.append(holder["hash"])
+                stack.append(b"")
         tx.wit.vtxinwit[0].scriptWitness.stack = stack
         tx.rehash()
 

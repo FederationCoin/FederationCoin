@@ -9,6 +9,7 @@
 #include <consensus/params.h>
 #include <deploymentstatus.h>
 #include <pubkey.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/sign.h>
 #include <script/signingprovider.h>
@@ -143,6 +144,16 @@ std::optional<OutputType> OutputTypeFromDestination(const CTxDestination& dest) 
     }
     if (std::holds_alternative<WitnessV1Taproot>(dest)) {
         return OutputType::BECH32M;
+    }
+    if (const auto* modern = std::get_if<ModernSigDestination>(&dest)) {
+        int32_t param{-1};
+        if (const auto single{MatchModernSingle(modern->GetScript())}; single && single->kind) {
+            param = single->param;
+        } else if (const auto policy{MatchModernPolicy(modern->GetScript())}; policy && policy->kind) {
+            param = policy->param;
+        }
+        if (param == PARAM_DILITHIUM_87) return OutputType::DILITHIUM87;
+        if (param == PARAM_DILITHIUM_44) return OutputType::DILITHIUM44;
     }
     return std::nullopt;
 }

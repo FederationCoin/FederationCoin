@@ -6,6 +6,8 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <coins.h>
+#include <consensus/block_limits.h>
+#include <consensus/flex_weight.h>
 #include <consensus/validation.h>
 #include <index/txindex.h>
 #include <merkleblock.h>
@@ -97,8 +99,12 @@ static RPCHelpMan gettxoutproof()
                 Chainstate& active_chainstate = chainman.ActiveChainstate();
 
                 // Loop through txids and try to find which block they're in. Exit loop once a block is found.
+                const CBlockIndex* tip{active_chainstate.m_chain.Tip()};
+                const int tip_height{tip ? tip->nHeight : 0};
+                const uint64_t max_outputs{Consensus::LimitsForCap(
+                    Consensus::WorstCaseCapAtHeight(tip_height, chainman.GetConsensus().nSubsidyHalvingInterval)).max_outputs};
                 for (const auto& tx : setTxids) {
-                    const Coin& coin{AccessByTxid(active_chainstate.CoinsTip(), tx)};
+                    const Coin& coin{AccessByTxid(active_chainstate.CoinsTip(), tx, max_outputs)};
                     if (!coin.IsSpent()) {
                         pblockindex = active_chainstate.m_chain[coin.nHeight];
                         break;

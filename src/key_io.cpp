@@ -8,6 +8,7 @@
 #include <bech32.h>
 #include <deploymentstatus.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <script/solver.h>
 #include <tinyformat.h>
 #include <util/strencodings.h>
@@ -80,6 +81,18 @@ public:
 
     std::string operator()(const CNoDestination& no) const { return {}; }
     std::string operator()(const PubKeyDestination& pk) const { return {}; }
+
+    std::string operator()(const ModernSigDestination& dest) const
+    {
+        const CScript& script{dest.GetScript()};
+        if (!IsModernSigTemplate(script) || script.size() > DILITHIUM_POLICY_SCRIPT_MAX) {
+            return {};
+        }
+        std::vector<unsigned char> data;
+        data.reserve((script.size() * 8 + 4) / 5);
+        ConvertBits<8, 5, true>([&](unsigned char c) { data.push_back(c); }, script.begin(), script.end());
+        return bech32::Encode(bech32::Encoding::BECH32, m_params.Bech32HRP(), data);
+    }
 };
 
 CTxDestination DecodeDestination(const std::string& str, const CChainParams& params, std::string& error_str, std::vector<int>* error_locations)
@@ -129,7 +142,7 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
     }
 
     data.clear();
-    const auto dec = bech32::Decode(str);
+    const auto dec = bech32::Decode(str, bech32::CharLimit::MODERN_SIG);
     if (dec.encoding == bech32::Encoding::BECH32 || dec.encoding == bech32::Encoding::BECH32M) {
         if (dec.data.empty()) {
             error_str = "Empty Bech32 data section";
@@ -139,6 +152,16 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
         if (dec.hrp != params.Bech32HRP()) {
             error_str = strprintf("Invalid or unsupported prefix for Segwit (Bech32) address (expected %s, got %s).", params.Bech32HRP(), dec.hrp);
             return CNoDestination();
+        }
+        {
+            std::vector<unsigned char> script_bytes;
+            script_bytes.reserve((dec.data.size() * 5) / 8);
+            if (ConvertBits<5, 8, false>([&](unsigned char c) { script_bytes.push_back(c); }, dec.data.begin(), dec.data.end())) {
+                const CScript script{script_bytes.begin(), script_bytes.end()};
+                if (IsModernSigTemplate(script) && script.size() <= DILITHIUM_POLICY_SCRIPT_MAX) {
+                    return ModernSigDestination(script);
+                }
+            }
         }
         int version = dec.data[0]; // The first 5 bit symbol is the witness version (0-16)
         if (version == 0 && dec.encoding != bech32::Encoding::BECH32) {

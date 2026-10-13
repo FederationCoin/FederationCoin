@@ -11,6 +11,7 @@
 #include <primitives/transaction.h>
 #include <pubkey.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <test/util/setup_common.h>
 #include <uint256.h>
@@ -28,13 +29,21 @@ static std::vector<unsigned char> Bytes(size_t n, unsigned char fill = 0x11)
     return std::vector<unsigned char>(n, fill);
 }
 
+static CScript DummySingle(int32_t param)
+{
+    uint256 fingerprint;
+    std::fill(fingerprint.begin(), fingerprint.end(), static_cast<unsigned char>(0xab));
+    return BuildModernSingle(fingerprint, ALGO_DILITHIUM, param);
+}
+
 BOOST_AUTO_TEST_CASE(match_p2wpkh)
 {
     std::vector<std::vector<unsigned char>> stack;
     stack.push_back(Bytes(Consensus::BIP66_DER_SIGHASH_SIZE_MIN, 0x30));
     stack.back().back() = SIGHASH_ALL | SIGHASH_UNIFIED;
     stack.push_back(Bytes(CPubKey::COMPRESSED_SIZE, 0x02));
-    const auto kind = MatchPolicyWitnessKind(0, WITNESS_V0_KEYHASH_SIZE, stack, /*p2sh=*/false);
+    const CScript spk{CScript() << OP_0 << Bytes(WITNESS_V0_KEYHASH_SIZE, 0x11)};
+    const auto kind = MatchPolicyWitnessKind(spk, stack, /*p2sh=*/false);
     BOOST_REQUIRE(kind);
     BOOST_CHECK(*kind == PolicyWitnessKind::P2WPKH);
 }
@@ -44,7 +53,7 @@ BOOST_AUTO_TEST_CASE(match_mldsa44)
     std::vector<std::vector<unsigned char>> stack;
     stack.push_back(Bytes(Consensus::MLDSA44_PUBLIC_KEY_SIZE));
     stack.push_back(Bytes(Consensus::MLDSA44_SIGNATURE_SIZE));
-    const auto kind = MatchPolicyWitnessKind(0, WITNESS_V0_SCRIPTHASH_SIZE, stack, /*p2sh=*/false);
+    const auto kind = MatchPolicyWitnessKind(DummySingle(PARAM_DILITHIUM_44), stack, /*p2sh=*/false);
     BOOST_REQUIRE(kind);
     BOOST_CHECK(*kind == PolicyWitnessKind::MlDsa44);
 }
@@ -54,7 +63,7 @@ BOOST_AUTO_TEST_CASE(match_mldsa87)
     std::vector<std::vector<unsigned char>> stack;
     stack.push_back(Bytes(Consensus::MLDSA87_PUBLIC_KEY_SIZE));
     stack.push_back(Bytes(Consensus::MLDSA87_SIGNATURE_SIZE));
-    const auto kind = MatchPolicyWitnessKind(0, WITNESS_V0_SCRIPTHASH_SIZE, stack, /*p2sh=*/false);
+    const auto kind = MatchPolicyWitnessKind(DummySingle(PARAM_DILITHIUM_87), stack, /*p2sh=*/false);
     BOOST_REQUIRE(kind);
     BOOST_CHECK(*kind == PolicyWitnessKind::MlDsa87);
 }
@@ -64,24 +73,27 @@ BOOST_AUTO_TEST_CASE(unmatched_v0_32_is_not_a_kind)
     std::vector<std::vector<unsigned char>> stack;
     stack.push_back(Bytes(1, 0x51));
     stack.push_back(Bytes(2, 0x51));
-    BOOST_CHECK(!MatchPolicyWitnessKind(0, WITNESS_V0_SCRIPTHASH_SIZE, stack, /*p2sh=*/false));
+    const CScript spk{CScript() << OP_0 << Bytes(WITNESS_V0_SCRIPTHASH_SIZE, 0xab)};
+    BOOST_CHECK(!MatchPolicyWitnessKind(spk, stack, /*p2sh=*/false));
 }
 
 BOOST_AUTO_TEST_CASE(match_taproot)
 {
     std::vector<std::vector<unsigned char>> stack;
     stack.push_back(Bytes(64));
-    const auto kind = MatchPolicyWitnessKind(1, WITNESS_V1_TAPROOT_SIZE, stack, /*p2sh=*/false);
+    const CScript spk{CScript() << OP_1 << Bytes(WITNESS_V1_TAPROOT_SIZE, 0x11)};
+    const auto kind = MatchPolicyWitnessKind(spk, stack, /*p2sh=*/false);
     BOOST_REQUIRE(kind);
     BOOST_CHECK(*kind == PolicyWitnessKind::Taproot);
-    BOOST_CHECK(!MatchPolicyWitnessKind(1, WITNESS_V1_TAPROOT_SIZE, stack, /*p2sh=*/true));
+    BOOST_CHECK(!MatchPolicyWitnessKind(spk, stack, /*p2sh=*/true));
 }
 
 BOOST_AUTO_TEST_CASE(unmatched_v0_keyhash_is_not_p2wpkh)
 {
     std::vector<std::vector<unsigned char>> stack;
     stack.push_back(Bytes(1));
-    BOOST_CHECK(!MatchPolicyWitnessKind(0, WITNESS_V0_KEYHASH_SIZE, stack, /*p2sh=*/false));
+    const CScript spk{CScript() << OP_0 << Bytes(WITNESS_V0_KEYHASH_SIZE, 0x11)};
+    BOOST_CHECK(!MatchPolicyWitnessKind(spk, stack, /*p2sh=*/false));
 }
 
 static bool WitnessStandardOf(const CScript& spk, const CScriptWitness& wit, std::string& reason)
@@ -116,13 +128,11 @@ BOOST_AUTO_TEST_CASE(iswitnessstandard_rejects_bip141_p2wsh)
 
 BOOST_AUTO_TEST_CASE(iswitnessstandard_accepts_legal_87_layout)
 {
-    CScript spk;
-    spk << OP_0 << Bytes(WITNESS_V0_SCRIPTHASH_SIZE, 0xab);
     CScriptWitness wit;
     wit.stack.push_back(Bytes(Consensus::MLDSA87_PUBLIC_KEY_SIZE));
     wit.stack.push_back(Bytes(Consensus::MLDSA87_SIGNATURE_SIZE));
     std::string reason;
-    BOOST_CHECK(WitnessStandardOf(spk, wit, reason));
+    BOOST_CHECK(WitnessStandardOf(DummySingle(PARAM_DILITHIUM_87), wit, reason));
 }
 
 BOOST_AUTO_TEST_CASE(p2wpkh_skips_p2wsh_caps)

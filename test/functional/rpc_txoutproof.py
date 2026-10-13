@@ -4,6 +4,7 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test gettxoutproof and verifytxoutproof RPCs."""
 
+from test_framework.address import ADDRESS_BCRT1_UNSPENDABLE
 from test_framework.messages import (
     CMerkleBlock,
     from_hex,
@@ -91,7 +92,7 @@ class MerkleBlockTest(BitcoinTestFramework):
         # We can't get the proof if we specify a non-existent block
         assert_raises_rpc_error(-5, "Block not found", self.nodes[0].gettxoutproof, [txid_spent], "0000000000000000000000000000000000000000000000000000000000000000")
         # We can't get the proof if we only have the header of the specified block
-        block = self.generateblock(self.nodes[0], output="raw(55)", transactions=[], submit=False)
+        block = self.generateblock(self.nodes[0], output=ADDRESS_BCRT1_UNSPENDABLE, transactions=[], submit=False)
         self.nodes[0].submitheader(block["hex"])
         assert_raises_rpc_error(-1, "Block not available (not fully downloaded)", self.nodes[0].gettxoutproof, [txid_spent], block['hash'])
         # We can get the proof if the transaction is unspent

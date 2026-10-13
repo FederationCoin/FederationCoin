@@ -57,11 +57,11 @@ class KeypoolRestoreTest(BitcoinTestFramework):
             # Make sure we're creating the outputs we expect
             address_details = self.nodes[idx].validateaddress(addr_extpool)
             assert address_details["iswitness"]
-            assert_equal(address_details["witness_version"], 0)
             if output_type == "bech32":
+                assert_equal(address_details["witness_version"], 0)
                 assert_equal(len(address_details["witness_program"]), 40)
             else:
-                assert_equal(len(address_details["witness_program"]), 64)
+                assert_equal(address_details.get("isscript"), True)
 
             self.log.info("Send funds to wallet")
             self.nodes[0].sendtoaddress(addr_oldpool, 10)

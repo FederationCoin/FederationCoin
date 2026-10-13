@@ -17,6 +17,7 @@
 #include <policy/settings.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/solver.h>
 #include <serialize.h>
@@ -458,20 +459,19 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
         int witnessversion = 0;
         std::vector<unsigned char> witnessprogram;
 
-        // Non-witness program must not be associated with any witness
-        if (!prevScript.IsWitnessProgram(witnessversion, witnessprogram))
-        {
-            out_reason = reason_prefix + "nonwitness-input";
-            return false;
-        }
-
-        const auto kind = MatchPolicyWitnessKind(witnessversion, witnessprogram.size(),
-                                                 tx.vin[i].scriptWitness.stack, p2sh);
+        const auto kind = MatchPolicyWitnessKind(prevScript, tx.vin[i].scriptWitness.stack, p2sh);
         if (kind) {
             if (!ApplyPolicyWitnessKind(*kind, tx.vin[i], p2sh, reason_prefix, out_reason, ignore_rejects)) {
                 return false;
             }
             continue;
+        }
+
+        // Non-witness program must not be associated with any witness
+        if (!prevScript.IsWitnessProgram(witnessversion, witnessprogram))
+        {
+            out_reason = reason_prefix + "nonwitness-input";
+            return false;
         }
 
         if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
@@ -499,6 +499,9 @@ bool SpendsNonAnchorWitnessProg(const CTransaction& tx, const CCoinsViewCache& p
 
         // Note this includes not-yet-defined witness programs.
         if (prev_spk.IsWitnessProgram(version, program) && !prev_spk.IsPayToAnchor(version, program)) {
+            return true;
+        }
+        if (IsModernSigTemplate(prev_spk)) {
             return true;
         }
 
@@ -555,16 +558,15 @@ std::pair<CScript, unsigned int> GetScriptForTransactionInput(CScript prevScript
     int witnessversion = 0;
     std::vector<unsigned char> witnessprogram;
 
+    const auto kind = MatchPolicyWitnessKind(prevScript, txin.scriptWitness.stack, p2sh);
+    if (kind) {
+        return ExtractPolicyWitnessScript(*kind, txin, p2sh);
+    }
+
     if (!prevScript.IsWitnessProgram(witnessversion, witnessprogram)) {
         // For P2SH, scriptSig is always push-only, so the actual script is only the last stack item
         // For non-P2SH, prevScript is likely the real script, but not part of this transaction, and scriptSig could very well be executable, so return the latter instead
         return std::make_pair(p2sh ? prevScript : txin.scriptSig, WITNESS_SCALE_FACTOR);
-    }
-
-    const auto kind = MatchPolicyWitnessKind(witnessversion, witnessprogram.size(),
-                                             txin.scriptWitness.stack, p2sh);
-    if (kind) {
-        return ExtractPolicyWitnessScript(*kind, txin, p2sh);
     }
 
     return std::make_pair(CScript(), 0);

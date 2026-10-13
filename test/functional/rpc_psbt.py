@@ -413,7 +413,7 @@ class PSBTTest(BitcoinTestFramework):
         p2sh_p2wpkh = self.nodes[1].getnewaddress("", "mldsa44")
 
         # fund those addresses
-        rawtx = self.nodes[0].createrawtransaction([], {p2sh:10, p2wsh:10, p2wpkh:10, p2sh_p2wsh:10, p2sh_p2wpkh:10, p2pkh:10})
+        rawtx = self.nodes[0].createrawtransaction([], {p2wpkh:10, p2sh_p2wpkh:10, p2pkh:10})
         rawtx = self.nodes[0].fundrawtransaction(rawtx, {"changePosition":3})
         signed_tx = self.nodes[0].signrawtransactionwithwallet(rawtx['hex'])['hex']
         self.generateblock(self.nodes[0], self.nodes[0].getnewaddress(), [signed_tx])
@@ -652,7 +652,7 @@ class PSBTTest(BitcoinTestFramework):
 
         # Make sure the change type of the wallet can also be overwritten
         psbtx_np2wkh = self.nodes[1].walletcreatefundedpsbt([], [small_output], 0, {"change_type":"mldsa87"})
-        self.assert_change_type(psbtx_np2wkh, "witness_v0_scripthash")
+        self.assert_change_type(psbtx_np2wkh, "checkmodernsig")
 
         # Make sure the change type cannot be specified if a change address is given
         invalid_options = {"change_type":"bech32","changeAddress":self.nodes[0].getnewaddress()}

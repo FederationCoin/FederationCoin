@@ -19,7 +19,6 @@ from test_framework.messages import (
     COutPoint,
     CTransaction,
     CTxIn,
-    CTxInWitness,
     CTxOut,
     MAX_BLOCK_WEIGHT,
     WITNESS_SCALE_FACTOR,
@@ -41,13 +40,11 @@ from test_framework.script import (
     OP_TRUE,
 )
 from test_framework.script_util import (
-    DUMMY_MIN_OP_RETURN_SCRIPT,
     keys_to_multisig_script,
     MIN_PADDING,
     MIN_STANDARD_TX_NONWITNESS_SIZE,
     PAY_TO_ANCHOR,
     script_to_p2sh_script,
-    script_to_p2wsh_script,
 )
 from test_framework.util import (
     assert_equal,
@@ -332,7 +329,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         _, pubkey = generate_keypair()
         tx.vout[0].scriptPubKey = keys_to_multisig_script([pubkey] * 3, k=2)  # Some bare multisig script (2-of-3)
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'bad-txns-vout-script'}],
             rawtxs=[tx.serialize().hex()],
         )
         tx = tx_from_hex(raw_tx_reference)
@@ -388,16 +385,14 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
             maxfeerate=0,
         )
 
-        # Prep for tiny-tx tests with wsh(OP_TRUE) output
-        seed_tx = self.wallet.send_to(from_node=node, scriptPubKey=script_to_p2wsh_script(CScript([OP_TRUE])), amount=COIN)
-        self.generate(node, 1)
-
+        # Tiny-tx tests spend a MiniWallet coin (empty scriptSig, Dilithium
+        # witness does not count toward non-witness size).
+        seed = self.wallet.get_utxo()
         self.log.info('A tiny transaction(in non-witness bytes) that is disallowed')
         tx = CTransaction()
-        tx.vin.append(CTxIn(COutPoint(int(seed_tx["txid"], 16), seed_tx["sent_vout"]), b"", SEQUENCE_FINAL))
-        tx.wit.vtxinwit = [CTxInWitness()]
-        tx.wit.vtxinwit[0].scriptWitness.stack = [CScript([OP_TRUE])]
+        tx.vin.append(CTxIn(COutPoint(int(seed["txid"], 16), seed["vout"]), b"", SEQUENCE_FINAL))
         tx.vout.append(CTxOut(10000, CScript([OP_TRUE] * (MIN_PADDING - 1))))
+        self.wallet.sign_tx(tx)
         # Note it's only non-witness size that matters!
         assert_equal(len(tx.serialize_without_witness()), 64)
         assert_equal(MIN_STANDARD_TX_NONWITNESS_SIZE - 1, 64)
@@ -410,7 +405,8 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         )
 
         self.log.info('Minimally-small transaction(in non-witness bytes) is not a standard script')
-        tx.vout[0] = CTxOut(COIN - 1000, CScript([OP_TRUE] * MIN_PADDING))
+        tx.vout[0] = CTxOut(int(seed["value"] * COIN) - 1000, CScript([OP_TRUE] * MIN_PADDING))
+        self.wallet.sign_tx(tx)
         assert_equal(len(tx.serialize_without_witness()), MIN_STANDARD_TX_NONWITNESS_SIZE)
         self.check_mempool_result(
             result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
@@ -424,39 +420,29 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
             self.wallet.send_to, from_node=node, scriptPubKey=PAY_TO_ANCHOR, amount=10000,
         )
 
-        self.log.info('A pay-to-anchor script nested in p2sh cannot be spent from the mempool')
+        self.log.info('A pay-to-anchor script nested in p2sh is nonstandard')
         nested_anchor_tx = self.wallet.create_self_transfer(sequence=SEQUENCE_FINAL)['tx']
         nested_anchor_tx.vout[0].scriptPubKey = script_to_p2sh_script(PAY_TO_ANCHOR)
         self.wallet.resign(nested_anchor_tx)
         nested_anchor_tx.rehash()
-        self.generateblock(node, self.wallet.get_address(), [nested_anchor_tx.serialize().hex()])
-
-        nested_anchor_spend = CTransaction()
-        nested_anchor_spend.vin.append(CTxIn(COutPoint(nested_anchor_tx.sha256, 0), b""))
-        nested_anchor_spend.vin[0].scriptSig = CScript([bytes(PAY_TO_ANCHOR)])
-        nested_anchor_spend.vout.append(CTxOut(nested_anchor_tx.vout[0].nValue - int(fee*COIN), script_to_p2wsh_script(CScript([OP_TRUE]))))
-        nested_anchor_spend.rehash()
-
+        nested_hex = nested_anchor_tx.serialize().hex()
         self.check_mempool_result(
-            result_expected=[{'txid': nested_anchor_spend.rehash(), 'allowed': False, 'reject-reason': 'mempool-script-verify-flag-failed (Witness version reserved for soft-fork upgrades)'}],
-            rawtxs=[nested_anchor_spend.serialize().hex()],
+            result_expected=[{'txid': nested_anchor_tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
+            rawtxs=[nested_hex],
             maxfeerate=0,
         )
-        assert_raises_rpc_error(
-            -25, "Witness version reserved for soft-fork upgrades",
-            self.generateblock, node, self.wallet.get_address(), [nested_anchor_spend.serialize().hex()],
-        )
+        self.generateblock(node, self.wallet.get_address(), [nested_hex])
 
-        self.log.info('Bare P2PKH, P2SH, and CHECKMULTISIG outputs are not standard')
-        for script in (
-            CScript([OP_DUP, OP_HASH160, bytes(20), OP_EQUALVERIFY, OP_CHECKSIG]),
-            CScript([OP_HASH160, bytes(20), OP_EQUAL]),
-            CScript([OP_1, bytes.fromhex('02' + '11' * 32), OP_1, OP_CHECKMULTISIG]),
+        self.log.info('Bare P2PKH and P2SH are nonstandard; 1-of-1 CHECKMULTISIG exceeds the script cap')
+        for script, reason in (
+            (CScript([OP_DUP, OP_HASH160, bytes(20), OP_EQUALVERIFY, OP_CHECKSIG]), 'scriptpubkey'),
+            (CScript([OP_HASH160, bytes(20), OP_EQUAL]), 'scriptpubkey'),
+            (CScript([OP_1, bytes.fromhex('02' + '11' * 32), OP_1, OP_CHECKMULTISIG]), 'bad-txns-vout-script'),
         ):
             tx = tx_from_hex(raw_tx_reference)
             tx.vout[0] = CTxOut(tx.vout[0].nValue, script)
             self.check_mempool_result(
-                result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
+                result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': reason}],
                 rawtxs=[tx.serialize().hex()],
                 maxfeerate=0,
             )
@@ -468,7 +454,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         tx.vout[0].scriptPubKey = keys_to_multisig_script([pubkey] * 3, k=1)
         tx.rehash()
         assert_raises_rpc_error(
-            -25, "bad-txns-vout-script-toolarge",
+            -25, "bad-txns-vout-script",
             self.generateblock, node, address, [tx.serialize().hex()],
         )
 

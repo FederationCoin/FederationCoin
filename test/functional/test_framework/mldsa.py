@@ -11,6 +11,8 @@ import hashlib
 import os
 import subprocess
 
+from test_framework.script_util import fingerprint_to_modern_policy_script
+
 # Stable seed so the premine address does not move between tests.
 MINIWALLET_SEED = "11" * 32
 
@@ -58,15 +60,11 @@ def key_hash87(pubkey_hex):
 
 
 def policy_program(threshold, hashes):
-    ordered = sorted(hashes)
-    preimage = bytes([0x12]) + b"FCN-MLDSA44-POLICY" + bytes([threshold, len(ordered)]) + b"".join(ordered)
-    return hashlib.blake2b(preimage, digest_size=32).digest()
+    return fingerprint_to_modern_policy_script(threshold, hashes, 1)
 
 
 def policy_program87(threshold, hashes):
-    ordered = sorted(hashes)
-    preimage = bytes([0x12]) + b"FCN-MLDSA87-POLICY" + bytes([threshold, len(ordered)]) + b"".join(ordered)
-    return hashlib.blake2b(preimage, digest_size=32).digest()
+    return fingerprint_to_modern_policy_script(threshold, hashes, 2)
 
 
 def sign_slots(node_binary, sighash, keys, signed_index):
@@ -74,10 +72,9 @@ def sign_slots(node_binary, sighash, keys, signed_index):
     stack = []
     for i, key in enumerate(keys):
         if i == signed_index:
-            stack.append(bytes.fromhex(key["pubkey"]))
-            stack.append(sign(node_binary, key["secret"], sighash))
+            stack.append(bytes.fromhex(key["pubkey"]) + sign(node_binary, key["secret"], sighash))
         else:
-            stack.append(key_hash(key["pubkey"]))
+            stack.append(b"")
     return stack
 
 
@@ -86,8 +83,7 @@ def sign_slots87(node_binary, sighash, keys, signed_index):
     stack = []
     for i, key in enumerate(keys):
         if i == signed_index:
-            stack.append(bytes.fromhex(key["pubkey"]))
-            stack.append(sign87(node_binary, key["secret"], sighash))
+            stack.append(bytes.fromhex(key["pubkey"]) + sign87(node_binary, key["secret"], sighash))
         else:
-            stack.append(key_hash87(key["pubkey"]))
+            stack.append(b"")
     return stack

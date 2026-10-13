@@ -16,10 +16,9 @@
 
 namespace Consensus {
 
-/** Combine partial policy stacks of this kind. Signed slots win over skip
- *  hashes. Every accepted stack must share the same ordered hash list.
- *  Requires a 32-byte sighash and verifies signed slots. Any invalid stack
- *  returns nullopt (fail closed). Not a ConnectBlock checker. */
+/** Combine partial policy stacks of this kind. Signed slots win over empty
+ *  skips. Stacks must have the same n. Signed slots that overlap must be the
+ *  same pubkey. Requires a 32-byte sighash and verifies signed slots. */
 template <typename Kind>
 std::optional<std::vector<std::vector<unsigned char>>> MergeMlDsaWitnesses(
     const std::vector<std::vector<std::vector<unsigned char>>>& stacks,
@@ -38,7 +37,9 @@ std::optional<std::vector<std::vector<unsigned char>>> MergeMlDsaWitnesses(
         }
         if (merged.size() != parsed.slots.size()) return std::nullopt;
         for (std::size_t i{0}; i < merged.size(); ++i) {
-            if (merged[i].hash != parsed.slots[i].hash) return std::nullopt;
+            if (merged[i].signed_slot && parsed.slots[i].signed_slot && merged[i].hash != parsed.slots[i].hash) {
+                return std::nullopt;
+            }
             if (!merged[i].signed_slot && parsed.slots[i].signed_slot) {
                 merged[i] = parsed.slots[i];
             }
@@ -48,10 +49,11 @@ std::optional<std::vector<std::vector<unsigned char>>> MergeMlDsaWitnesses(
     std::vector<std::vector<unsigned char>> out;
     for (const MlDsaParsedSlot<Kind>& slot : merged) {
         if (slot.signed_slot) {
-            out.push_back(slot.pubkey);
-            out.push_back(slot.signature);
+            std::vector<unsigned char> item{slot.pubkey};
+            item.insert(item.end(), slot.signature.begin(), slot.signature.end());
+            out.push_back(std::move(item));
         } else {
-            out.emplace_back(slot.hash.begin(), slot.hash.end());
+            out.emplace_back();
         }
     }
     return out;

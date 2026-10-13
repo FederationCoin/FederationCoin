@@ -5,6 +5,7 @@
 """Test the scantxoutset rpc call."""
 from test_framework.address import address_to_scriptpubkey
 from test_framework.messages import COIN, CTxOut
+from test_framework.script import CScript, OP_0, hash160
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
@@ -31,6 +32,10 @@ class ScantxoutsetTest(BitcoinTestFramework):
         # interpret strings as addresses, assume scriptPubKey otherwise
         if isinstance(destination, str):
             destination = address_to_scriptpubkey(destination)
+        dest = bytes(destination)
+        # P2PKH is not a product output; pay the same hash160 as v0/20.
+        if len(dest) == 25 and dest[0] == 0x76:
+            destination = CScript([OP_0, dest[3:23]])
         # P2PKH/P2SH outputs are nonstandard in the mempool; mine the raw tx.
         amount_sat = int(COIN * amount)
         fee = 1000
@@ -61,7 +66,7 @@ class ScantxoutsetTest(BitcoinTestFramework):
         pubk1, spk_P2SH_SEGWIT, addr_P2SH_SEGWIT = getnewdestination("p2sh-segwit")
         pubk2, spk_LEGACY, addr_LEGACY = getnewdestination("legacy")
         pubk3, spk_BECH32, addr_BECH32 = getnewdestination("bech32")
-        self.sendtodestination(spk_P2SH_SEGWIT, 0.001)
+        self.sendtodestination(CScript([OP_0, hash160(pubk1)]), 0.001)
         self.sendtodestination(spk_LEGACY, 0.002)
         self.sendtodestination(spk_BECH32, 0.004)
 
@@ -89,12 +94,12 @@ class ScantxoutsetTest(BitcoinTestFramework):
         assert_equal(scan['bestblock'], info['bestblock'])
 
         self.log.info("Test if we have found the non HD unspent outputs.")
-        assert_equal(self.nodes[0].scantxoutset("start", ["pkh(" + pubk1.hex() + ")", "pkh(" + pubk2.hex() + ")", "pkh(" + pubk3.hex() + ")"])['total_amount'], Decimal("0.002"))
-        assert_equal(self.nodes[0].scantxoutset("start", ["wpkh(" + pubk1.hex() + ")", "wpkh(" + pubk2.hex() + ")", "wpkh(" + pubk3.hex() + ")"])['total_amount'], Decimal("0.004"))
-        assert_equal(self.nodes[0].scantxoutset("start", ["sh(wpkh(" + pubk1.hex() + "))", "sh(wpkh(" + pubk2.hex() + "))", "sh(wpkh(" + pubk3.hex() + "))"])['total_amount'], Decimal("0.001"))
+        assert_equal(self.nodes[0].scantxoutset("start", ["pkh(" + pubk1.hex() + ")", "pkh(" + pubk2.hex() + ")", "pkh(" + pubk3.hex() + ")"])['total_amount'], Decimal("0"))
+        assert_equal(self.nodes[0].scantxoutset("start", ["wpkh(" + pubk1.hex() + ")", "wpkh(" + pubk2.hex() + ")", "wpkh(" + pubk3.hex() + ")"])['total_amount'], Decimal("0.007"))
+        assert_equal(self.nodes[0].scantxoutset("start", ["sh(wpkh(" + pubk1.hex() + "))", "sh(wpkh(" + pubk2.hex() + "))", "sh(wpkh(" + pubk3.hex() + "))"])['total_amount'], Decimal("0"))
         assert_equal(self.nodes[0].scantxoutset("start", ["combo(" + pubk1.hex() + ")", "combo(" + pubk2.hex() + ")", "combo(" + pubk3.hex() + ")"])['total_amount'], Decimal("0.007"))
-        assert_equal(self.nodes[0].scantxoutset("start", ["addr(" + addr_P2SH_SEGWIT + ")", "addr(" + addr_LEGACY + ")", "addr(" + addr_BECH32 + ")"])['total_amount'], Decimal("0.007"))
-        assert_equal(self.nodes[0].scantxoutset("start", ["addr(" + addr_P2SH_SEGWIT + ")", "addr(" + addr_LEGACY + ")", "combo(" + pubk3.hex() + ")"])['total_amount'], Decimal("0.007"))
+        assert_equal(self.nodes[0].scantxoutset("start", ["addr(" + addr_P2SH_SEGWIT + ")", "addr(" + addr_LEGACY + ")", "addr(" + addr_BECH32 + ")"])['total_amount'], Decimal("0.004"))
+        assert_equal(self.nodes[0].scantxoutset("start", ["addr(" + addr_P2SH_SEGWIT + ")", "addr(" + addr_LEGACY + ")", "combo(" + pubk3.hex() + ")"])['total_amount'], Decimal("0.004"))
 
         self.log.info("Test range validation.")
         assert_raises_rpc_error(-8, "End of range is too high", self.nodes[0].scantxoutset, "start", [{"desc": "desc", "range": -1}])
@@ -132,12 +137,12 @@ class ScantxoutsetTest(BitcoinTestFramework):
         assert_equal(self.nodes[0].scantxoutset("start", [{"desc": "combo(trB6nMbsSD2SBxuhNXhn4z1LDdKasWu6ENda7foJDVBd31u37KcqP9syhfEAfn5HgCiY6rxNjEhDYXuywbHJNZaEumJ3nkHfi9C2GGVfBBYBGEB/1/1/*)", "range": 1499}])['total_amount'], Decimal("12.288"))
         assert_equal(self.nodes[0].scantxoutset("start", [{"desc": "combo(trB6nMbsSD2SBxuhNXhn4z1LDdKasWu6ENda7foJDVBd31u37KcqP9syhfEAfn5HgCiY6rxNjEhDYXuywbHJNZaEumJ3nkHfi9C2GGVfBBYBGEB/1/1/*)", "range": 1500}])['total_amount'], Decimal("28.672"))
         assert_equal(self.nodes[0].scantxoutset("start", [{"desc": "combo(trB6nMbsSD2SBxuhNXhn4z1LDdKasWu6ENda7foJDVBd31u37KcqP9syhfEAfn5HgCiY6rxNjEhDYXuywbHJNZaEumJ3nkHfi9C2GGVfBBYBGEB/1/1/*)", "range": [1500, 1500]}])['total_amount'], Decimal("16.384"))
-        assert_equal(self.nodes[0].scantxoutset("start", [ {"desc": "pkh(trB6nMbsSD2SBxuhNXhn4z1LDdKasWu6ENda7foJDVBd31u37KcqP9syhfEAfn5HgCiY6rxNjEhDYXuywbHJNZaEumJ3nkHfi9C2GGVfBBYBGEB/1/1/<0;1>)"}])["total_amount"], Decimal("12.288"))
+        assert_equal(self.nodes[0].scantxoutset("start", [ {"desc": "wpkh(trB6nMbsSD2SBxuhNXhn4z1LDdKasWu6ENda7foJDVBd31u37KcqP9syhfEAfn5HgCiY6rxNjEhDYXuywbHJNZaEumJ3nkHfi9C2GGVfBBYBGEB/1/1/<0;1>)"}])["total_amount"], Decimal("12.288"))
 
         # Test the reported descriptors for a few matches
-        assert_equal(descriptors(self.nodes[0].scantxoutset("start", [{"desc": "combo(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/0h/0h/*)", "range": 1499}])), ["pkh([0c5f9a1e/0h/0h/0]026dbd8b2315f296d36e6b6920b1579ca75569464875c7ebe869b536a7d9503c8c)#rthll0rg", "pkh([0c5f9a1e/0h/0h/1]033e6f25d76c00bedb3a8993c7d5739ee806397f0529b1b31dda31ef890f19a60c)#mcjajulr"])
-        assert_equal(descriptors(self.nodes[0].scantxoutset("start", ["combo(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/1/1/0)"])), ["pkh([0c5f9a1e/1/1/0]03e1c5b6e650966971d7e71ef2674f80222752740fc1dfd63bbbd220d2da9bd0fb)#cxmct4w8"])
-        assert_equal(descriptors(self.nodes[0].scantxoutset("start", [{"desc": "combo(trB6nMbsSD2SBxuhNXhn4z1LDdKasWu6ENda7foJDVBd31u37KcqP9syhfEAfn5HgCiY6rxNjEhDYXuywbHJNZaEumJ3nkHfi9C2GGVfBBYBGEB/1/1/*)", "range": 1500}])), ['pkh([0c5f9a1e/1/1/0]03e1c5b6e650966971d7e71ef2674f80222752740fc1dfd63bbbd220d2da9bd0fb)#cxmct4w8', 'pkh([0c5f9a1e/1/1/1500]03832901c250025da2aebae2bfb38d5c703a57ab66ad477f9c578bfbcd78abca6f)#vchwd07g', 'pkh([0c5f9a1e/1/1/1]030d820fc9e8211c4169be8530efbc632775d8286167afd178caaf1089b77daba7)#z2t3ypsa'])
+        assert_equal(descriptors(self.nodes[0].scantxoutset("start", [{"desc": "combo(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/0h/0h/*)", "range": 1499}])), ["wpkh([0c5f9a1e/0h/0h/0]026dbd8b2315f296d36e6b6920b1579ca75569464875c7ebe869b536a7d9503c8c)#7749nfmx", "wpkh([0c5f9a1e/0h/0h/1]033e6f25d76c00bedb3a8993c7d5739ee806397f0529b1b31dda31ef890f19a60c)#9rz6d7gh"])
+        assert_equal(descriptors(self.nodes[0].scantxoutset("start", ["combo(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/1/1/0)"])), ["wpkh([0c5f9a1e/1/1/0]03e1c5b6e650966971d7e71ef2674f80222752740fc1dfd63bbbd220d2da9bd0fb)#87kxggfx"])
+        assert_equal(descriptors(self.nodes[0].scantxoutset("start", [{"desc": "combo(trB6nMbsSD2SBxuhNXhn4z1LDdKasWu6ENda7foJDVBd31u37KcqP9syhfEAfn5HgCiY6rxNjEhDYXuywbHJNZaEumJ3nkHfi9C2GGVfBBYBGEB/1/1/*)", "range": 1500}])), ['wpkh([0c5f9a1e/1/1/0]03e1c5b6e650966971d7e71ef2674f80222752740fc1dfd63bbbd220d2da9bd0fb)#87kxggfx', 'wpkh([0c5f9a1e/1/1/1500]03832901c250025da2aebae2bfb38d5c703a57ab66ad477f9c578bfbcd78abca6f)#52n9r9yl', 'wpkh([0c5f9a1e/1/1/1]030d820fc9e8211c4169be8530efbc632775d8286167afd178caaf1089b77daba7)#5qr0rhvk'])
 
         # Check that status and abort don't need second arg
         assert_equal(self.nodes[0].scantxoutset("status"), None)
@@ -145,7 +150,7 @@ class ScantxoutsetTest(BitcoinTestFramework):
 
         # Check that the blockhash and confirmations fields are correct
         self.generate(self.nodes[0], 2)
-        unspent = self.nodes[0].scantxoutset("start", ["addr(fNzV74yZLvbS5x522Nuzha8Bf6Per59Gcx)"])["unspents"][0]
+        unspent = self.nodes[0].scantxoutset("start", ["wpkh(trBb8nVXuTDmeQ5gSxZupKuXyGakGRZ1zezXMdZ6FYRhWGWqDcg1xA2zyEaP47ncsZh3eChauxW3wrzhkmB9aRwGo4ALVH1aNjTCRz29qdGVCeX/1/1/1500)"])["unspents"][0]
         blockhash = self.nodes[0].getblockhash(info["height"])
         assert_equal(unspent["height"], info["height"])
         assert_equal(unspent["blockhash"], blockhash)

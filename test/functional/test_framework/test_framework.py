@@ -20,7 +20,8 @@ import sys
 import tempfile
 import time
 
-from .address import base58_to_byte, key_to_p2wpkh, program_to_witness, script_to_p2wsh
+from .address import base58_to_byte, key_to_p2wpkh, encode_modern_sig_address, script_to_p2wsh
+from .script_util import fingerprint_to_modern_single_script
 from .key import ECKey
 from .descriptors import descsum_create
 from .mldsa import keygen
@@ -865,7 +866,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         cache_node_dir = get_datadir_path(self.options.cachedir, CACHE_NODE_ID)
         assert self.num_nodes <= MAX_NODES
         # Premine pays secp P2WPKH of the first three node keys plus MiniWallet ML-DSA.
-        cache_marker = os.path.join(cache_node_dir, "secp-spend")
+        cache_marker = os.path.join(cache_node_dir, "modern-sig")
         if os.path.isdir(cache_node_dir) and not os.path.isfile(cache_marker):
             shutil.rmtree(cache_node_dir)
 
@@ -914,7 +915,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 key = ECKey()
                 key.set(secret, compressed)
                 return key_to_p2wpkh(key.get_pubkey().get_bytes())
-            gen_addresses = [wif_to_p2wpkh(k.key) for k in TestNode.PRIV_KEYS][:3] + [program_to_witness(0, program)]
+            gen_addresses = [wif_to_p2wpkh(k.key) for k in TestNode.PRIV_KEYS][:3] + [encode_modern_sig_address(fingerprint_to_modern_single_script(program, 1))]
             assert_equal(len(gen_addresses), 4)
             for i in range(8):
                 self.generatetoaddress(

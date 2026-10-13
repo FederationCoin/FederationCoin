@@ -9,6 +9,7 @@
 #include <outputtype.h>
 #include <policy/fees.h>
 #include <primitives/transaction.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/solver.h>
 #include <validation.h>
@@ -66,14 +67,11 @@ BOOST_FIXTURE_TEST_CASE(multi_provider_infer_dilithium_input_size, TestChain100S
             BOOST_REQUIRE(solving);
             providers.AddProvider(std::move(solving));
         }
-        int witver{0};
-        std::vector<unsigned char> program;
-        BOOST_REQUIRE(spk.IsWitnessProgram(witver, program));
-        BOOST_REQUIRE_EQUAL(program.size(), 32U);
-        const uint256 prog{Span<const unsigned char>{program.data(), program.size()}};
+        const auto parsed{MatchModernSingle(spk)};
+        BOOST_REQUIRE(parsed && parsed->kind);
         uint8_t kind{0};
         CKeyID key_id;
-        BOOST_REQUIRE(providers.GetMldsaProgram(prog, kind, key_id));
+        BOOST_REQUIRE(providers.GetMldsaProgram(parsed->fingerprint, kind, key_id));
         BOOST_CHECK_EQUAL(kind, type == OutputType::DILITHIUM87 ? 87 : 44);
         const auto desc{InferDescriptor(spk, providers)};
         BOOST_REQUIRE(desc);
@@ -109,8 +107,8 @@ BOOST_FIXTURE_TEST_CASE(SubtractFee, TestChain100Setup)
         CAmount out_sum{0};
         for (const auto& out : txr.tx->vout) {
             out_sum += out.nValue;
-            BOOST_CHECK_EQUAL(out.scriptPubKey.size(), 34U);
-            BOOST_CHECK_EQUAL(out.scriptPubKey[0], OP_0);
+            BOOST_CHECK_EQUAL(out.scriptPubKey.size(), DILITHIUM_SINGLE_SCRIPT_SIZE);
+            BOOST_CHECK(MatchModernSingle(out.scriptPubKey).has_value());
         }
         BOOST_CHECK_EQUAL(out_sum + txr.fee, 50 * COIN);
         return txr.fee;

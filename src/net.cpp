@@ -17,6 +17,7 @@
 #include <consensus/block_limits.h>
 #include <consensus/consensus.h>
 #include <consensus/flex_weight.h>
+#include <crypto/common.h>
 #include <crypto/sha256.h>
 #include <i2p.h>
 #include <key.h>
@@ -857,15 +858,15 @@ CNetMessage V1Transport::GetReceivedMessage(const std::chrono::microseconds time
 
     // Check checksum and header message type string
     if (memcmp(hash.begin(), hdr.pchChecksum, CMessageHeader::CHECKSUM_SIZE) != 0) {
-        LogDebug(BCLog::NET, "Header error: Wrong checksum (%s, %u bytes), expected %s was %s, peer=%d\n",
-                 SanitizeString(msg.m_type), msg.m_message_size,
+        LogDebug(BCLog::NET, "Header error: Wrong checksum (%s, %llu bytes), expected %s was %s, peer=%d\n",
+                 SanitizeString(msg.m_type), static_cast<unsigned long long>(msg.m_message_size),
                  HexStr(Span{hash}.first(CMessageHeader::CHECKSUM_SIZE)),
                  HexStr(hdr.pchChecksum),
                  m_node_id);
         reject_message = true;
     } else if (!hdr.IsMessageTypeValid()) {
-        LogDebug(BCLog::NET, "Header error: Invalid message type (%s, %u bytes), peer=%d\n",
-                 SanitizeString(hdr.GetMessageType()), msg.m_message_size, m_node_id);
+        LogDebug(BCLog::NET, "Header error: Invalid message type (%s, %llu bytes), peer=%d\n",
+                 SanitizeString(hdr.GetMessageType()), static_cast<unsigned long long>(msg.m_message_size), m_node_id);
         reject_message = true;
     }
 
@@ -1067,13 +1068,19 @@ void V2Transport::SetReceiveState(RecvState recv_state) noexcept
         Assume(recv_state == RecvState::VERSION);
         break;
     case RecvState::VERSION:
-        Assume(recv_state == RecvState::APP);
+        Assume(recv_state == RecvState::APP || recv_state == RecvState::APP_V3);
         break;
     case RecvState::APP:
         Assume(recv_state == RecvState::APP_READY);
         break;
     case RecvState::APP_READY:
         Assume(recv_state == RecvState::APP);
+        break;
+    case RecvState::APP_V3:
+        Assume(recv_state == RecvState::APP_V3_READY);
+        break;
+    case RecvState::APP_V3_READY:
+        Assume(recv_state == RecvState::APP_V3);
         break;
     case RecvState::V1:
         Assume(false); // V1 state cannot be left
@@ -1109,7 +1116,7 @@ bool V2Transport::ReceivedMessageComplete() const noexcept
     LOCK(m_recv_mutex);
     if (m_recv_state == RecvState::V1) return m_v1_fallback.ReceivedMessageComplete();
 
-    return m_recv_state == RecvState::APP_READY;
+    return m_recv_state == RecvState::APP_READY || m_recv_state == RecvState::APP_V3_READY;
 }
 
 void V2Transport::ProcessReceivedMaybeV1Bytes() noexcept
@@ -1196,12 +1203,19 @@ bool V2Transport::ProcessReceivedKeyBytes() noexcept
                   MakeWritableByteSpan(m_send_buffer).last(BIP324Cipher::GARBAGE_TERMINATOR_LEN).begin());
 
         // Construct version packet in the send buffer, with the sent garbage data as AAD.
-        m_send_buffer.resize(m_send_buffer.size() + BIP324Cipher::EXPANSION + VERSION_CONTENTS.size());
+        // Offer v3 only when a v2 packet can no longer name a block at live admit.
+        // Remember what we sent; do not recompute from live admit at receive.
+        std::vector<std::byte> version_contents(VERSION_CONTENTS.begin(), VERSION_CONTENTS.end());
+        m_sent_v3_offer = !V2CanCarryAdmitCap();
+        if (m_sent_v3_offer) {
+            version_contents.push_back(std::byte{FCN_P2P_V3_VERSION_TAG});
+        }
+        m_send_buffer.resize(m_send_buffer.size() + BIP324Cipher::EXPANSION + version_contents.size());
         m_cipher.Encrypt(
-            /*contents=*/VERSION_CONTENTS,
+            /*contents=*/version_contents,
             /*aad=*/MakeByteSpan(m_send_garbage),
             /*ignore=*/false,
-            /*output=*/MakeWritableByteSpan(m_send_buffer).last(BIP324Cipher::EXPANSION + VERSION_CONTENTS.size()));
+            /*output=*/MakeWritableByteSpan(m_send_buffer).last(BIP324Cipher::EXPANSION + version_contents.size()));
         // We no longer need the garbage.
         ClearShrink(m_send_garbage);
     } else {
@@ -1284,11 +1298,20 @@ bool V2Transport::ProcessReceivedPacketBytes() noexcept
         // decoy, which we simply ignore, use the current state to decide what to do with it.
         if (!ignore) {
             switch (m_recv_state) {
-            case RecvState::VERSION:
-                // Version message received; transition to application phase. The contents is
-                // ignored, but can be used for future extensions.
-                SetReceiveState(RecvState::APP);
+            case RecvState::VERSION: {
+                const bool peer_v3{!m_recv_decode_buffer.empty() &&
+                                  m_recv_decode_buffer[0] == FCN_P2P_V3_VERSION_TAG};
+                if (m_sent_v3_offer && !peer_v3) {
+                    LogDebug(BCLog::NET, "V3 transport error: peer did not offer v3, peer=%d\n", m_nodeid);
+                    return false;
+                }
+                if (m_sent_v3_offer && peer_v3) {
+                    SetReceiveState(RecvState::APP_V3);
+                } else {
+                    SetReceiveState(RecvState::APP);
+                }
                 break;
+            }
             case RecvState::APP:
                 // Application message decrypted correctly. It can be extracted using GetMessage().
                 SetReceiveState(RecvState::APP_READY);
@@ -1305,6 +1328,81 @@ bool V2Transport::ProcessReceivedPacketBytes() noexcept
     } else {
         // We either have less than 3 bytes, so we don't know the packet's length yet, or more
         // than 3 bytes but less than the packet's full ciphertext. Wait until those arrive.
+    }
+    return true;
+}
+
+bool V2Transport::ProcessReceivedV3PacketBytes() noexcept
+{
+    AssertLockHeld(m_recv_mutex);
+    Assume(m_recv_state == RecvState::APP_V3);
+
+    if (m_recv_buffer.size() == BIP324Cipher::V3_LENGTH_LEN) {
+        m_recv_len = m_cipher.DecryptLengthV3(MakeByteSpan(m_recv_buffer));
+        if (m_recv_len > BIP324Cipher::MAX_AEAD_FRAME) {
+            LogDebug(BCLog::NET, "V3 transport error: frame too large (%llu bytes), peer=%d\n",
+                     static_cast<unsigned long long>(m_recv_len), m_nodeid);
+            return false;
+        }
+    } else if (m_recv_buffer.size() > BIP324Cipher::V3_LENGTH_LEN &&
+               m_recv_buffer.size() == static_cast<size_t>(m_recv_len) + BIP324Cipher::V3_EXPANSION) {
+        m_recv_decode_buffer.resize(m_recv_len);
+        bool ignore{false};
+        bool more{false};
+        const bool ok{m_cipher.DecryptV3(
+            /*input=*/MakeByteSpan(m_recv_buffer).subspan(BIP324Cipher::V3_LENGTH_LEN),
+            /*aad=*/MakeByteSpan(m_recv_aad),
+            /*ignore=*/ignore,
+            /*more=*/more,
+            /*contents=*/MakeWritableByteSpan(m_recv_decode_buffer))};
+        if (!ok) {
+            LogDebug(BCLog::NET, "V3 transport error: packet decryption failure (%llu bytes), peer=%d\n",
+                     static_cast<unsigned long long>(m_recv_len), m_nodeid);
+            return false;
+        }
+        ClearShrink(m_recv_aad);
+        RandAddEvent(ReadLE32(m_recv_buffer.data() + m_recv_buffer.size() - 4));
+
+        if (!ignore) {
+            Span<const uint8_t> contents{m_recv_decode_buffer};
+            if (m_v3_assemble == V3Assemble::NeedType) {
+                auto msg_type = GetMessageType(contents);
+                if (!msg_type || contents.size() < 8) {
+                    LogDebug(BCLog::NET, "V3 transport error: invalid first frame (%u bytes), peer=%d\n",
+                             m_recv_decode_buffer.size(), m_nodeid);
+                    return false;
+                }
+                m_v3_type = std::move(*msg_type);
+                m_v3_total = ReadLE64(contents.data());
+                contents = contents.subspan(8);
+                if (m_v3_total > CommandReceiveLimit(m_v3_type)) {
+                    LogDebug(BCLog::NET, "V3 transport error: %s total_payload too large (%llu), peer=%d\n",
+                             SanitizeString(m_v3_type), static_cast<unsigned long long>(m_v3_total), m_nodeid);
+                    return false;
+                }
+                m_v3_assemble = V3Assemble::Body;
+                m_v3_assembly.assign(contents.begin(), contents.end());
+            } else {
+                m_v3_assembly.insert(m_v3_assembly.end(), contents.begin(), contents.end());
+            }
+            if (m_v3_assembly.size() > m_v3_total) {
+                LogDebug(BCLog::NET, "V3 transport error: assembled past total_payload, peer=%d\n", m_nodeid);
+                return false;
+            }
+            if (more) {
+                if (m_v3_assembly.size() == m_v3_total) {
+                    LogDebug(BCLog::NET, "V3 transport error: MORE after complete payload, peer=%d\n", m_nodeid);
+                    return false;
+                }
+            } else if (m_v3_assembly.size() != m_v3_total) {
+                LogDebug(BCLog::NET, "V3 transport error: short assembly, peer=%d\n", m_nodeid);
+                return false;
+            } else {
+                SetReceiveState(RecvState::APP_V3_READY);
+            }
+        }
+        ClearShrink(m_recv_buffer);
+        if (m_recv_state != RecvState::APP_V3_READY) ClearShrink(m_recv_decode_buffer);
     }
     return true;
 }
@@ -1344,9 +1442,15 @@ size_t V2Transport::GetMaxBytesToProcess() noexcept
             // and encoded packet size, which includes the 3 bytes due to the packet length.
             // When transitioning from receiving the packet length to receiving its ciphertext,
             // the encrypted packet length is left in the receive buffer.
-            return BIP324Cipher::EXPANSION + m_recv_len - m_recv_buffer.size();
+            return BIP324Cipher::EXPANSION + static_cast<size_t>(m_recv_len) - m_recv_buffer.size();
         }
+    case RecvState::APP_V3:
+        if (m_recv_buffer.size() < BIP324Cipher::V3_LENGTH_LEN) {
+            return BIP324Cipher::V3_LENGTH_LEN - m_recv_buffer.size();
+        }
+        return BIP324Cipher::V3_EXPANSION + static_cast<size_t>(m_recv_len) - m_recv_buffer.size();
     case RecvState::APP_READY:
+    case RecvState::APP_V3_READY:
         // No bytes can be processed until GetMessage() is called.
         return 0;
     case RecvState::V1:
@@ -1386,7 +1490,8 @@ bool V2Transport::ReceivedBytes(Span<const uint8_t>& msg_bytes) noexcept
                 m_recv_buffer.reserve(MAX_GARBAGE_LEN + BIP324Cipher::GARBAGE_TERMINATOR_LEN);
                 break;
             case RecvState::VERSION:
-            case RecvState::APP: {
+            case RecvState::APP:
+            case RecvState::APP_V3: {
                 // During states where a packet is being received, as much as is expected but never
                 // more than MAX_RESERVE_AHEAD bytes in addition to what is received so far.
                 // This means attackers that want to cause us to waste allocated memory are limited
@@ -1397,6 +1502,7 @@ bool V2Transport::ReceivedBytes(Span<const uint8_t>& msg_bytes) noexcept
                 break;
             }
             case RecvState::APP_READY:
+            case RecvState::APP_V3_READY:
                 // The buffer is empty in this state.
                 Assume(m_recv_buffer.empty());
                 break;
@@ -1433,7 +1539,12 @@ bool V2Transport::ReceivedBytes(Span<const uint8_t>& msg_bytes) noexcept
             if (!ProcessReceivedPacketBytes()) return false;
             break;
 
+        case RecvState::APP_V3:
+            if (!ProcessReceivedV3PacketBytes()) return false;
+            break;
+
         case RecvState::APP_READY:
+        case RecvState::APP_V3_READY:
             return true;
 
         case RecvState::V1:
@@ -1494,6 +1605,23 @@ CNetMessage V2Transport::GetReceivedMessage(std::chrono::microseconds time, bool
     LOCK(m_recv_mutex);
     if (m_recv_state == RecvState::V1) return m_v1_fallback.GetReceivedMessage(time, reject_message);
 
+    if (m_recv_state == RecvState::APP_V3_READY) {
+        CNetMessage msg{DataStream{}};
+        reject_message = false;
+        msg.m_type = std::move(m_v3_type);
+        msg.m_time = time;
+        msg.m_message_size = m_v3_assembly.size();
+        msg.m_raw_message_size = m_v3_assembly.size() + static_cast<uint64_t>(BIP324Cipher::V3_EXPANSION);
+        msg.m_recv.resize(m_v3_assembly.size());
+        std::copy(m_v3_assembly.begin(), m_v3_assembly.end(), UCharCast(msg.m_recv.data()));
+        ClearShrink(m_v3_assembly);
+        ClearShrink(m_recv_decode_buffer);
+        m_v3_assemble = V3Assemble::NeedType;
+        m_v3_total = 0;
+        SetReceiveState(RecvState::APP_V3);
+        return msg;
+    }
+
     Assume(m_recv_state == RecvState::APP_READY);
     Span<const uint8_t> contents{m_recv_decode_buffer};
     auto msg_type = GetMessageType(contents);
@@ -1525,13 +1653,53 @@ CNetMessage V2Transport::GetReceivedMessage(std::chrono::microseconds time, bool
 
 bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
 {
+    AssertLockNotHeld(m_recv_mutex);
     AssertLockNotHeld(m_send_mutex);
+    LOCK(m_recv_mutex);
+    if (m_recv_state == RecvState::V1) {
+        LOCK(m_send_mutex);
+        return m_v1_fallback.SetMessageToSend(msg);
+    }
+    // After advertising 0x03, do not emit an application frame until the peer
+    // version has selected APP_V3. Sending a BIP324 v2 frame here desyncs the
+    // peer that already entered APP_V3.
+    if (m_sent_v3_offer && !RecvAppIsV3()) return false;
+    const bool v3{RecvAppIsV3()};
     LOCK(m_send_mutex);
-    if (m_send_state == SendState::V1) return m_v1_fallback.SetMessageToSend(msg);
     // We only allow adding a new message to be sent when in the READY state (so the packet cipher
     // is available) and the send buffer is empty. This limits the number of messages in the send
     // buffer to just one, and leaves the responsibility for queueing them up to the caller.
     if (!(m_send_state == SendState::READY && m_send_buffer.empty())) return false;
+    if (v3) {
+        std::vector<uint8_t> header;
+        auto short_message_id = V2_MESSAGE_MAP(msg.m_type);
+        if (short_message_id) {
+            header.resize(1 + 8);
+            header[0] = *short_message_id;
+        } else {
+            header.resize(1 + CMessageHeader::MESSAGE_TYPE_SIZE + 8, 0);
+            std::copy(msg.m_type.begin(), msg.m_type.end(), header.data() + 1);
+        }
+        WriteLE64(header.data() + header.size() - 8, msg.data.size());
+        if (msg.data.size() > CommandReceiveLimit(msg.m_type)) return false;
+        const size_t first_max{BIP324Cipher::MAX_AEAD_FRAME - header.size()};
+        size_t offset{0};
+        const size_t first_n{std::min(first_max, msg.data.size())};
+        std::vector<uint8_t> first(header.size() + first_n);
+        std::copy(header.begin(), header.end(), first.begin());
+        std::copy(msg.data.begin(), msg.data.begin() + first_n, first.begin() + header.size());
+        offset = first_n;
+        const bool more{offset < msg.data.size()};
+        AppendV3Frame(first, more);
+        while (offset < msg.data.size()) {
+            const size_t n{std::min(BIP324Cipher::MAX_AEAD_FRAME, msg.data.size() - offset)};
+            AppendV3Frame(Span{msg.data}.subspan(offset, n), offset + n < msg.data.size());
+            offset += n;
+        }
+        m_send_type = msg.m_type;
+        ClearShrink(msg.data);
+        return true;
+    }
     // Construct contents (encoding message type + payload).
     std::vector<uint8_t> contents;
     auto short_message_id = V2_MESSAGE_MAP(msg.m_type);
@@ -1556,11 +1724,25 @@ bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
     return true;
 }
 
+void V2Transport::AppendV3Frame(Span<const uint8_t> contents, bool more) noexcept
+{
+    AssertLockHeld(m_send_mutex);
+    const size_t off{m_send_buffer.size()};
+    m_send_buffer.resize(off + contents.size() + BIP324Cipher::V3_EXPANSION);
+    m_cipher.EncryptV3(MakeByteSpan(contents), {}, /*ignore=*/false, more,
+                       MakeWritableByteSpan(m_send_buffer).subspan(off));
+}
+
 bool V2Transport::MessageTooLargeToSend(const CSerializedNetMsg& msg) const noexcept
 {
+    AssertLockNotHeld(m_recv_mutex);
     AssertLockNotHeld(m_send_mutex);
+    LOCK(m_recv_mutex);
     LOCK(m_send_mutex);
     if (m_send_state == SendState::V1) return false;
+    if (RecvAppIsV3() || m_sent_v3_offer) {
+        return msg.data.size() > CommandReceiveLimit(msg.m_type);
+    }
     const size_t contents_len{V2_MESSAGE_MAP(msg.m_type)
                                   ? 1 + msg.data.size()
                                   : 1 + CMessageHeader::MESSAGE_TYPE_SIZE + msg.data.size()};
@@ -1644,7 +1826,7 @@ Transport::Info V2Transport::GetInfo() const noexcept
     // and verified (confirming that the other side very likely has the same keys as us).
     if (m_recv_state != RecvState::KEY_MAYBE_V1 && m_recv_state != RecvState::KEY &&
         m_recv_state != RecvState::GARB_GARBTERM && m_recv_state != RecvState::VERSION) {
-        info.transport_type = TransportProtocolType::V2;
+        info.transport_type = RecvAppIsV3() ? TransportProtocolType::V3 : TransportProtocolType::V2;
         info.session_id = uint256(MakeUCharSpan(m_cipher.GetSessionID()));
     } else {
         info.transport_type = TransportProtocolType::DETECTING;
@@ -1917,9 +2099,9 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
     uint64_t nonce = GetDeterministicRandomizer(RANDOMIZER_ID_LOCALHOSTNONCE).Write(id).Finalize();
 
     // The V2Transport transparently falls back to V1 behavior when an incoming V1 connection is
-    // detected, so use it whenever we signal NODE_P2P_V2.
+    // detected, so use it whenever we offer encrypted P2P.
     ServiceFlags local_services = GetLocalServices();
-    const bool use_v2transport(local_services & NODE_P2P_V2);
+    const bool use_v2transport(EncryptedP2POffered(local_services));
 
     uint64_t network_id = GetDeterministicRandomizer(RANDOMIZER_ID_NETWORKKEY)
                         .Write(inbound_onion ? NET_ONION : addr.GetNetClass())
@@ -2515,7 +2697,7 @@ void CConnman::ProcessAddrFetch()
     }
     // Attempt v2 connection if we support v2 - we'll reconnect with v1 if our
     // peer doesn't support it or immediately disconnects us for another reason.
-    const bool use_v2transport(GetLocalServices() & NODE_P2P_V2);
+    const bool use_v2transport(EncryptedP2POffered(GetLocalServices()));
     CAddress addr;
     CSemaphoreGrant grant(*semOutbound, /*fTry=*/true);
     if (grant) {
@@ -2706,7 +2888,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect, Spa
     {
         // Attempt v2 connection if we support v2 - we'll reconnect with v1 if our
         // peer doesn't support it or immediately disconnects us for another reason.
-        const bool use_v2transport(GetLocalServices() & NODE_P2P_V2);
+        const bool use_v2transport(EncryptedP2POffered(GetLocalServices()));
         for (int64_t nLoop = 0;; nLoop++)
         {
             for (const std::string& strAddr : connect)
@@ -3071,7 +3253,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect, Spa
             // network connections (if any) belong in the same netgroup, and the size of `outbound_ipv46_peer_netgroups` would only be 1.
             const bool count_failures{((int)outbound_ipv46_peer_netgroups.size() + outbound_privacy_network_peers) >= std::min(m_max_automatic_connections - 1, 2)};
             // Use BIP324 transport when both us and them have NODE_V2_P2P set.
-            const bool use_v2transport(addrConnect.nServices & GetLocalServices() & NODE_P2P_V2);
+            const bool use_v2transport(EncryptedP2POffered(addrConnect.nServices) && EncryptedP2POffered(GetLocalServices()));
             OpenNetworkConnection(addrConnect, count_failures, std::move(grant), /*strDest=*/nullptr, conn_type, use_v2transport);
         }
     }
@@ -4012,11 +4194,18 @@ uint64_t CConnman::GetTotalBytesSent() const
     return nTotalBytesSent;
 }
 
+bool EncryptedP2POffered(ServiceFlags flags) noexcept
+{
+    return (flags & NODE_P2P_V2) || (flags & NODE_P2P_V3);
+}
+
 ServiceFlags CConnman::GetLocalServices() const
 {
     ServiceFlags flags{m_local_services};
-    if (!V2CanCarryAdmitCap()) {
-        flags = ServiceFlags(flags & ~NODE_P2P_V2);
+    // v3 replaces v2 only when encrypted P2P was already offered. -v2transport=0
+    // stays v1; it does not grow a V3 bit because admit cannot fit BIP324.
+    if (!V2CanCarryAdmitCap() && (flags & NODE_P2P_V2)) {
+        flags = ServiceFlags((flags & ~NODE_P2P_V2) | NODE_P2P_V3);
     }
     return flags;
 }
@@ -4029,12 +4218,24 @@ bool V2CanCarryAdmitCap() noexcept
            BIP324Cipher::MAX_CONTENTS_LEN - admit >= overhead;
 }
 
+void CConnman::DisconnectV2WhenAdmitExceeds()
+{
+    if (V2CanCarryAdmitCap()) return;
+    LOCK(m_nodes_mutex);
+    for (CNode* node : m_nodes) {
+        const TransportProtocolType type{node->m_transport->GetInfo().transport_type};
+        if (type == TransportProtocolType::V2 || type == TransportProtocolType::DETECTING) {
+            node->fDisconnect = true;
+        }
+    }
+}
+
 static std::unique_ptr<Transport> MakeTransport(NodeId id, bool use_v2transport, bool inbound) noexcept
 {
-    // Window admit can exceed BIP324's 16 MiB cipher max. Offer v2 only while
-    // a packet can still name a block at that cap. Oversized sends still fail
-    // MessageTooLargeToSend on a v2 connection that was opened earlier.
-    if (use_v2transport && V2CanCarryAdmitCap()) {
+    // Encrypted handshake is BIP324. Application framing is v2 while admit
+    // fits; VERSION 0x03 selects v3 after the crossing. Unencrypted v1 is
+    // only the handshake downgrade.
+    if (use_v2transport) {
         return std::make_unique<V2Transport>(id, /*initiating=*/!inbound);
     }
     return std::make_unique<V1Transport>(id);

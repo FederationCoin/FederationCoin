@@ -368,7 +368,7 @@ static RPCHelpMan addnode()
     CConnman& connman = EnsureConnman(node);
 
     const auto node_arg{self.Arg<std::string>("node")};
-    bool node_v2transport = connman.GetLocalServices() & NODE_P2P_V2;
+    bool node_v2transport = EncryptedP2POffered(connman.GetLocalServices());
     bool use_v2transport{node_v2transport};
     ConnectionType connection_type = ConnectionType::MANUAL;
     std::string connection_type_arg;
@@ -462,7 +462,7 @@ static RPCHelpMan addconnection()
     NodeContext& node = EnsureAnyNodeContext(request.context);
     CConnman& connman = EnsureConnman(node);
 
-    if (use_v2transport && !(connman.GetLocalServices() & NODE_P2P_V2)) {
+    if (use_v2transport && !EncryptedP2POffered(connman.GetLocalServices())) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Error: Adding v2transport connections requires -v2transport init flag to be set.");
     }
 

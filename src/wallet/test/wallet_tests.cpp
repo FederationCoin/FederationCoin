@@ -17,6 +17,7 @@
 #include <node/blockstorage.h>
 #include <policy/policy.h>
 #include <rpc/server.h>
+#include <script/modern_sig.h>
 #include <script/solver.h>
 #include <test/util/logging.h>
 #include <test/util/random.h>
@@ -207,7 +208,7 @@ BOOST_FIXTURE_TEST_CASE(importmulti_rescan, TestChain100Setup)
     // Cap last block file size, and mine new block in a new block file.
     CBlockIndex* oldTip = WITH_LOCK(Assert(m_node.chainman)->GetMutex(), return m_node.chainman->ActiveChain().Tip());
     WITH_LOCK(::cs_main, m_node.chainman->m_blockman.GetBlockFileInfo(oldTip->GetBlockPos().nFile)->nSize = MAX_BLOCKFILE_SIZE);
-    CreateAndProcessBlock({}, GetScriptForDestination(PKHash(coinbaseKey.GetPubKey())));
+    CreateAndProcessBlock({}, GetScriptForDestination(WitnessV0KeyHash(coinbaseKey.GetPubKey())));
     CBlockIndex* newTip = WITH_LOCK(Assert(m_node.chainman)->GetMutex(), return m_node.chainman->ActiveChain().Tip());
 
     // Prune the older block file.
@@ -274,14 +275,14 @@ BOOST_FIXTURE_TEST_CASE(importwallet_rescan, TestChain100Setup)
     // will pick up both blocks, not just the first.
     const int64_t BLOCK_TIME = WITH_LOCK(Assert(m_node.chainman)->GetMutex(), return m_node.chainman->ActiveChain().Tip()->GetBlockTimeMax() + 5);
     SetMockTime(BLOCK_TIME);
-    m_coinbase_txns.emplace_back(CreateAndProcessBlock({}, GetScriptForDestination(PKHash(coinbaseKey.GetPubKey()))).vtx[0]);
-    m_coinbase_txns.emplace_back(CreateAndProcessBlock({}, GetScriptForDestination(PKHash(coinbaseKey.GetPubKey()))).vtx[0]);
+    m_coinbase_txns.emplace_back(CreateAndProcessBlock({}, GetScriptForDestination(WitnessV0KeyHash(coinbaseKey.GetPubKey()))).vtx[0]);
+    m_coinbase_txns.emplace_back(CreateAndProcessBlock({}, GetScriptForDestination(WitnessV0KeyHash(coinbaseKey.GetPubKey()))).vtx[0]);
 
     // Set key birthday to block time increased by the timestamp window, so
     // rescan will start at the block time.
     const int64_t KEY_TIME = BLOCK_TIME + TIMESTAMP_WINDOW;
     SetMockTime(KEY_TIME);
-    m_coinbase_txns.emplace_back(CreateAndProcessBlock({}, GetScriptForDestination(PKHash(coinbaseKey.GetPubKey()))).vtx[0]);
+    m_coinbase_txns.emplace_back(CreateAndProcessBlock({}, GetScriptForDestination(WitnessV0KeyHash(coinbaseKey.GetPubKey()))).vtx[0]);
 
     std::string backup_file = fs::PathToString(m_args.GetDataDirNet() / "wallet.backup");
 
@@ -295,6 +296,7 @@ BOOST_FIXTURE_TEST_CASE(importwallet_rescan, TestChain100Setup)
             LOCK2(wallet->cs_wallet, spk_man->cs_KeyStore);
             spk_man->mapKeyMetadata[coinbaseKey.GetPubKey().GetID()].nCreateTime = KEY_TIME;
             spk_man->AddKeyPubKey(coinbaseKey, coinbaseKey.GetPubKey());
+            BOOST_REQUIRE(spk_man->AddCScript(GetScriptForDestination(WitnessV0KeyHash(coinbaseKey.GetPubKey()))));
 
             AddWallet(context, wallet);
             LOCK(Assert(m_node.chainman)->GetMutex());
@@ -594,7 +596,7 @@ public:
         wallet = CreateProductWallet(*m_node.chain);
         const CTxDestination dest = ProductReceiveDest(*wallet, OutputType::DILITHIUM87);
         CreateAndProcessBlock({}, GetScriptForDestination(dest));
-        const CScript pad{GetScriptForDestination(DecodeDestination(ADDRESS_BCRT1_UNSPENDABLE))};
+        const CScript pad{MldsaScriptPubKey()};
         for (int i = 0; i < COINBASE_MATURITY; ++i) {
             CreateAndProcessBlock({}, pad);
         }
@@ -621,7 +623,7 @@ public:
             LOCK(wallet->cs_wallet);
             blocktx = CMutableTransaction(*wallet->mapWallet.at(tx->GetHash()).tx);
         }
-        CreateAndProcessBlock({CMutableTransaction(blocktx)}, GetScriptForDestination(PKHash(coinbaseKey.GetPubKey())));
+        CreateAndProcessBlock({CMutableTransaction(blocktx)}, GetScriptForDestination(WitnessV0KeyHash(coinbaseKey.GetPubKey())));
 
         LOCK(wallet->cs_wallet);
         LOCK(Assert(m_node.chainman)->GetMutex());
@@ -643,7 +645,7 @@ BOOST_FIXTURE_TEST_CASE(ListCoinsTest, ListCoinsTestingSetup)
         list = ListCoins(*wallet);
     }
     BOOST_CHECK_EQUAL(list.size(), 1U);
-    BOOST_CHECK(std::holds_alternative<WitnessV0ScriptHash>(list.begin()->first));
+    BOOST_CHECK(std::holds_alternative<ModernSigDestination>(list.begin()->first));
     BOOST_CHECK_EQUAL(list.begin()->second.size(), 1U);
 
     BOOST_CHECK_EQUAL(50 * COIN, WITH_LOCK(wallet->cs_wallet, return AvailableCoins(*wallet).GetTotalAmount()));
@@ -657,7 +659,7 @@ BOOST_FIXTURE_TEST_CASE(ListCoinsTest, ListCoinsTestingSetup)
     BOOST_CHECK_EQUAL(list.size(), 2U);
     size_t listed = 0;
     for (const auto& group : list) {
-        BOOST_CHECK(std::holds_alternative<WitnessV0ScriptHash>(group.first));
+        BOOST_CHECK(std::holds_alternative<ModernSigDestination>(group.first));
         listed += group.second.size();
     }
     BOOST_CHECK_EQUAL(listed, 2U);
@@ -731,15 +733,18 @@ BOOST_FIXTURE_TEST_CASE(BasicOutputTypesTest, ListCoinsTest)
         LOCK(wallet->cs_wallet);
         const auto dest = wallet->GetNewDestination(out_type, "");
         BOOST_REQUIRE(dest);
-        int witness_version{0};
-        std::vector<unsigned char> program;
         const CScript script{GetScriptForDestination(*dest)};
-        BOOST_REQUIRE(script.IsWitnessProgram(witness_version, program));
-        BOOST_CHECK_EQUAL(witness_version, 0);
         if (out_type == OutputType::BECH32) {
+            int witness_version{0};
+            std::vector<unsigned char> program;
+            BOOST_REQUIRE(script.IsWitnessProgram(witness_version, program));
+            BOOST_CHECK_EQUAL(witness_version, 0);
             BOOST_CHECK_EQUAL(program.size(), 20U);
         } else {
-            BOOST_CHECK_EQUAL(program.size(), 32U);
+            const auto parsed{MatchModernSingle(script)};
+            BOOST_REQUIRE(parsed && parsed->kind);
+            BOOST_CHECK_EQUAL(parsed->algorithm, ALGO_DILITHIUM);
+            BOOST_CHECK_EQUAL(parsed->param, out_type == OutputType::DILITHIUM87 ? PARAM_DILITHIUM_87 : PARAM_DILITHIUM_44);
         }
     }
 
@@ -864,7 +869,7 @@ BOOST_FIXTURE_TEST_CASE(CreateWallet, TestChain100Setup)
     const CScript funder_script = GetScriptForDestination(ProductReceiveDest(*funder, OutputType::DILITHIUM87));
     CreateAndProcessBlock({}, funder_script);
     CreateAndProcessBlock({}, funder_script);
-    const CScript pad{GetScriptForDestination(DecodeDestination(ADDRESS_BCRT1_UNSPENDABLE))};
+    const CScript pad{MldsaScriptPubKey()};
     for (int i = 0; i < COINBASE_MATURITY; ++i) {
         CreateAndProcessBlock({}, pad);
     }

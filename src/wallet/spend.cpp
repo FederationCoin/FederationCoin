@@ -16,6 +16,7 @@
 #include <policy/policy.h>
 #include <primitives/transaction.h>
 #include <script/descriptor.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/signingprovider.h>
 #include <script/solver.h>
@@ -50,9 +51,7 @@ static constexpr size_t OUTPUT_GROUP_MAX_ENTRIES{100};
 
 static bool IsDilithiumWitnessV0(const CScript& script)
 {
-    int witver = 0;
-    std::vector<unsigned char> program;
-    return script.IsWitnessProgram(witver, program) && witver == 0 && program.size() == 32;
+    return IsModernSigTemplate(script);
 }
 
 /** Input weight when InferDescriptor is not solvable. Do not size a v0/32
@@ -139,12 +138,9 @@ static std::unique_ptr<Descriptor> GetDescriptor(const CWallet* wallet, const CC
     }
     if (coin_control) {
         FlatSigningProvider ext{coin_control->m_external_provider};
-        int witver{0};
-        std::vector<unsigned char> program;
-        if (script_pubkey.IsWitnessProgram(witver, program) && witver == 0 && program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
-            const uint256 prog{Span<const unsigned char>{program.data(), program.size()}};
+        if (const auto parsed{MatchModernSingle(script_pubkey)}; parsed && parsed->kind) {
             for (const auto& rec : ext.mldsa_pending) {
-                ext.mldsa_programs.emplace(prog, rec);
+                ext.mldsa_programs.emplace(parsed->fingerprint, rec);
             }
         }
         providers.AddProvider(std::make_unique<FlatSigningProvider>(std::move(ext)));
@@ -301,10 +297,10 @@ static OutputType GetOutputType(TxoutType type, bool is_from_p2sh)
     }
 }
 
-/** 32-byte witness v0 is Dilithium 87 or 44. InferDescriptor or the owning SPM names the kind. */
+/** Dilithium locking scripts. InferDescriptor or the owning SPM names the kind. */
 static OutputType OutputTypeForCoin(const CWallet& wallet, const CTxOut& output, TxoutType type, bool is_from_p2sh, const SigningProvider* provider)
 {
-    if (type == TxoutType::WITNESS_V0_SCRIPTHASH && !is_from_p2sh) {
+    if ((type == TxoutType::CHECKMODERNSIG || type == TxoutType::CHECKMODERNPOLICY) && !is_from_p2sh) {
         if (provider) {
             if (const auto desc = InferDescriptor(output.scriptPubKey, *provider)) {
                 if (const auto typ = desc->GetOutputType()) {
@@ -363,12 +359,9 @@ util::Result<PreSelectedInputs> FetchSelectedInputs(const CWallet& wallet, const
 
         if (input_bytes == -1) {
             FlatSigningProvider bound{coin_control.m_external_provider};
-            int witver{0};
-            std::vector<unsigned char> program;
-            if (txout.scriptPubKey.IsWitnessProgram(witver, program) && witver == 0 && program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
-                const uint256 prog{Span<const unsigned char>{program.data(), program.size()}};
+            if (const auto parsed{MatchModernSingle(txout.scriptPubKey)}; parsed && parsed->kind) {
                 for (const auto& rec : bound.mldsa_pending) {
-                    bound.mldsa_programs.emplace(prog, rec);
+                    bound.mldsa_programs.emplace(parsed->fingerprint, rec);
                 }
             }
             input_bytes = CalculateMaximumSignedInputSize(txout, outpoint, &bound, can_grind_r, &coin_control);

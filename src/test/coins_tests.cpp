@@ -24,7 +24,7 @@
 
 using namespace util::hex_literals;
 
-int ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const COutPoint& out);
+int ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const COutPoint& out, uint64_t max_outputs);
 void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight);
 
 namespace
@@ -169,7 +169,7 @@ void SimulationTest(CCoinsView* base, bool fake_best_block)
             // Infrequently, test usage of AccessByTxid instead of AccessCoin - the
             // former just delegates to the latter and returns the first unspent in a txn.
             const Coin& entry = (m_rng.randrange(500) == 0) ?
-                AccessByTxid(*stack.back(), txid) : stack.back()->AccessCoin(COutPoint(txid, 0));
+                AccessByTxid(*stack.back(), txid, /*max_outputs=*/1) : stack.back()->AccessCoin(COutPoint(txid, 0));
             BOOST_CHECK(coin == entry);
 
             if (test_havecoin_before) {
@@ -450,7 +450,7 @@ BOOST_FIXTURE_TEST_CASE(updatecoins_simulation_test, UpdateTest)
             if (!tx.IsCoinBase()) {
                 const COutPoint &out = tx.vin[0].prevout;
                 Coin coin = undo.vprevout[0];
-                ApplyTxInUndo(std::move(coin), *(stack.back()), out);
+                ApplyTxInUndo(std::move(coin), *(stack.back()), out, /*max_outputs=*/1);
             }
             // Store as a candidate for reconnection
             disconnected_coins.insert(utxod->first);
@@ -1097,6 +1097,19 @@ BOOST_AUTO_TEST_CASE(coins_resource_is_used)
     }
 
     PoolResourceTester::CheckAllDataAccountedFor(resource);
+}
+
+BOOST_AUTO_TEST_CASE(access_by_txid_stops_at_max_outputs)
+{
+    CCoinsView dummy;
+    CCoinsViewCache view{&dummy};
+    const Txid txid{Txid::FromUint256(uint256::ONE)};
+    const CTxOut out{1, CScript() << OP_0 << std::vector<unsigned char>(20, 0)};
+    view.AddCoin(COutPoint{txid, 3}, Coin{out, /*nHeightIn=*/7, /*fCoinBaseIn=*/false}, /*possible_overwrite=*/false);
+    BOOST_CHECK(AccessByTxid(view, txid, /*max_outputs=*/3).IsSpent());
+    const Coin& found{AccessByTxid(view, txid, /*max_outputs=*/4)};
+    BOOST_CHECK(!found.IsSpent());
+    BOOST_CHECK_EQUAL(found.nHeight, 7U);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

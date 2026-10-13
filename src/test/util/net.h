@@ -106,6 +106,7 @@ constexpr ServiceFlags ALL_SERVICE_FLAGS[]{
     NODE_COMPACT_FILTERS,
     NODE_NETWORK_LIMITED,
     NODE_P2P_V2,
+    NODE_P2P_V3,
 };
 
 constexpr NetPermissionFlags ALL_NET_PERMISSION_FLAGS[]{

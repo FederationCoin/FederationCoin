@@ -237,6 +237,8 @@ OP_CHECKSIG = CScriptOp(0xac)
 OP_CHECKSIGVERIFY = CScriptOp(0xad)
 OP_CHECKMULTISIG = CScriptOp(0xae)
 OP_CHECKMULTISIGVERIFY = CScriptOp(0xaf)
+OP_CHECKMODERNSIG = CScriptOp(0xbb)
+OP_CHECKMODERNPOLICY = CScriptOp(0xbc)
 
 # expansion
 OP_NOP1 = CScriptOp(0xb0)

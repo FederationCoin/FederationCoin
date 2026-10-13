@@ -80,10 +80,4 @@ uint64_t BlockMessageReceiveLimit()
     return LimitsForCap(BlockMessageAdmitWeight()).block_message_bytes;
 }
 
-void SetBlockMessageReceiveLimit(uint64_t bytes)
-{
-    // Tests pass LimitsForCap(cap).block_message_bytes; at 1:1 that is the weight.
-    SetBlockMessageAdmitWeight(bytes);
-}
-
 } // namespace Consensus

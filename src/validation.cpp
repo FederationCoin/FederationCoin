@@ -881,6 +881,12 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     if (tx.IsCoinBase())
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "coinbase");
 
+    // Consensus output scripts before policy. Overlay-token and datacarrier
+    // rejects must not mask bad-txns-vout-script.
+    if (!Consensus::CheckOutputSizes(tx, state)) {
+        return false;
+    }
+
     if (tx.version == TRUC_VERSION && m_pool.m_opts.truc_policy == TRUCPolicy::Reject) {
         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "version");
     }
@@ -2597,7 +2603,7 @@ bool FatalError(Notifications& notifications, BlockValidationState& state, const
  * @param out The out point that corresponds to the tx input.
  * @return A DisconnectResult as an int
  */
-int ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const COutPoint& out)
+int ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const COutPoint& out, uint64_t max_outputs)
 {
     bool fClean = true;
 
@@ -2607,7 +2613,7 @@ int ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const COutPoint& out)
         // Missing undo metadata (height and coinbase). Older versions included this
         // information only in undo records for the last spend of a transactions'
         // outputs. This implies that it must be present for some other output of the same tx.
-        const Coin& alternate = AccessByTxid(view, out.hash);
+        const Coin& alternate = AccessByTxid(view, out.hash, max_outputs);
         if (!alternate.IsSpent()) {
             undo.nHeight = alternate.nHeight;
             undo.fCoinBase = alternate.fCoinBase;
@@ -2681,10 +2687,12 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
                 LogError("DisconnectBlock(): transaction and undo data inconsistent\n");
                 return DISCONNECT_FAILED;
             }
+            const uint64_t max_outputs{Consensus::LimitsForCap(
+                Consensus::WorstCaseCapAtHeight(pindex->nHeight, m_chainman.GetConsensus().nSubsidyHalvingInterval)).max_outputs};
             for (unsigned int j = tx.vin.size(); j > 0;) {
                 --j;
                 const COutPoint& out = tx.vin[j].prevout;
-                int res = ApplyTxInUndo(std::move(txundo.vprevout[j]), view, out);
+                int res = ApplyTxInUndo(std::move(txundo.vprevout[j]), view, out, max_outputs);
                 if (res == DISCONNECT_FAILED) return DISCONNECT_FAILED;
                 fClean = fClean && res != DISCONNECT_UNCLEAN;
             }
@@ -4627,9 +4635,17 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     // Note that witness malleability is checked in ContextualCheckBlock, so no
     // checks that use witness data may be performed here.
 
-    // Context-free sanity. The live cap is enforced in ContextualCheckBlock.
-    if (block.vtx.empty() || static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > CONTEXT_FREE_BLOCK_BYTES)
+    // Worst-case cap at the header height: parent watermark is not connected
+    // here. ContextualCheckBlock still enforces CapForBlock on the parent.
+    if (block.vtx.empty()) {
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
+    }
+    const int header_height{block.m_header_v2 ? block.m_height : 0};
+    const uint64_t worst_cap{Consensus::WorstCaseCapAtHeight(header_height, consensusParams.nSubsidyHalvingInterval)};
+    const Consensus::BlockLimits limits{Consensus::LimitsForCap(worst_cap)};
+    if (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > limits.serialized_size) {
+        return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
+    }
 
     // First transaction must be coinbase, the rest must not be
     if (block.vtx.empty() || !block.vtx[0]->IsCoinBase())
@@ -4666,7 +4682,7 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     {
         nSigOps += GetLegacySigOpCount(*tx);
     }
-    const int64_t sanity_sigops{Consensus::LimitsForCap(CONTEXT_FREE_BLOCK_BYTES).sigops_cost};
+    const int64_t sanity_sigops{limits.sigops_cost};
     if (nSigOps > std::numeric_limits<uint64_t>::max() / WITNESS_SCALE_FACTOR ||
         static_cast<int64_t>(nSigOps) * WITNESS_SCALE_FACTOR > sanity_sigops)
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "out-of-bounds SigOpCount");

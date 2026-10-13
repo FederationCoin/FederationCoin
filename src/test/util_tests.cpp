@@ -1768,7 +1768,8 @@ BOOST_AUTO_TEST_CASE(message_verify)
             "Trust me"),
         MessageVerificationResult::OK);
 
-    // BIP-322 tests
+    // BIP-322 tests. Witness v0 Bitcoin-era vectors use BIP141/BIP143, which
+    // this chain rejects (UNIFIED-only v0). Those proofs are ERR_INVALID.
 
     // privkey: L3VFeEujGtevx9w18HD1fhRbCH67Az2dpCymeRE1SoPK6XQtaN2k
 
@@ -1777,14 +1778,14 @@ BOOST_AUTO_TEST_CASE(message_verify)
             RecodeKeyOrAddressForActiveChain("bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l"),
             "AkcwRAIgM2gBAQqvZX15ZiysmKmQpDrG83avLIT492QBzLnQIxYCIBaTpOaD20qRlEylyxFSeEA2ba9YOixpX8z46TSDtS40ASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
             ""),
-        MessageVerificationResult::OK);
+        MessageVerificationResult::ERR_INVALID);
 
     BOOST_CHECK_EQUAL(
         MessageVerify(
             RecodeKeyOrAddressForActiveChain("bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l"),
             "AkcwRAIgZRfIY3p7/DoVTty6YZbWS71bc5Vct9p9Fia83eRmw2QCICK/ENGfwLtptFluMGs2KsqoNSk89pO7F29zJLUx9a/sASECx/EgAxlkQpQ9hYjgGu6EBCPMVPwVIVJqO4XCsMvViHI=",
             "Hello World"),
-        MessageVerificationResult::OK);
+        MessageVerificationResult::ERR_INVALID);
 
     // BIP322 signature created using buidl-python library with same parameters as test on line 2596
     BOOST_CHECK_EQUAL(
@@ -1792,7 +1793,7 @@ BOOST_AUTO_TEST_CASE(message_verify)
             RecodeKeyOrAddressForActiveChain("bc1q9vza2e8x573nczrlzms0wvx3gsqjx7vavgkx0l"),
          "AkgwRQIhAOzyynlqt93lOKJr+wmmxIens//zPzl9tqIOua93wO6MAiBi5n5EyAcPScOjf1lAqIUIQtr3zKNeavYabHyR8eGhowEhAsfxIAMZZEKUPYWI4BruhAQjzFT8FSFSajuFwrDL1Yhy",
             "Hello World"),
-        MessageVerificationResult::OK);
+        MessageVerificationResult::ERR_INVALID);
 
     // 2-of-3 p2sh multisig BIP322 signature (created with the buidl-python library)
     // Keys are defined as (HDRootWIF, bip322_path)
@@ -1816,7 +1817,7 @@ BOOST_AUTO_TEST_CASE(message_verify)
         MessageVerify(
             RecodeKeyOrAddressForActiveChain("bc1qlqtuzpmazp2xmcutlwv0qvggdvem8vahkc333usey4gskug8nutsz53msw"),    "BQBIMEUCIQDQoXvGKLH58exuujBOta+7+GN7vi0lKwiQxzBpuNuXuAIgIE0XYQlFDOfxbegGYYzlf+tqegleAKE6SXYIa1U+uCcBRzBEAiATegywVl6GWrG9jJuPpNwtgHKyVYCX2yfuSSDRFATAaQIgTLlU6reLQsSIrQSF21z3PtUO2yAUseUWGZqRUIE7VKoBSDBFAiEAgxtpidsU0Z4u/+5RB9cyeQtoCW5NcreLJmWXZ8kXCZMCIBR1sXoEinhZE4CF9P9STGIcMvCuZjY6F5F0XTVLj9SjAWlTIQP3dyWvTZjUENWJowMWBsQrrXCUs20Gu5YF79CG5Ga0XSEDwqI5GVBOuFkFzQOGH5eTExSAj2Z/LDV/hbcvAPQdlJMhA17FuuJd+4wGuj+ZbVxEsFapTKAOwyhfw9qpch52JKxbU64=",
             "This will be a p2wsh 3-of-3 multisig BIP 322 signed message"),
-        MessageVerificationResult::OK);
+        MessageVerificationResult::ERR_INVALID);
 
     // Single key p2tr BIP322 signature (created with the buidl-python library)
     // PrivateKeyWIF L3VFeEujGtevx9w18HD1fhRbCH67Az2dpCymeRE1SoPK6XQtaN2k

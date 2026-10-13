@@ -23,7 +23,7 @@ static void VerifyScriptBench(benchmark::Bench& bench)
 {
     ECC_Context ecc_context{};
 
-    const uint32_t flags{SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2SH};
+    const uint32_t flags{SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_UNIFIED_SIGHASH};
     const int witnessversion = 0;
 
     // Key pair.

@@ -9,6 +9,7 @@
 #include <primitives/transaction.h>
 #include <random.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <span>
 #include <sync.h>
@@ -32,7 +33,7 @@ static void AssembleBlock(benchmark::Bench& bench)
     std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> seed{};
     seed[31] = 2;
     assert(Consensus::MlDsa44Keygen(seed, spend_mldsa));
-    const CScript scriptPubKey = CScript() << OP_0 << ToByteVector(Consensus::MlDsa44SingleKeyProgram(spend_mldsa.pubkey));
+    const CScript scriptPubKey = BuildModernSingle(Consensus::MlDsa44SingleKeyProgram(spend_mldsa.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_44);
     BlockAssembler::Options options;
     options.coinbase_output_script = scriptPubKey;
 
@@ -85,7 +86,7 @@ static void BlockAssemblerAddPackageTxns(benchmark::Bench& bench)
     std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> coinbase_seed{};
     coinbase_seed[31] = 3;
     assert(Consensus::MlDsa44Keygen(coinbase_seed, coinbase_mldsa));
-    assembler_options.coinbase_output_script = CScript() << OP_0 << ToByteVector(Consensus::MlDsa44SingleKeyProgram(coinbase_mldsa.pubkey));
+    assembler_options.coinbase_output_script = BuildModernSingle(Consensus::MlDsa44SingleKeyProgram(coinbase_mldsa.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_44);
 
     bench.run([&] {
         PrepareBlock(testing_setup->m_node, assembler_options);

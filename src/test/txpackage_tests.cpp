@@ -58,7 +58,7 @@ static CScript Policy1of2Script(const Consensus::MlDsa44Keypair& first, const Co
     const std::array<uint256, 2> hashes{ha < hb ? ha : hb, ha < hb ? hb : ha};
     const auto program{Consensus::MlDsa44PolicyProgram(1, hashes)};
     BOOST_REQUIRE(program);
-    return CScript() << OP_0 << ToByteVector(*program);
+    return *program;
 }
 
 static void Sign1of2(CMutableTransaction& tx, const std::vector<CTxOut>& spent, unsigned int nIn,
@@ -78,12 +78,12 @@ static void Sign1of2(CMutableTransaction& tx, const std::vector<CTxOut>& spent, 
     const auto append_signed = [&](const Consensus::MlDsa44Keypair& key) {
         std::array<unsigned char, Consensus::MLDSA44_SIGNATURE_SIZE> signature{};
         BOOST_REQUIRE(Consensus::MlDsa44Sign(key, message, signature));
-        tx.vin[nIn].scriptWitness.stack.emplace_back(key.pubkey.begin(), key.pubkey.end());
-        tx.vin[nIn].scriptWitness.stack.emplace_back(signature.begin(), signature.end());
+        std::vector<unsigned char> item(key.pubkey.begin(), key.pubkey.end());
+        item.insert(item.end(), signature.begin(), signature.end());
+        tx.vin[nIn].scriptWitness.stack.push_back(std::move(item));
     };
-    const auto append_skip = [&](const Consensus::MlDsa44Keypair& key) {
-        const uint256 hash{Consensus::MlDsa44KeyHash(key.pubkey)};
-        tx.vin[nIn].scriptWitness.stack.emplace_back(hash.begin(), hash.end());
+    const auto append_skip = [&](const Consensus::MlDsa44Keypair&) {
+        tx.vin[nIn].scriptWitness.stack.emplace_back();
     };
     if (sign_first) {
         append_signed(*a);
@@ -109,7 +109,7 @@ inline CTransactionRef create_placeholder_tx(size_t num_inputs, size_t num_outpu
     }
     for (size_t o{0}; o < num_outputs; ++o) {
         mtx.vout[o].nValue = 1 * CENT;
-        mtx.vout[o].scriptPubKey = random_script;
+        mtx.vout[o].scriptPubKey = P2WSH_OP_TRUE;
     }
     return MakeTransactionRef(mtx);
 }
@@ -259,7 +259,7 @@ BOOST_AUTO_TEST_CASE(package_validation_tests)
 
     // Parent and Child Package
     CKey parent_key = GenerateRandomKey();
-    CScript parent_locking_script = GetScriptForDestination(PKHash(parent_key.GetPubKey()));
+    CScript parent_locking_script = GetScriptForDestination(WitnessV0KeyHash(parent_key.GetPubKey()));
     auto mtx_parent = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[0], /*input_vout=*/0,
                                                     /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
                                                     /*output_destination=*/parent_locking_script,
@@ -267,7 +267,7 @@ BOOST_AUTO_TEST_CASE(package_validation_tests)
     CTransactionRef tx_parent = MakeTransactionRef(mtx_parent);
 
     CKey child_key = GenerateRandomKey();
-    CScript child_locking_script = GetScriptForDestination(PKHash(child_key.GetPubKey()));
+    CScript child_locking_script = GetScriptForDestination(WitnessV0KeyHash(child_key.GetPubKey()));
     auto mtx_child = CreateValidMempoolTransaction(/*input_transaction=*/tx_parent, /*input_vout=*/0,
                                                    /*input_height=*/101, /*input_signing_key=*/parent_key,
                                                    /*output_destination=*/child_locking_script,
@@ -311,9 +311,9 @@ BOOST_AUTO_TEST_CASE(noncontextual_package_tests)
 {
     // The signatures won't be verified so we can just use a placeholder
     CKey placeholder_key = GenerateRandomKey();
-    CScript spk = GetScriptForDestination(PKHash(placeholder_key.GetPubKey()));
+    CScript spk = GetScriptForDestination(WitnessV0KeyHash(placeholder_key.GetPubKey()));
     CKey placeholder_key_2 = GenerateRandomKey();
-    CScript spk2 = GetScriptForDestination(PKHash(placeholder_key_2.GetPubKey()));
+    CScript spk2 = GetScriptForDestination(WitnessV0KeyHash(placeholder_key_2.GetPubKey()));
 
     // Parent and Child Package
     {
@@ -410,7 +410,7 @@ BOOST_AUTO_TEST_CASE(package_submission_tests)
     LOCK(cs_main);
     unsigned int expected_pool_size = m_node.mempool->size();
     CKey parent_key = GenerateRandomKey();
-    CScript parent_locking_script = GetScriptForDestination(PKHash(parent_key.GetPubKey()));
+    CScript parent_locking_script = GetScriptForDestination(WitnessV0KeyHash(parent_key.GetPubKey()));
 
     // Unrelated transactions are not allowed in package submission.
     Package package_unrelated;
@@ -441,7 +441,7 @@ BOOST_AUTO_TEST_CASE(package_submission_tests)
     package_3gen.push_back(tx_parent);
 
     CKey child_key = GenerateRandomKey();
-    CScript child_locking_script = GetScriptForDestination(PKHash(child_key.GetPubKey()));
+    CScript child_locking_script = GetScriptForDestination(WitnessV0KeyHash(child_key.GetPubKey()));
     auto mtx_child = CreateValidMempoolTransaction(/*input_transaction=*/tx_parent, /*input_vout=*/0,
                                                    /*input_height=*/101, /*input_signing_key=*/parent_key,
                                                    /*output_destination=*/child_locking_script,
@@ -451,7 +451,7 @@ BOOST_AUTO_TEST_CASE(package_submission_tests)
     package_3gen.push_back(tx_child);
 
     CKey grandchild_key = GenerateRandomKey();
-    CScript grandchild_locking_script = GetScriptForDestination(PKHash(grandchild_key.GetPubKey()));
+    CScript grandchild_locking_script = GetScriptForDestination(WitnessV0KeyHash(grandchild_key.GetPubKey()));
     auto mtx_grandchild = CreateValidMempoolTransaction(/*input_transaction=*/tx_child, /*input_vout=*/0,
                                                        /*input_height=*/101, /*input_signing_key=*/child_key,
                                                        /*output_destination=*/grandchild_locking_script,
@@ -485,8 +485,8 @@ BOOST_AUTO_TEST_CASE(package_submission_tests)
         } else {
             auto it_parent = result_quit_early.m_tx_results.find(tx_parent_invalid->GetWitnessHash());
             auto it_child = result_quit_early.m_tx_results.find(tx_child->GetWitnessHash());
-            BOOST_CHECK_EQUAL(it_parent->second.m_state.GetResult(), TxValidationResult::TX_WITNESS_MUTATED);
-            BOOST_CHECK_EQUAL(it_parent->second.m_state.GetRejectReason(), "bad-witness-nonstandard");
+            BOOST_CHECK_EQUAL(it_parent->second.m_state.GetResult(), TxValidationResult::TX_NOT_STANDARD);
+            BOOST_CHECK_EQUAL(it_parent->second.m_state.GetRejectReason(), "mempool-script-verify-flag-failed (Operation not valid with the current stack size)");
             BOOST_CHECK_EQUAL(it_child->second.m_state.GetResult(), TxValidationResult::TX_MISSING_INPUTS);
             BOOST_CHECK_EQUAL(it_child->second.m_state.GetRejectReason(), "bad-txns-inputs-missingorspent");
         }
@@ -558,7 +558,7 @@ BOOST_AUTO_TEST_CASE(package_single_tx)
 
     // No unconfirmed parents
     CKey single_key = GenerateRandomKey();
-    CScript single_locking_script = GetScriptForDestination(PKHash(single_key.GetPubKey()));
+    CScript single_locking_script = GetScriptForDestination(WitnessV0KeyHash(single_key.GetPubKey()));
     auto mtx_single = CreateValidMempoolTransaction(/*input_transaction=*/m_coinbase_txns[0], /*input_vout=*/0,
                                                     /*input_height=*/0, /*input_signing_key=*/coinbaseKey,
                                                     /*output_destination=*/single_locking_script,

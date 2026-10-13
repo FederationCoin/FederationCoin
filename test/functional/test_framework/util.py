@@ -589,14 +589,16 @@ def check_node_connections(*, node, num_in, num_out):
 
 
 # Payment outputs appended to a transaction to make it large. A user
-# OP_RETURN is not valid. Each output is above dust at DUST_RELAY_TX_FEE.
-# The total serialized size of the txouts is about 66k vbytes.
+# OP_RETURN is not valid. Each output is a 36-byte Dilithium-44 modern-sig
+# template (standard, above dust at DUST_RELAY_TX_FEE). The total serialized
+# size of the txouts is about 66k vbytes.
 def gen_return_txouts():
     from .messages import CTxOut
-    from .script import CScript, OP_0
-    pay = CScript([OP_0, b'\x11' * 32])
-    txouts = [CTxOut(nValue=1000, scriptPubKey=pay) for _ in range(1568)]
-    assert_equal(sum([len(txout.serialize()) for txout in txouts]), 67424)
+    from .script import CScript, OP_1, OP_CHECKMODERNSIG
+    pay = CScript([b'\x11' * 32, OP_1, OP_1, OP_CHECKMODERNSIG])
+    assert_equal(len(pay), 36)
+    txouts = [CTxOut(nValue=1000, scriptPubKey=pay) for _ in range(1498)]
+    assert_equal(sum([len(txout.serialize()) for txout in txouts]), 67410)
     return txouts
 
 

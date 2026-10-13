@@ -9,6 +9,8 @@
 #include <consensus/spend_kind_weight.h>
 #include <test/util/setup_common.h>
 
+#include <variant>
+
 #include <limits>
 
 #include <boost/test/unit_test.hpp>
@@ -291,6 +293,29 @@ BOOST_AUTO_TEST_CASE(checked_arith_bounds)
     signed_sum = 4;
     BOOST_CHECK(!Consensus::CheckedAddSigned(std::numeric_limits<int64_t>::min(), -1, signed_sum));
     BOOST_CHECK_EQUAL(signed_sum, 4);
+}
+
+BOOST_AUTO_TEST_CASE(worst_case_cap_at_height)
+{
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(0, 210000), 2400000ULL);
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(-1, 210000), 2400000ULL);
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(1, 0), 2400000ULL);
+    // 209999 / 210000 is 0 epochs (floor toward zero), so still MIN_FLEX.
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(209999, 210000), 2400000ULL);
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(210000, 210000), 3600000ULL);
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(210001, 210000), 3600000ULL);
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(420000, 210000), 5400000ULL);
+    uint64_t grown_cap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
+    for (;;) {
+        const Consensus::GrowCapResult grown{Consensus::GrowCap(grown_cap)};
+        if (const Consensus::Grew* g = std::get_if<Consensus::Grew>(&grown)) {
+            grown_cap = g->cap;
+            continue;
+        }
+        break;
+    }
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(std::numeric_limits<int>::max(), 1), grown_cap);
+    BOOST_CHECK(grown_cap <= Consensus::MAX_FLEX_BLOCK_WEIGHT);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

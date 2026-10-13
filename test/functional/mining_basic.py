@@ -444,11 +444,10 @@ class MiningTest(BitcoinTestFramework):
         )
 
         self.log.info("Test -blockreservedweight startup option.")
-        # Lowering reserved weight frees room. Two extra ML-DSA spends need more
-        # than 4000 weight, so the template still holds the 10 large transactions.
+        # Lowering reserved weight frees room for one more padded self-transfer.
         self.restart_node(0, extra_args=[f"-datacarriersize={LARGE_VSIZE}", "-blockreservedweight=4000"])
         self.verify_block_template(
-            expected_tx_count=10,
+            expected_tx_count=11,
             expected_weight=block_weight_cap - 4000,
         )
 

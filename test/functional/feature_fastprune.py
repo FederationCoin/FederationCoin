@@ -3,6 +3,7 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test fastprune mode."""
+from test_framework.address import ADDRESS_BCRT1_UNSPENDABLE
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal
@@ -21,7 +22,7 @@ class FeatureFastpruneTest(BitcoinTestFramework):
         # Fastprune block files are 64KiB. Fill the block with payments.
         # One ML-DSA-44 payment is about 1,100 vB; stay under the 2,400,000 weight cap.
         chain = wallet.create_self_transfer_chain(chain_length=200)
-        self.generateblock(self.nodes[0], output="raw(55)", transactions=[tx["hex"] for tx in chain])
+        self.generateblock(self.nodes[0], output=ADDRESS_BCRT1_UNSPENDABLE, transactions=[tx["hex"] for tx in chain])
         assert_equal(self.nodes[0].getblockcount(), 201)
 
 

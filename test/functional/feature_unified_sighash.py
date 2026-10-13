@@ -1415,18 +1415,18 @@ class UnifiedSighashTest(BitcoinTestFramework):
         assert "walletoldsigs" not in node.help()
         self.log.info("  help does not offer a legacy signing switch")
 
-        self.log.info("A BIP322 message signature stays legacy")
-        # Message signing is not a spend. It is verified against a hash type of
-        # exactly SIGHASH_ALL, so opting in would produce a signature this node's
-        # own verifier rejects. A non-legacy address takes the BIP322 path.
+        self.log.info("A BIP322 message signature uses UNIFIED")
+        # BIP322 on this chain verifies with SCRIPT_VERIFY_UNIFIED_SIGHASH, so
+        # the proof opts in. SIGHASH_ALL stays required; the UNIFIED bit rides
+        # with it.
         self.restart_node(0, extra_args=self.extra_args[0])
         self.nodes[0].createwallet(wallet_name="bip322")
         w = self.nodes[0].get_wallet_rpc("bip322")
         addr = w.getnewaddress(address_type="bech32")
         sig = w.signmessage(addr, "unified sighash")
         assert node.verifymessage(addr, sig, "unified sighash"), \
-            "a message signature must not opt in, or the node cannot verify it"
-        self.log.info("  signed and verified with the fork scheduled")
+            "a BIP322 proof must opt in, or the node cannot verify it"
+        self.log.info("  signed and verified with UNIFIED")
 
         self.log.info("A co-signer's opt-in signature survives a second UNIFIED pass")
         # A second signer must recognize the first party's UNIFIED signature

@@ -2081,6 +2081,7 @@ void PeerManagerImpl::NewPoWValidBlock(const CBlockIndex *pindex, const std::sha
 void PeerManagerImpl::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload)
 {
     SetBestBlock(pindexNew->nHeight, std::chrono::seconds{pindexNew->GetBlockTime()});
+    m_connman.DisconnectV2WhenAdmitExceeds();
 
     // Don't relay inventory during initial block download.
     if (fInitialDownload) return;
@@ -5068,9 +5069,9 @@ bool PeerManagerImpl::ProcessMessages(CNode* pfrom, std::atomic<bool>& interrupt
         LOCK(m_tx_download_mutex);
         if (m_txdownloadman.HaveMoreWork(peer->m_id)) fMoreWork = true;
     } catch (const std::exception& e) {
-        LogDebug(BCLog::NET, "%s(%s, %u bytes): Exception '%s' (%s) caught\n", __func__, SanitizeString(msg.m_type), msg.m_message_size, e.what(), typeid(e).name());
+        LogDebug(BCLog::NET, "%s(%s, %llu bytes): Exception '%s' (%s) caught\n", __func__, SanitizeString(msg.m_type), static_cast<unsigned long long>(msg.m_message_size), e.what(), typeid(e).name());
     } catch (...) {
-        LogDebug(BCLog::NET, "%s(%s, %u bytes): Unknown exception caught\n", __func__, SanitizeString(msg.m_type), msg.m_message_size);
+        LogDebug(BCLog::NET, "%s(%s, %llu bytes): Unknown exception caught\n", __func__, SanitizeString(msg.m_type), static_cast<unsigned long long>(msg.m_message_size));
     }
 
     return fMoreWork;

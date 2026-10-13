@@ -136,10 +136,9 @@ void DoTest(const CScript& scriptPubKey, const CScript& scriptSig, const CScript
             spends_v0 = is_v0(CScript(stack.back().begin(), stack.back().end()));
         }
     }
-    // Chain spends set UNIFIED; v0 is secp / Dilithium, not BIP141. Inner
-    // P2WSH/P2WPKH errors and OK become EVAL_FALSE. Without UNIFIED (BIP322
-    // and this JSON corpus) keep BIP141 expected errors.
-    if ((flags & SCRIPT_VERIFY_WITNESS) && (flags & SCRIPT_VERIFY_UNIFIED_SIGHASH) && spends_v0) {
+    // v0 is secp / Dilithium, not BIP141. UNIFIED-off fails closed.
+    // Inner P2WSH/P2WPKH errors and OK become EVAL_FALSE.
+    if ((flags & SCRIPT_VERIFY_WITNESS) && spends_v0) {
         switch (scriptError) {
         case SCRIPT_ERR_WITNESS_MALLEATED:
         case SCRIPT_ERR_WITNESS_MALLEATED_P2SH:

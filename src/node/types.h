@@ -17,7 +17,6 @@
 #include <policy/policy.h>
 
 #include <cstddef>
-#include <policy/policy.h>
 #include <script/script.h>
 
 namespace node {
@@ -55,8 +54,9 @@ struct BlockCreateOptions {
      */
     size_t coinbase_output_max_additional_sigops{400};
     /**
-     * Script to put in the coinbase transaction. The default is an
-     * anyone-can-spend dummy.
+     * Script to put in the coinbase transaction. The default is a witness
+     * v0 keyhash dummy (20 zero bytes). OP_TRUE is not a consensus-admitted
+     * output script.
      *
      * Should only be used for tests, when the default doesn't suffice.
      *
@@ -69,7 +69,7 @@ struct BlockCreateOptions {
      * The size and sigops are not checked against
      * coinbase_max_additional_weight and coinbase_output_max_additional_sigops.
      */
-    CScript coinbase_output_script{CScript() << OP_TRUE};
+    CScript coinbase_output_script{CScript() << OP_0 << std::vector<unsigned char>(20, 0)};
 
     // Configuration parameters for the block size
     size_t nBlockMaxWeight{DEFAULT_BLOCK_MAX_WEIGHT};

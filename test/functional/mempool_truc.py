@@ -4,6 +4,7 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 from decimal import Decimal
 
+from test_framework.address import ADDRESS_BCRT1_UNSPENDABLE
 from test_framework.messages import (
     MAX_BIP125_RBF_SEQUENCE,
 )
@@ -58,14 +59,14 @@ class MempoolTRUC(BitcoinTestFramework):
     def test_truc_max_vsize(self):
         node = self.nodes[0]
         self.log.info("Test TRUC-specific maximum transaction vsize")
-        tx_v3_heavy = self.wallet.create_self_transfer(target_vsize=TRUC_MAX_VSIZE + 1, version=3)
+        tx_v3_heavy = self.wallet.create_self_transfer(target_vsize=TRUC_MAX_VSIZE + 50, version=3)
         assert_greater_than_or_equal(tx_v3_heavy["tx"].get_vsize(), TRUC_MAX_VSIZE)
         expected_error_heavy = f"truc-vsize-toobig, version=3 tx {tx_v3_heavy['txid']} (wtxid={tx_v3_heavy['wtxid']}) is too big"
         assert_raises_rpc_error(-26, expected_error_heavy, node.sendrawtransaction, tx_v3_heavy["hex"])
         self.check_mempool([])
 
         # Ensure we are hitting the TRUC-specific limit and not something else
-        tx_v2_heavy = self.wallet.send_self_transfer(from_node=node, target_vsize=TRUC_MAX_VSIZE + 1, version=2)
+        tx_v2_heavy = self.wallet.send_self_transfer(from_node=node, target_vsize=TRUC_MAX_VSIZE + 50, version=2)
         self.check_mempool([tx_v2_heavy["txid"]])
 
     @cleanup(extra_args=["-datacarriersize=1000"])
@@ -76,7 +77,7 @@ class MempoolTRUC(BitcoinTestFramework):
         self.check_mempool([tx_v3_parent_normal["txid"]])
         tx_v3_child_heavy = self.wallet.create_self_transfer(
             utxo_to_spend=tx_v3_parent_normal["new_utxo"],
-            target_vsize=TRUC_CHILD_MAX_VSIZE + 1,
+            target_vsize=TRUC_CHILD_MAX_VSIZE + 50,
             version=3
         )
         assert_greater_than_or_equal(tx_v3_child_heavy["tx"].get_vsize(), TRUC_CHILD_MAX_VSIZE)
@@ -211,7 +212,7 @@ class MempoolTRUC(BitcoinTestFramework):
         tx_chain_3 = self.wallet.create_self_transfer(utxo_to_spend=tx_chain_2["new_utxo"], version=3)
 
         tx_to_mine = [tx_v3_block["hex"], tx_v2_block["hex"], tx_v3_block2["hex"], tx_chain_1["hex"], tx_chain_2["hex"], tx_chain_3["hex"]]
-        block = self.generateblock(node, output="raw(42)", transactions=tx_to_mine)
+        block = self.generateblock(node, output=ADDRESS_BCRT1_UNSPENDABLE, transactions=tx_to_mine)
 
         self.check_mempool([])
         tx_v2_from_v3 = self.wallet.send_self_transfer(from_node=node, utxo_to_spend=tx_v3_block["new_utxo"], version=2)

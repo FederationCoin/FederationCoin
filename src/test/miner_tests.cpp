@@ -2,6 +2,9 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <consensus/block_limits.h>
+#include <consensus/consensus.h>
+#include <consensus/flex_weight.h>
 #include <consensus/settlement_fee.h>
 #include <interfaces/mining.h>
 #include <node/miner.h>
@@ -162,6 +165,17 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
     LOCK(cs_main);
     TestPackageSelection(scriptPubKey, txFirst);
     TestPrioritisedMining(scriptPubKey, txFirst);
+}
+
+BOOST_AUTO_TEST_CASE(clamped_size_tracks_flex_not_file_window)
+{
+    node::BlockCreateOptions options;
+    options.nBlockMaxWeight = Consensus::MIN_FLEX_BLOCK_WEIGHT;
+    options.nBlockMaxSize = CONTEXT_FREE_BLOCK_BYTES + 1000;
+    const auto clamped{options.Clamped()};
+    BOOST_CHECK_GT(static_cast<uint64_t>(clamped.nBlockMaxSize), CONTEXT_FREE_BLOCK_BYTES);
+    BOOST_CHECK_LE(static_cast<uint64_t>(clamped.nBlockMaxSize),
+                   Consensus::LimitsForCap(Consensus::MAX_FLEX_BLOCK_WEIGHT).serialized_size);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

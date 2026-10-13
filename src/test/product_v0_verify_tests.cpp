@@ -12,6 +12,7 @@
 #include <primitives/transaction.h>
 #include <pubkey.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/script_error.h>
 #include <script/sign.h>
@@ -117,7 +118,7 @@ static SignedSpend Sign44Unified()
     std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> seed{};
     seed[31] = 9;
     BOOST_REQUIRE(Consensus::MlDsa44Keygen(seed, key));
-    CTxOut spent{50000, CScript() << OP_0 << ToByteVector(Consensus::MlDsa44SingleKeyProgram(key.pubkey))};
+    CTxOut spent{50000, BuildModernSingle(Consensus::MlDsa44SingleKeyProgram(key.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_44)};
     CMutableTransaction mtx{BaseMtx()};
     PrecomputedTransactionData sign_data;
     sign_data.Init(mtx, {spent}, /*force=*/true);
@@ -139,7 +140,7 @@ static SignedSpend Sign87Unified()
     std::array<unsigned char, Consensus::MLDSA87_SEED_SIZE> seed{};
     seed[31] = 11;
     BOOST_REQUIRE(Consensus::MlDsa87Keygen(seed, key));
-    CTxOut spent{50000, CScript() << OP_0 << ToByteVector(Consensus::MlDsa87SingleKeyProgram(key.pubkey))};
+    CTxOut spent{50000, BuildModernSingle(Consensus::MlDsa87SingleKeyProgram(key.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_87)};
     CMutableTransaction mtx{BaseMtx()};
     PrecomputedTransactionData sign_data;
     sign_data.Init(mtx, {spent}, /*force=*/true);
@@ -195,6 +196,18 @@ BOOST_AUTO_TEST_CASE(verifyscript_rejects_bip141_p2wsh)
     const SignedSpend spend{Bip141P2wshOpTrue()};
     BOOST_CHECK(!VerifySpend(spend));
     BOOST_CHECK_EQUAL(VerifySpend(spend), ScriptCheckSpend(spend));
+}
+
+BOOST_AUTO_TEST_CASE(verifyscript_unified_off_fails)
+{
+    const SignedSpend spend{SignSecpUnified()};
+    ScriptError err{SCRIPT_ERR_OK};
+    TransactionSignatureChecker checker(&spend.tx, 0, spend.spent.nValue, spend.txdata, MissingDataBehavior::ASSERT_FAIL);
+    const unsigned int flags{STANDARD_SCRIPT_VERIFY_FLAGS};
+    BOOST_CHECK(!(flags & SCRIPT_VERIFY_UNIFIED_SIGHASH));
+    BOOST_CHECK(!VerifyScript(spend.tx.vin[0].scriptSig, spend.spent.scriptPubKey,
+                              &spend.tx.vin[0].scriptWitness, flags, checker, &err));
+    BOOST_CHECK_EQUAL(err, SCRIPT_ERR_EVAL_FALSE);
 }
 
 BOOST_AUTO_TEST_CASE(verifyscript_rejects_bip143_only_secp)

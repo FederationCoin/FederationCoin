@@ -12,6 +12,7 @@
 #include <key_io.h>
 #include <pubkey.h>
 #include <script/miniscript.h>
+#include <script/modern_sig.h>
 #include <script/parsing.h>
 #include <script/script.h>
 #include <script/signingprovider.h>
@@ -991,7 +992,8 @@ protected:
         out.origins.emplace(pubkey.GetID(), std::make_pair(pubkey, std::move(origin)));
         out.pubkeys.emplace(pubkey.GetID(), pubkey);
         out.mldsa_programs[program] = MldsaProgramRecord{kind, pubkey.GetID()};
-        output_scripts = Vector(GetScriptForDestination(WitnessV0ScriptHash(program)));
+        const int32_t param{m_type == OutputType::DILITHIUM87 ? PARAM_DILITHIUM_87 : PARAM_DILITHIUM_44};
+        output_scripts = Vector(BuildModernSingle(program, ALGO_DILITHIUM, param));
         return true;
     }
 public:
@@ -1004,7 +1006,7 @@ public:
         return std::make_unique<MldsaDescriptor>(m_pubkey_args.at(0)->Clone(), m_type, m_name);
     }
 
-    std::optional<int64_t> ScriptSize() const override { return 1 + 1 + 32; }
+    std::optional<int64_t> ScriptSize() const override { return DILITHIUM_SINGLE_SCRIPT_SIZE; }
 
     std::optional<int64_t> MaxSatSize(bool) const override
     {
@@ -2366,30 +2368,30 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
             if (sub) return std::make_unique<SHDescriptor>(std::move(sub));
         }
     }
+    if (txntype == TxoutType::CHECKMODERNSIG && ctx == ParseScriptContext::TOP && data.size() >= 1) {
+        const uint256 program{Span<const unsigned char>{data[0].data(), data[0].size()}};
+        uint8_t kind{0};
+        CKeyID key_id;
+        if (provider.GetMldsaProgram(program, kind, key_id)) {
+            CPubKey pk;
+            if (provider.GetPubKey(key_id, pk)) {
+                if (auto pubkey_provider = InferPubkey(pk, ctx, provider)) {
+                    if (kind == 87) {
+                        return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM87, "mldsa87");
+                    }
+                    if (kind == 44) {
+                        return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM44, "mldsa");
+                    }
+                }
+            }
+        }
+    }
     if (txntype == TxoutType::WITNESS_V0_SCRIPTHASH && (ctx == ParseScriptContext::TOP || ctx == ParseScriptContext::P2SH)) {
         CScriptID scriptid{RIPEMD160(data[0])};
         CScript subscript;
         if (provider.GetCScript(scriptid, subscript)) {
             auto sub = InferScript(subscript, ParseScriptContext::P2WSH, provider);
             if (sub) return std::make_unique<WSHDescriptor>(std::move(sub));
-        }
-        if (ctx == ParseScriptContext::TOP) {
-            const uint256 program{Span<const unsigned char>{data[0].data(), data[0].size()}};
-            uint8_t kind{0};
-            CKeyID key_id;
-            if (provider.GetMldsaProgram(program, kind, key_id)) {
-                CPubKey pk;
-                if (provider.GetPubKey(key_id, pk)) {
-                    if (auto pubkey_provider = InferPubkey(pk, ctx, provider)) {
-                        if (kind == 87) {
-                            return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM87, "mldsa87");
-                        }
-                        if (kind == 44) {
-                            return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM44, "mldsa");
-                        }
-                    }
-                }
-            }
         }
     }
     if (txntype == TxoutType::WITNESS_V1_TAPROOT && ctx == ParseScriptContext::TOP) {

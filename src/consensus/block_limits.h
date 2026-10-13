@@ -56,7 +56,6 @@ void SetBlockMessageAdmitWeight(uint64_t weight);
 /** Serialized-size ceiling for block / cmpctblock / blocktxn. Derived from
  *  BlockMessageAdmitWeight(); not MAX_FLEX_BLOCK_WEIGHT. */
 uint64_t BlockMessageReceiveLimit();
-void SetBlockMessageReceiveLimit(uint64_t bytes);
 
 } // namespace Consensus
 

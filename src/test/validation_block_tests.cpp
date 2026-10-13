@@ -12,6 +12,7 @@
 #include <pow.h>
 #include <random.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <test/util/random.h>
 #include <test/util/script.h>
 #include <test/util/setup_common.h>
@@ -36,7 +37,7 @@ struct MinerTestingSetup : public RegTestingSetup {
     Consensus::MlDsa44Keypair spend_mldsa;
     CScript SpendScriptPubKey() const
     {
-        return CScript() << OP_0 << ToByteVector(Consensus::MlDsa44SingleKeyProgram(spend_mldsa.pubkey));
+        return BuildModernSingle(Consensus::MlDsa44SingleKeyProgram(spend_mldsa.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_44);
     }
     void SignMldsaSpend(CMutableTransaction& tx, const CTxOut& spent) const
     {
@@ -97,7 +98,13 @@ std::shared_ptr<CBlock> MinerTestingSetup::Block(const uint256& prev_hash)
     static uint64_t time = Params().GenesisBlock().nTime;
 
     BlockAssembler::Options options;
-    options.coinbase_output_script = CScript{} << i++ << OP_TRUE;
+    std::vector<unsigned char> unique(WITNESS_V0_KEYHASH_SIZE, 0);
+    unique[0] = static_cast<unsigned char>(i);
+    unique[1] = static_cast<unsigned char>(i >> 8);
+    unique[2] = static_cast<unsigned char>(i >> 16);
+    unique[3] = static_cast<unsigned char>(i >> 24);
+    ++i;
+    options.coinbase_output_script = CScript{} << OP_0 << unique;
     auto ptemplate = BlockAssembler{m_node.chainman->ActiveChainstate(), m_node.mempool.get(), options, m_node}.CreateNewBlock();
     auto pblock = std::make_shared<CBlock>(ptemplate->block);
     pblock->hashPrevBlock = prev_hash;
@@ -369,10 +376,8 @@ BOOST_AUTO_TEST_CASE(mempool_locks_reorg)
 BOOST_AUTO_TEST_CASE(witness_commitment_index)
 {
     LOCK(Assert(m_node.chainman)->GetMutex());
-    CScript pubKey;
-    pubKey << 1 << OP_TRUE;
     BlockAssembler::Options options;
-    options.coinbase_output_script = pubKey;
+    options.coinbase_output_script = SpendScriptPubKey();
     auto ptemplate = BlockAssembler{m_node.chainman->ActiveChainstate(), m_node.mempool.get(), options, m_node}.CreateNewBlock();
     CBlock pblock = ptemplate->block;
 

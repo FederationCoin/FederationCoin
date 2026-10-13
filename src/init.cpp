@@ -892,7 +892,7 @@ void InitParameterInteraction(ArgsManager& args)
         args.SoftSetArg("-permitephemeral", "anchor,send,dust");
         args.SoftSetArg("-spkreuse", "allow");
         args.SoftSetArg("-blockprioritysize", "0");
-        args.SoftSetArg("-blockmaxsize", strprintf("%u", CONTEXT_FREE_BLOCK_BYTES));
+        args.SoftSetArg("-blockmaxsize", strprintf("%llu", static_cast<unsigned long long>(Consensus::MAX_FLEX_BLOCK_WEIGHT)));
         args.SoftSetArg("-blockmaxweight", strprintf("%llu", static_cast<unsigned long long>(Consensus::MAX_FLEX_BLOCK_WEIGHT)));
     }
 

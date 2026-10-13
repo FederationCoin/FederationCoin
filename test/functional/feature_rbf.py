@@ -157,8 +157,10 @@ class ReplaceByFeeTest(BitcoinTestFramework):
         tx1a_txid = self.nodes[0].sendrawtransaction(tx1a_hex)
         assert_equal(tx1a_txid, self.nodes[2].sendrawtransaction(tx1a_hex))
 
-        # Should fail because we haven't changed the fee
-        tx.vout[0].scriptPubKey[-1] ^= 1
+        # Flip a fingerprint byte so the output stays a 36-byte modern-sig
+        # template. XORing the last byte would leave size 36 and fail
+        # CheckOutputSizes (bad-txns-vout-script) instead of the fee check.
+        tx.vout[0].scriptPubKey[2] ^= 1
         self.wallet.resign(tx)
         tx_hex = tx.serialize().hex()
 

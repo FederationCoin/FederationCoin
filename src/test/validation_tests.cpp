@@ -99,6 +99,26 @@ BOOST_AUTO_TEST_CASE(block_header_requires_v2)
     BOOST_CHECK(!CheckBlock(v2_txcount, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/true));
     BOOST_CHECK(state.GetResult() == BlockValidationResult::BLOCK_MUTATED);
     BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-txnlist-size");
+
+    CBlock empty_v2;
+    empty_v2.m_header_v2 = true;
+    params.nSubsidyHalvingInterval = 210000;
+    state = {};
+    BOOST_CHECK(!CheckBlock(empty_v2, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-blk-length");
+
+    CBlock oversize;
+    oversize.m_header_v2 = true;
+    oversize.m_height = 0;
+    CMutableTransaction cb;
+    cb.vin.resize(1);
+    cb.vin[0].prevout.SetNull();
+    cb.vin[0].scriptSig.assign(3'000'000, static_cast<unsigned char>(0x00));
+    cb.vout.emplace_back(0, CScript() << OP_0 << std::vector<unsigned char>(20, 0x01));
+    oversize.vtx.push_back(MakeTransactionRef(std::move(cb)));
+    state = {};
+    BOOST_CHECK(!CheckBlock(oversize, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-blk-length");
 }
 
 BOOST_AUTO_TEST_CASE(signet_parse_tests)

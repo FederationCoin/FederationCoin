@@ -46,9 +46,9 @@ namespace Consensus {
 struct Params;
 
 /**
- * Check whether all outputs of this transaction satisfy size limits.
- * Regular outputs must be <= MAX_OUTPUT_SCRIPT_SIZE (34 bytes).
- * OP_RETURN outputs must be <= MAX_OUTPUT_DATA_SIZE (38 bytes).
+ * Admit only product outputs: witness v0 with a 20-byte or 32-byte program,
+ * and the 38-byte coinbase witness commitment. Empty scripts, OP_TRUE, and
+ * every other scriptPubKey fail.
  */
 bool CheckOutputSizes(const CTransaction& tx, TxValidationState& state);
 

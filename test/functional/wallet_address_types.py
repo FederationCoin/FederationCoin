@@ -40,28 +40,21 @@ class AddressTypeTest(BitcoinTestFramework):
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
 
-    def program_len(self, address):
-        info = self.nodes[0].validateaddress(address)
-        assert info["isvalid"]
-        return len(info["witness_program"]) // 2
-
     def test_address(self, node, address, typ):
         info = self.nodes[node].getaddressinfo(address)
         assert self.nodes[node].validateaddress(address)["isvalid"]
         assert_equal(info.get("iswitness"), True)
-        assert_equal(info["witness_version"], 0)
-        prog = info["witness_program"]
-        if typ == "bech32":
-            assert_equal(len(prog), 40)
-        else:
-            assert_equal(len(prog), 64)
         desc = info.get("desc", "")
-        if typ == "mldsa87":
+        if typ == "bech32":
+            assert_equal(info["witness_version"], 0)
+            assert_equal(len(info["witness_program"]), 40)
+            assert desc.startswith("wpkh(")
+        elif typ == "mldsa87":
+            assert_equal(info.get("isscript"), True)
             assert desc.startswith("mldsa87(")
         elif typ == "mldsa44":
+            assert_equal(info.get("isscript"), True)
             assert desc.startswith("mldsa(")
-        elif typ == "bech32":
-            assert desc.startswith("wpkh(")
         else:
             assert False
 
@@ -72,7 +65,6 @@ class AddressTypeTest(BitcoinTestFramework):
         self.log.info("Default getnewaddress is Dilithium 87")
         default_addr = self.nodes[0].getnewaddress()
         self.test_address(0, default_addr, "mldsa87")
-        assert_equal(self.program_len(default_addr), 32)
 
         self.log.info("Explicit mldsa44 and bech32 succeed; segwit is an alias; secp and heritage types are rejected")
         addr44 = self.nodes[0].getnewaddress("", "mldsa44")

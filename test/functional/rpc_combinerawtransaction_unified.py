@@ -30,8 +30,7 @@ class CombineRawTransactionUnifiedTest(BitcoinTestFramework):
 
         keys = [keygen(node.binary, f"{mark:02x}" * 32) for mark in (1, 2)]
         keys.sort(key=lambda key: key_hash(key["pubkey"]))
-        program = policy_program(2, [key_hash(key["pubkey"]) for key in keys])
-        script_pubkey = CScript([OP_0, program])
+        script_pubkey = policy_program(2, [key_hash(key["pubkey"]) for key in keys])
         funded = wallet.send_to(from_node=node, scriptPubKey=script_pubkey, amount=20 * COIN)
         self.generate(node, 1)
 

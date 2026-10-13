@@ -27,6 +27,9 @@ from test_framework.script_util import (
     scripthash_to_p2sh_script,
 )
 from test_framework.segwit_addr import (
+    Encoding,
+    bech32_encode,
+    convertbits,
     decode_segwit_address,
     encode_segwit_address,
 )
@@ -129,6 +132,13 @@ def key_to_p2sh_p2wpkh(key, main=False):
     key = check_key(key)
     p2shscript = CScript([OP_0, hash160(key)])
     return script_to_p2sh(p2shscript, main)
+
+def encode_modern_sig_address(script, main=False):
+    hrp = "gfcn" if main else "gfcnrt"
+    data = convertbits(bytes(script), 8, 5)
+    assert data is not None
+    return bech32_encode(Encoding.BECH32, hrp, data)
+
 
 def program_to_witness(version, program, main=False):
     if (type(program) is str):

@@ -32,6 +32,7 @@ Start three nodes:
 
 from test_framework.blocktools import (
     COINBASE_MATURITY,
+    WITNESS_V0_DUMMY_KEYHASH,
     create_block,
     create_coinbase,
 )
@@ -45,10 +46,6 @@ from test_framework.messages import (
     msg_headers,
 )
 from test_framework.p2p import P2PInterface
-from test_framework.script import (
-    CScript,
-    OP_TRUE,
-)
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
 from test_framework.wallet_util import generate_keypair
@@ -118,7 +115,7 @@ class AssumeValidTest(BitcoinTestFramework):
         # Create a transaction spending the coinbase output with an invalid (null) signature
         tx = CTransaction()
         tx.vin.append(CTxIn(COutPoint(self.block1.vtx[0].sha256, 0), scriptSig=b""))
-        tx.vout.append(CTxOut(49 * 100000000, CScript([OP_TRUE])))
+        tx.vout.append(CTxOut(49 * 100000000, WITNESS_V0_DUMMY_KEYHASH))
         tx.calc_sha256()
 
         block102 = create_block(self.tip, create_coinbase(height), self.block_time, txlist=[tx], height=height)

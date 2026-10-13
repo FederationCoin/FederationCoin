@@ -79,14 +79,8 @@ class SignRawTransactionWithKeyTest(BitcoinTestFramework):
             "scriptPubKey": self.funder.get_output_script().hex(),
             "amount": utxo["value"],
         }
-        assert_raises_rpc_error(
-            -8,
-            "Missing redeemScript/witnessScript",
-            self.nodes[0].signrawtransactionwithkey,
-            raw,
-            [wif],
-            [prev],
-        )
+        signed = self.nodes[0].signrawtransactionwithkey(raw, [wif], [prev])
+        assert_equal(signed["complete"], False)
 
     def closed_p2sh_p2wsh(self):
         self.log.info("P2SH and P2WSH destinations stay invalid")

@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from test_framework.blocktools import (
     COINBASE_MATURITY,
+    WITNESS_V0_DUMMY_KEYHASH,
     create_block,
     create_coinbase,
 )
@@ -137,8 +138,8 @@ class CoinStatsIndexTest(BitcoinTestFramework):
             assert_equal(res5['block_info'], {
                 'unspendable': 0,
                 'prevout_spent': 50,
-                'new_outputs_ex_coinbase': Decimal('49.99691000'),
-                'coinbase': Decimal('50.00309000'),
+                'new_outputs_ex_coinbase': Decimal('49.99690400'),
+                'coinbase': Decimal('50.00309600'),
                 'unspendables': {
                     'genesis_block': 0,
                     'bip30': 0,
@@ -189,7 +190,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
         # Create a coinbase that does not claim full subsidy and also
         # has two outputs
         cb = create_coinbase(109, nValue=35)
-        cb.vout.append(CTxOut(5 * COIN, CScript([OP_FALSE])))
+        cb.vout.append(CTxOut(5 * COIN, WITNESS_V0_DUMMY_KEYHASH))
         cb.rehash()
 
         # Generate a block that includes previous coinbase

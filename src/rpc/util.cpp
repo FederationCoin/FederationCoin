@@ -51,7 +51,7 @@ std::string GetAllOutputTypes()
 {
     std::vector<std::string> ret;
     using U = std::underlying_type<TxoutType>::type;
-    for (U i = (U)TxoutType::NONSTANDARD; i <= (U)TxoutType::WITNESS_UNKNOWN; ++i) {
+    for (U i = (U)TxoutType::NONSTANDARD; i <= (U)TxoutType::CHECKMODERNPOLICY; ++i) {
         ret.emplace_back(GetTxnOutputType(static_cast<TxoutType>(i)));
     }
     return Join(ret, ", ");
@@ -365,6 +365,14 @@ public:
         obj.pushKV("iswitness", true);
         obj.pushKV("witness_version", id.GetWitnessVersion());
         obj.pushKV("witness_program", HexStr(id.GetWitnessProgram()));
+        return obj;
+    }
+
+    UniValue operator()(const ModernSigDestination&) const
+    {
+        UniValue obj(UniValue::VOBJ);
+        obj.pushKV("isscript", true);
+        obj.pushKV("iswitness", true);
         return obj;
     }
 };

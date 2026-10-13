@@ -42,6 +42,7 @@ static constexpr unsigned int BIP322_REQUIRED_FLAGS =
 |   SCRIPT_VERIFY_P2SH
 |   SCRIPT_VERIFY_WITNESS
 |   SCRIPT_VERIFY_TAPROOT
+|   SCRIPT_VERIFY_UNIFIED_SIGHASH
 |   SCRIPT_VERIFY_MINIMALIF;
 
 static constexpr unsigned int BIP322_INCONCLUSIVE_FLAGS =
@@ -67,7 +68,7 @@ MessageVerificationResult MessageVerifyBIP322(
     const CScriptWitness& witness = to_sign.vin[0].scriptWitness;
 
     PrecomputedTransactionData txdata;
-    txdata.Init(to_sign, {to_spend.vout[0]});
+    txdata.Init(to_sign, {to_spend.vout[0]}, /*force=*/true);
     TransactionSignatureChecker sigcheck(&to_sign, /* nInIn= */ 0, /* amountIn= */ to_spend.vout[0].nValue, txdata, MissingDataBehavior::ASSERT_FAIL);
     sigcheck.m_require_sighash_all = true;
 

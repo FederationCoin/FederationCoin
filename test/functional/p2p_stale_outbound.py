@@ -13,6 +13,7 @@ total connection count never exceeds -maxconnections.
 
 import os
 
+from test_framework.address import ADDRESS_BCRT1_UNSPENDABLE
 from test_framework.messages import (
     CBlockHeader,
     NODE_BLAKE2B,
@@ -278,7 +279,7 @@ class StaleOutboundTest(BitcoinTestFramework):
         node = self.nodes[0]
         self.log.info("Stale peers do not consume the chain-sync protection slots")
         self.restart_node(0, extra_args=[f"-maxconnections={ROOMY}", "-maxstaleoutbound=8"])
-        self.generateblock(node, output="raw(42)", transactions=[])
+        self.generateblock(node, output=ADDRESS_BCRT1_UNSPENDABLE, transactions=[])
         tip_header = from_hex(CBlockHeader(), node.getblockheader(node.getbestblockhash(), False))
 
         # Only 4 peers can be protected from the lagging-chain eviction. Stale

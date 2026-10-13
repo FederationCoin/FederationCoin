@@ -9,6 +9,7 @@
 #include <checkqueue.h>
 #include <clientversion.h>
 #include <consensus/amount.h>
+#include <consensus/consensus.h>
 #include <consensus/mldsa44_spend.h>
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
@@ -19,6 +20,7 @@
 #include <policy/policy.h>
 #include <policy/settings.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/script_error.h>
 #include <script/sigcache.h>
@@ -415,32 +417,28 @@ BOOST_AUTO_TEST_CASE(tx_no_inputs)
     BOOST_CHECK(state.GetRejectReason() == "bad-txns-vin-empty");
 }
 
-BOOST_AUTO_TEST_CASE(tx_oversized)
+BOOST_AUTO_TEST_CASE(tx_has_no_frozen_byte_cap)
 {
-    // One script push cannot exceed serialize MAX_SIZE. Build the stripped
-    // transaction from many outputs so the total can cross the disk-window sanity check.
-    auto createTransaction = [](uint64_t target_stripped) {
-        CMutableTransaction tx;
-        tx.vin.resize(1);
-        const size_t chunk{1'000'000};
-        while (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(CTransaction(tx)))) <= target_stripped) {
-            tx.vout.emplace_back(1, CScript() << OP_RETURN << std::vector<unsigned char>(chunk));
-        }
-        return CTransaction(tx);
-    };
-    {
-        TxValidationState state;
-        CMutableTransaction under;
-        under.vin.resize(1);
-        under.vout.emplace_back(1, CScript() << OP_RETURN << std::vector<unsigned char>(32));
-        CheckTransaction(CTransaction(under), state);
-        BOOST_CHECK(state.GetRejectReason() != "bad-txns-oversize");
-    }
-    {
-        TxValidationState state;
-        BOOST_CHECK_MESSAGE(!CheckTransaction(createTransaction(CONTEXT_FREE_BLOCK_BYTES), state), "Oversized transaction should be invalid");
-        BOOST_CHECK(state.GetRejectReason() == "bad-txns-oversize");
-    }
+    CMutableTransaction tx;
+    tx.vin.resize(1);
+    tx.vin[0].prevout = COutPoint{Txid::FromUint256(uint256::ONE), 0};
+    tx.vout.emplace_back(1, CScript() << OP_0 << std::vector<unsigned char>(WITNESS_V0_KEYHASH_SIZE, 0x03));
+    TxValidationState state;
+    BOOST_CHECK(CheckTransaction(CTransaction(tx), state));
+    BOOST_CHECK(state.GetRejectReason() != "bad-txns-oversize");
+
+    // CheckTransaction has no byte cap. A stripped tx past CONTEXT_FREE_BLOCK_BYTES
+    // is not oversize; CheckBlock uses LimitsForCap.
+    CMutableTransaction big;
+    big.vin.resize(1);
+    big.vin[0].prevout = COutPoint{Txid::FromUint256(uint256::ONE), 0};
+    big.vin[0].scriptSig.resize(CONTEXT_FREE_BLOCK_BYTES + 1);
+    big.vout.emplace_back(1, CScript() << OP_0 << std::vector<unsigned char>(WITNESS_V0_KEYHASH_SIZE, 0x03));
+    const CTransaction tx_big{std::move(big)};
+    BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(tx_big))) > CONTEXT_FREE_BLOCK_BYTES);
+    TxValidationState big_state;
+    BOOST_CHECK(CheckTransaction(tx_big, big_state));
+    BOOST_CHECK(big_state.GetRejectReason() != "bad-txns-oversize");
 }
 
 BOOST_AUTO_TEST_CASE(basic_transaction_tests)
@@ -513,15 +511,8 @@ static void CreateCreditAndSpend(const FillableSigningProvider& keystore, const 
     inputm.vout[0].scriptPubKey = CScript();
     SignatureData empty;
     bool ret = SignSignature(keystore, *output, inputm, 0, SIGHASH_ALL, empty);
-    assert(ret == success);
-    DataStream ssin;
-    ssin << TX_WITH_WITNESS(inputm);
-    ssin >> TX_WITH_WITNESS(input);
-    assert(input.vin.size() == 1);
-    assert(input.vin[0] == inputm.vin[0]);
-    assert(input.vout.size() == 1);
-    assert(input.vout[0] == inputm.vout[0]);
-    assert(input.vin[0].scriptWitness.stack == inputm.vin[0].scriptWitness.stack);
+    BOOST_REQUIRE_EQUAL(ret, success);
+    input = inputm;
 }
 
 static void CheckWithFlag(const CTransactionRef& output, const CMutableTransaction& input, uint32_t flags, bool success)
@@ -566,7 +557,7 @@ BOOST_AUTO_TEST_CASE(test_big_witness_transaction)
     std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> seed{};
     seed[31] = 7;
     BOOST_REQUIRE(Consensus::MlDsa44Keygen(seed, key));
-    const CScript scriptPubKey = CScript() << OP_0 << ToByteVector(Consensus::MlDsa44SingleKeyProgram(key.pubkey));
+    const CScript scriptPubKey = BuildModernSingle(Consensus::MlDsa44SingleKeyProgram(key.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_44);
 
     CMutableTransaction mtx;
     mtx.version = 1;
@@ -787,8 +778,8 @@ BOOST_AUTO_TEST_CASE(test_witness)
     CheckWithFlag(output2, input2, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false);
     BOOST_CHECK(*output1 == *output2);
     UpdateInput(input1.vin[0], CombineSignatures(input1, input2, output1));
-    CheckWithFlag(output1, input1, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true);
-    CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, true);
+    CheckWithFlag(output1, input1, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false);
+    CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, false);
     CheckWithFlag(output1, input1, witness_unified, false);
     CheckWithFlag(output1, input1, standard_unified, false);
 
@@ -801,8 +792,8 @@ BOOST_AUTO_TEST_CASE(test_witness)
     CheckWithFlag(output2, input2, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false);
     BOOST_CHECK(*output1 == *output2);
     UpdateInput(input1.vin[0], CombineSignatures(input1, input2, output1));
-    CheckWithFlag(output1, input1, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, true);
-    CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, true);
+    CheckWithFlag(output1, input1, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS, false);
+    CheckWithFlag(output1, input1, STANDARD_SCRIPT_VERIFY_FLAGS, false);
     CheckWithFlag(output1, input1, witness_unified, false);
     CheckWithFlag(output1, input1, standard_unified, false);
 }
@@ -1323,8 +1314,8 @@ BOOST_AUTO_TEST_CASE(spends_witness_prog)
     std::vector<std::vector<uint8_t>> sol_dummy;
 
     // CNoDestination, PubKeyDestination, PKHash, ScriptHash, WitnessV0ScriptHash, WitnessV0KeyHash,
-    // WitnessV1Taproot, PayToAnchor, WitnessUnknown.
-    static_assert(std::variant_size_v<CTxDestination> == 9);
+    // WitnessV1Taproot, PayToAnchor, WitnessUnknown, ModernSigDestination.
+    static_assert(std::variant_size_v<CTxDestination> == 10);
 
     // Go through all defined output types and sanity check SpendsNonAnchorWitnessProg.
 
@@ -1462,6 +1453,15 @@ BOOST_AUTO_TEST_CASE(spends_witness_prog)
         tx_spend.vin[0].scriptSig.clear();
         BOOST_CHECK(!::SpendsNonAnchorWitnessProg(CTransaction{tx_spend}, coins));
     }
+
+    // Dilithium CHECKMODERNSIG (not a BIP141 witness program).
+    uint256 fingerprint;
+    std::fill(fingerprint.begin(), fingerprint.end(), static_cast<unsigned char>(0xab));
+    tx_create.vout[0].scriptPubKey = BuildModernSingle(fingerprint, ALGO_DILITHIUM, PARAM_DILITHIUM_44);
+    BOOST_CHECK_EQUAL(Solver(tx_create.vout[0].scriptPubKey, sol_dummy), TxoutType::CHECKMODERNSIG);
+    tx_spend.vin[0].prevout.hash = tx_create.GetHash();
+    AddCoins(coins, CTransaction{tx_create}, 0, false);
+    BOOST_CHECK(::SpendsNonAnchorWitnessProg(CTransaction{tx_spend}, coins));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

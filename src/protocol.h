@@ -329,6 +329,10 @@ enum ServiceFlags : uint64_t {
     // NODE_P2P_V2 means the node supports BIP324 transport
     NODE_P2P_V2 = (1 << 11),
 
+    // NODE_P2P_V3 means the node speaks FCN-P2P-v3 application frames after
+    // the BIP324 handshake (see doc/federation-p2p-v3.md).
+    NODE_P2P_V3 = (1 << 14),
+
     // NODE_UTREEXO means the node can provide utreexo inclusion proofs for new and otherwise available blocks
     NODE_UTREEXO = (1 << 12),
 

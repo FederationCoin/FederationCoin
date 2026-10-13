@@ -67,6 +67,10 @@ static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 4'000'000;
 
 /** True when a v2 packet can still name a block at the live admit cap. */
 bool V2CanCarryAdmitCap() noexcept;
+/** True when flags advertise BIP324 v2 or FCN-P2P-v3. */
+bool EncryptedP2POffered(ServiceFlags flags) noexcept;
+/** Version packet first byte: this side offers v3 application frames. */
+static constexpr uint8_t FCN_P2P_V3_VERSION_TAG{0x03};
 /** Maximum length of the user agent string in `version` message */
 static const unsigned int MAX_SUBVERSION_LENGTH = 256;
 /** Maximum number of automatic outgoing nodes over which we'll relay everything (blocks, tx, addrs, etc) */
@@ -249,8 +253,8 @@ class CNetMessage
 public:
     DataStream m_recv;                   //!< received message data
     std::chrono::microseconds m_time{0}; //!< time of message receipt
-    uint32_t m_message_size{0};          //!< size of the payload
-    uint32_t m_raw_message_size{0};      //!< used wire size of the message (including header/checksum)
+    uint64_t m_message_size{0};          //!< size of the payload
+    uint64_t m_raw_message_size{0};      //!< used wire size of the message (including header/checksum)
     std::string m_type;
 
     explicit CNetMessage(DataStream&& recv_in) : m_recv(std::move(recv_in)) {}
@@ -526,8 +530,8 @@ private:
          * first received packet in this state (whether it's a decoy or not) is expected to
          * authenticate the garbage received during the GARB_GARBTERM state as associated
          * authenticated data (AAD). The first non-decoy packet in this state is interpreted as
-         * version negotiation (currently, that means ignoring the contents, but it can be used for
-         * negotiating future extensions), and afterwards the state becomes APP. */
+         * version negotiation: empty contents is BIP324 v2 application framing;
+         * 0x03 from both sides is v3. Afterwards the state becomes APP or APP_V3. */
         VERSION,
 
         /** Application packet.
@@ -542,6 +546,12 @@ private:
          * Nothing can be received in this state. When the message is retrieved by GetMessage,
          * the state becomes APP again. */
         APP_READY,
+
+        /** v3 application frame (8-byte length, MORE assembly). */
+        APP_V3,
+
+        /** A complete v3 message is available for GetMessage(). */
+        APP_V3_READY,
 
         /** Nothing (this transport is using v1 fallback).
          *
@@ -603,15 +613,24 @@ private:
 
     /** Lock for receiver-side fields. */
     mutable Mutex m_recv_mutex ACQUIRED_BEFORE(m_send_mutex);
-    /** In {VERSION, APP}, the decrypted packet length, if m_recv_buffer.size() >=
-     *  BIP324Cipher::LENGTH_LEN. Unspecified otherwise. */
-    uint32_t m_recv_len GUARDED_BY(m_recv_mutex) {0};
+    /** In {VERSION, APP, APP_V3}, the decrypted packet length, if m_recv_buffer.size() >=
+     *  the framing length size. Unspecified otherwise. */
+    uint64_t m_recv_len GUARDED_BY(m_recv_mutex) {0};
     /** Receive buffer; meaning is determined by m_recv_state. */
     std::vector<uint8_t> m_recv_buffer GUARDED_BY(m_recv_mutex);
     /** AAD expected in next received packet (currently used only for garbage). */
     std::vector<uint8_t> m_recv_aad GUARDED_BY(m_recv_mutex);
     /** Buffer to put decrypted contents in, for converting to CNetMessage. */
     std::vector<uint8_t> m_recv_decode_buffer GUARDED_BY(m_recv_mutex);
+    /** Assembled v3 payload (after type and total_payload are stripped). */
+    std::vector<uint8_t> m_v3_assembly GUARDED_BY(m_recv_mutex);
+    uint64_t m_v3_total GUARDED_BY(m_recv_mutex) {0};
+    std::string m_v3_type GUARDED_BY(m_recv_mutex);
+    /** First non-ignore v3 frame carries type and total; further frames are body. */
+    enum class V3Assemble : uint8_t { NeedType, Body };
+    V3Assemble m_v3_assemble GUARDED_BY(m_recv_mutex) {V3Assemble::NeedType};
+    /** True if our version packet contained 0x03. Not recomputed from live admit. */
+    bool m_sent_v3_offer GUARDED_BY(m_recv_mutex) {false};
     /** Current receiver state. */
     RecvState m_recv_state GUARDED_BY(m_recv_mutex);
 
@@ -631,6 +650,14 @@ private:
     /** Whether we've sent at least 24 bytes (which would trigger disconnect for V1 peers). */
     bool m_sent_v1_header_worth GUARDED_BY(m_send_mutex) {false};
 
+    bool RecvAppIsV3() const noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex)
+    {
+        return m_recv_state == RecvState::APP_V3 || m_recv_state == RecvState::APP_V3_READY;
+    }
+    bool RecvAppIsV2() const noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex)
+    {
+        return m_recv_state == RecvState::APP || m_recv_state == RecvState::APP_READY;
+    }
     /** Change the receive state. */
     void SetReceiveState(RecvState recv_state) noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
     /** Change the send state. */
@@ -649,6 +676,10 @@ private:
     bool ProcessReceivedGarbageBytes() noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
     /** Process bytes in m_recv_buffer, while in VERSION/APP state. */
     bool ProcessReceivedPacketBytes() noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
+    /** Process bytes in m_recv_buffer, while in APP_V3 state. */
+    bool ProcessReceivedV3PacketBytes() noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
+    /** Append one v3 AEAD frame to m_send_buffer. */
+    void AppendV3Frame(Span<const uint8_t> contents, bool more) noexcept EXCLUSIVE_LOCKS_REQUIRED(m_send_mutex);
 
 public:
     static constexpr uint32_t MAX_GARBAGE_LEN = 4095;
@@ -669,8 +700,8 @@ public:
     CNetMessage GetReceivedMessage(std::chrono::microseconds time, bool& reject_message) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex);
 
     // Send side functions.
-    bool SetMessageToSend(CSerializedNetMsg& msg) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
-    bool MessageTooLargeToSend(const CSerializedNetMsg& msg) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
+    bool SetMessageToSend(CSerializedNetMsg& msg) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex, !m_send_mutex);
+    bool MessageTooLargeToSend(const CSerializedNetMsg& msg) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex, !m_send_mutex);
     BytesToSend GetBytesToSend(bool have_next_message) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     void MarkBytesSent(size_t bytes_sent) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     size_t GetSendMemoryUsage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
@@ -1170,7 +1201,7 @@ public:
             LOCK(m_added_nodes_mutex);
             // Attempt v2 connection if we support v2 - we'll reconnect with v1 if our
             // peer doesn't support it or immediately disconnects us for another reason.
-            const bool use_v2transport(GetLocalServices() & NODE_P2P_V2);
+            const bool use_v2transport(EncryptedP2POffered(GetLocalServices()));
             for (const std::string& added_node : connOptions.m_added_nodes) {
                 m_added_node_params.push_back({added_node, use_v2transport});
             }
@@ -1322,6 +1353,9 @@ public:
     //! which is used to advertise which services we are offering
     //! that peer during `net_processing.cpp:PushNodeVersion()`.
     ServiceFlags GetLocalServices() const;
+
+    /** Drop BIP324 v2 and still-detecting sessions when admit no longer fits v2. */
+    void DisconnectV2WhenAdmitExceeds();
 
     //! Updates the local services that this node advertises to other peers
     //! during connection handshake.

@@ -6,11 +6,12 @@
 from decimal import Decimal
 
 from test_framework.authproxy import JSONRPCException
+from test_framework.descriptors import descsum_create
 from test_framework.messages import COIN
 from test_framework.script import CScript, OP_TRUE
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
-from test_framework.wallet import MiniWallet, MiniWalletMode, getnewdestination
+from test_framework.wallet import MiniWallet, getnewdestination
 
 
 class GetBlocksActivityTest(BitcoinTestFramework):
@@ -208,15 +209,14 @@ class GetBlocksActivityTest(BitcoinTestFramework):
 
     def test_no_address(self, node, wallet):
         self.log.info("A raw anyone-can-spend script is not a payment")
-        raw_wallet = MiniWallet(node, mode=MiniWalletMode.RAW_OP_TRUE)
-        raw_spk = raw_wallet.get_output_script()
-        assert_equal(raw_spk, CScript([OP_TRUE]))
+        raw_spk = CScript([OP_TRUE])
         try:
             wallet.send_to(from_node=node, scriptPubKey=raw_spk, amount=1 * COIN)
             assert False, "raw OP_TRUE output must be refused"
         except JSONRPCException as exc:
-            assert "scriptpubkey" in exc.error["message"], exc.error
-        result = node.getdescriptoractivity([], [raw_wallet.get_descriptor()], True)
+            msg = exc.error["message"]
+            assert "scriptpubkey" in msg or "bad-txns-vout-script" in msg, exc.error
+        result = node.getdescriptoractivity([], [descsum_create(f'raw({raw_spk.hex()})')], True)
         assert_equal(len(result['activity']), 0)
 
     def test_required_args(self, node):

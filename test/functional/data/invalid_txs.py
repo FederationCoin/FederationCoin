@@ -30,7 +30,6 @@ from test_framework.messages import (
     MAX_MONEY,
     SEQUENCE_FINAL,
 )
-from test_framework.blocktools import create_tx_with_script, MAX_BLOCK_SIGOPS
 from test_framework.script import (
     CScript,
     OP_0,
@@ -55,9 +54,14 @@ from test_framework.script import (
 from test_framework.script_util import (
     MIN_PADDING,
     MIN_STANDARD_TX_NONWITNESS_SIZE,
-    script_to_p2sh_script,
 )
-basic_p2sh = script_to_p2sh_script(CScript([OP_0]))
+from test_framework.blocktools import (
+    MAX_BLOCK_SIGOPS,
+    WITNESS_V0_DUMMY_KEYHASH,
+    create_tx_with_script,
+)
+# Product-admitted dummy so later consensus errors are not masked by vout-script.
+basic_p2sh = WITNESS_V0_DUMMY_KEYHASH
 
 class BadTxTemplate:
     """Allows simple construction of a certain kind of invalid tx. Base class to be subclassed."""
@@ -112,7 +116,7 @@ class InputMissing(BadTxTemplate):
 # tree depth commitment (CVE-2017-12842)
 class SizeTooSmall(BadTxTemplate):
     reject_reason = "tx-size-small"
-    valid_in_block = True
+    valid_in_block = False
 
     def get_tx(self):
         tx = CTransaction()

@@ -4,6 +4,8 @@
 
 #include <consensus/mldsa87_spend.h>
 
+#include <script/modern_sig.h>
+
 #include <crypto/mldsa_randombytes.h>
 
 #include <cassert>
@@ -59,9 +61,9 @@ uint256 MlDsa87SingleKeyProgram(std::span<const unsigned char> pubkey)
     return MlDsa87KeyHash(pubkey);
 }
 
-std::optional<uint256> MlDsa87PolicyProgram(uint8_t threshold, std::span<const uint256> key_hashes)
+std::optional<CScript> MlDsa87PolicyProgram(uint8_t threshold, std::span<const uint256> key_hashes)
 {
-    return MlDsaTaggedPolicyProgram<MlDsa87Kind>(threshold, key_hashes);
+    return BuildModernPolicy(threshold, key_hashes, ALGO_DILITHIUM, PARAM_DILITHIUM_87);
 }
 
 bool CheckSingleKey87Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash)
@@ -69,9 +71,9 @@ bool CheckSingleKey87Spend(const uint256& program, const std::vector<std::vector
     return CheckSingleKeySpendOf<MlDsa87Kind>(program, witness, sighash);
 }
 
-bool CheckMultisig87Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash)
+bool CheckMultisig87Spend(uint8_t threshold, std::span<const uint256> hashes, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash)
 {
-    return CheckMultisigSpendOf<MlDsa87Kind>(program, witness, sighash);
+    return CheckPolicySpendOf<MlDsa87Kind>(threshold, hashes, witness, sighash);
 }
 
 MlDsa87WitnessLayout ClassifyMlDsa87Witness(const std::vector<std::vector<unsigned char>>& witness)

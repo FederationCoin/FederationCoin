@@ -80,10 +80,19 @@ void RegenerateCommitments(CBlock& block, ChainstateManager& chainman)
     block.hashMerkleRoot = BlockMerkleRoot(block);
 }
 
+namespace {
+uint64_t SerializedSizeCeiling()
+{
+    return std::min<uint64_t>(
+        Consensus::LimitsForCap(Consensus::MAX_FLEX_BLOCK_WEIGHT).serialized_size,
+        std::numeric_limits<size_t>::max());
+}
+} // namespace
+
 BlockCreateOptions BlockCreateOptions::Clamped() const
 {
     BlockAssembler::Options options = *this;
-    const uint64_t size_ceiling{std::min<uint64_t>(CONTEXT_FREE_BLOCK_BYTES, std::numeric_limits<size_t>::max())};
+    const uint64_t size_ceiling{SerializedSizeCeiling()};
     const uint64_t weight_ceiling{std::min<uint64_t>(Consensus::MAX_FLEX_BLOCK_WEIGHT, std::numeric_limits<size_t>::max())};
     CHECK_NONFATAL(static_cast<uint64_t>(options.block_reserved_size) <= size_ceiling);
     CHECK_NONFATAL(static_cast<uint64_t>(options.block_reserved_weight) <= weight_ceiling);
@@ -111,8 +120,8 @@ BlockAssembler::BlockAssembler(Chainstate& chainstate, const CTxMemPool* mempool
       m_node{node},
       m_options{options.Clamped()}
 {
-    // Whether we need to account for byte usage (in addition to weight usage)
-    fNeedSizeAccounting = (static_cast<uint64_t>(options.nBlockMaxSize) < CONTEXT_FREE_BLOCK_BYTES);
+    // Size accounting when the operator size cap is below the flex serialized ceiling.
+    fNeedSizeAccounting = (static_cast<uint64_t>(m_options.nBlockMaxSize) < SerializedSizeCeiling());
     m_effective_max_weight = m_options.nBlockMaxWeight;
 }
 
@@ -124,7 +133,7 @@ void ApplyArgsManOptions(const ArgsManager& args, BlockAssembler::Options& optio
     // If both are given, restrict both.
     if (args.IsArgSet("-blockmaxweight")) {
         options.nBlockMaxWeight = args.GetIntArg("-blockmaxweight", DEFAULT_BLOCK_MAX_WEIGHT);
-        options.nBlockMaxSize = static_cast<size_t>(std::min<uint64_t>(CONTEXT_FREE_BLOCK_BYTES, std::numeric_limits<size_t>::max()));
+        options.nBlockMaxSize = static_cast<size_t>(SerializedSizeCeiling());
     }
     if (args.IsArgSet("-blockmaxsize")) {
         options.nBlockMaxSize = args.GetIntArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE);

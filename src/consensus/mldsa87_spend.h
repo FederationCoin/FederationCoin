@@ -6,6 +6,7 @@
 #define BITCOIN_CONSENSUS_MLDSA87_SPEND_H
 
 #include <consensus/mldsa_policy_slots.h>
+#include <script/script.h>
 #include <uint256.h>
 
 #include <array>
@@ -35,13 +36,11 @@ struct MlDsa87Kind {
     static constexpr std::size_t SIGNATURE_SIZE{MLDSA87_SIGNATURE_SIZE};
     static constexpr std::size_t MAX_KEYS{MLDSA87_MAX_KEYS};
     static constexpr std::string_view KEY_TAG{"FCN-MLDSA87-KEY"};
-    static constexpr std::string_view POLICY_TAG{"FCN-MLDSA87-POLICY"};
     static bool Verify(std::span<const unsigned char> pubkey, std::span<const unsigned char> signature, std::span<const unsigned char> message);
 };
 
 // Length-prefix bytes are the tag length, not a mystery hex.
 static_assert(MlDsa87Kind::KEY_TAG.size() == 15);
-static_assert(MlDsa87Kind::POLICY_TAG.size() == 18);
 
 /** False when seed, pubkey, or signature has the wrong length. A wrong length
  *  is rejected before a buffer is grown to fit it. */
@@ -53,17 +52,16 @@ bool MlDsa87Verify(std::span<const unsigned char> pubkey, std::span<const unsign
 
 /** 32-byte tagged key fingerprint (KEY tag). Asserts a correct pubkey size. */
 uint256 MlDsa87KeyHash(std::span<const unsigned char> pubkey);
-/** Single-key program is the key fingerprint. */
+/** Single-key KEY fingerprint. */
 uint256 MlDsa87SingleKeyProgram(std::span<const unsigned char> pubkey);
-/** Policy program, or nullopt if n is not 1..12, t is not 1..n, or hashes
- *  are not unique after uint256 sort. */
-std::optional<uint256> MlDsa87PolicyProgram(uint8_t threshold, std::span<const uint256> key_hashes);
+/** Policy locking script, or nullopt if n is not 1..12, t is not 1..n, or
+ *  hashes are not unique after uint256 sort. */
+std::optional<CScript> MlDsa87PolicyProgram(uint8_t threshold, std::span<const uint256> key_hashes);
 
-/** True when this two-item witness spends program as ML-DSA-87 single-key. */
+/** True when this two-item witness spends fingerprint as ML-DSA-87 single-key. */
 bool CheckSingleKey87Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
-/** True when this witness spends program as an ML-DSA-87 policy: 87 sizes
- *  only, hashes strictly increasing, recovered t, signed_ok >= t. */
-bool CheckMultisig87Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
+/** True when this n-item witness (empty skip or pubkey‖sig) meets threshold. */
+bool CheckMultisig87Spend(uint8_t threshold, std::span<const uint256> hashes, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
 
 using MlDsa87WitnessLayout = MlDsaWitnessLayout;
 /** Shape only: Single, Policy, or Neither. Validity is CheckSingleKey87Spend

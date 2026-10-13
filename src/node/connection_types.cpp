@@ -34,6 +34,8 @@ std::string TransportTypeAsString(TransportProtocolType transport_type)
         return "v1";
     case TransportProtocolType::V2:
         return "v2";
+    case TransportProtocolType::V3:
+        return "v3";
     } // no default case, so the compiler can warn about missing cases
 
     assert(false);

@@ -17,10 +17,8 @@ bool CheckTransaction(const CTransaction& tx, TxValidationState& state)
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vin-empty");
     if (tx.vout.empty())
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vout-empty");
-    // No height here. This is the disk-window sanity check, not the live cap.
-    if (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(tx))) > CONTEXT_FREE_BLOCK_BYTES) {
-        return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-oversize");
-    }
+    // No height here. Size vs live cap is CheckBlock / ContextualCheckBlock.
+    // A lone transaction is not a block; do not freeze a byte cap on every tx.
 
     // Check for negative or overflow output values (see CVE-2010-5139)
     CAmount nValueOut = 0;

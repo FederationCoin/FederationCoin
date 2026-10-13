@@ -54,7 +54,7 @@ class DataCarrierTest(BitcoinTestFramework):
         except JSONRPCException as exc:
             assert exc.error["code"] == -26
             message = exc.error["message"]
-            assert "datacarrier" in message or "scriptpubkey" in message or "toolarge" in message, message
+            assert "datacarrier" in message or "scriptpubkey" in message or "toolarge" in message or "vout-script" in message, message
             return
         raise AssertionError("OP_RETURN was accepted")
 
@@ -113,7 +113,7 @@ class DataCarrierTest(BitcoinTestFramework):
         wide = self.wallet.create_self_transfer(utxo_to_spend=utxo)["tx"]
         wide.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b"x" * 81])))
         wide.rehash()
-        assert_equal(self.submit_block_with(self.nodes[0], wide), "bad-txns-vout-script-toolarge")
+        assert_equal(self.submit_block_with(self.nodes[0], wide), "bad-txns-vout-script")
 
         self.log.info("Testing that an OPNet taproot output is rejected.")
         self.test_opnet_funding_rejected()

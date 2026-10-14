@@ -332,6 +332,7 @@ BASE_SCRIPTS = [
     # 'wallet_upgradewallet.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_crosschain.py',
     'mining_basic.py',
+    'mining_work_menu.py',
     'feature_signet.py',
     'p2p_mutated_blocks.py',
     # 'wallet_implicitsegwit.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet

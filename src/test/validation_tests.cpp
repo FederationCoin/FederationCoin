@@ -4,7 +4,10 @@
 
 #include <chainparams.h>
 #include <consensus/amount.h>
+#include <consensus/block_limits.h>
+#include <consensus/flex_weight.h>
 #include <consensus/merkle.h>
+#include <primitives/block.h>
 #include <core_io.h>
 #include <hash.h>
 #include <net.h>
@@ -118,6 +121,41 @@ BOOST_AUTO_TEST_CASE(block_header_requires_v2)
     oversize.vtx.push_back(MakeTransactionRef(std::move(cb)));
     state = {};
     BOOST_CHECK(!CheckBlock(oversize, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-blk-length");
+
+    CBlockHeader v2hdr;
+    v2hdr.m_header_v2 = true;
+    BOOST_CHECK_EQUAL(::GetSerializeSize(v2hdr), BLOCK_HEADER_V2_SERIALIZED_SIZE);
+
+    CBlock under_grown;
+    under_grown.m_header_v2 = true;
+    under_grown.m_height = 210000;
+    CMutableTransaction cb_under;
+    cb_under.vin.resize(1);
+    cb_under.vin[0].prevout.SetNull();
+    cb_under.vin[0].scriptSig.assign(2'500'001, static_cast<unsigned char>(0x00));
+    cb_under.vout.emplace_back(0, CScript() << OP_0 << std::vector<unsigned char>(20, 0x01));
+    under_grown.vtx.push_back(MakeTransactionRef(std::move(cb_under)));
+    BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(under_grown))) > Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(under_grown))) <=
+                Consensus::LimitsForCap(Consensus::WorstCaseCapAtHeight(210000, 210000)).serialized_size);
+    state = {};
+    BOOST_CHECK(!CheckBlock(under_grown, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_NE(state.GetRejectReason(), "bad-blk-length");
+
+    CBlock over_grown;
+    over_grown.m_header_v2 = true;
+    over_grown.m_height = 210000;
+    CMutableTransaction cb_over;
+    cb_over.vin.resize(1);
+    cb_over.vin[0].prevout.SetNull();
+    cb_over.vin[0].scriptSig.assign(3'700'001, static_cast<unsigned char>(0x00));
+    cb_over.vout.emplace_back(0, CScript() << OP_0 << std::vector<unsigned char>(20, 0x01));
+    over_grown.vtx.push_back(MakeTransactionRef(std::move(cb_over)));
+    BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(over_grown))) >
+                Consensus::LimitsForCap(Consensus::WorstCaseCapAtHeight(210000, 210000)).serialized_size);
+    state = {};
+    BOOST_CHECK(!CheckBlock(over_grown, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
     BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-blk-length");
 }
 

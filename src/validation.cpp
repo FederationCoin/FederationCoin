@@ -2840,7 +2840,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     AssertLockHeld(cs_main);
     assert(pindex);
 
-    uint256 block_hash{block.GetHash()};
+    uint256 block_hash{block.GetBlockIdentity()};
     assert(*pindex->phashBlock == block_hash);
     const bool parallel_script_checks{m_chainman.m_script_check_queue_enabled && m_chainman.GetCheckQueue().HasThreads()};
 
@@ -4076,7 +4076,7 @@ bool Chainstate::ActivateBestChain(BlockValidationState& state, std::shared_ptr<
                 // in case snapshot validation is completed during ActivateBestChainStep, the
                 // result of GetRole() changes from BACKGROUND to NORMAL.
                const ChainstateRole chainstate_role{this->GetRole()};
-                if (!ActivateBestChainStep(state, pindexMostWork, pblock && pblock->GetHash() == pindexMostWork->GetBlockHash() ? pblock : nullBlockPtr, fInvalidFound, connectTrace)) {
+                if (!ActivateBestChainStep(state, pindexMostWork, pblock && pblock->GetBlockIdentity() == pindexMostWork->GetBlockHash() ? pblock : nullBlockPtr, fInvalidFound, connectTrace)) {
                     // A system error occurred
                     return false;
                 }
@@ -4513,7 +4513,7 @@ static bool CheckBlockHeader(const CBlockHeader& block, BlockValidationState& st
     }
 
     // Check proof of work matches claimed amount
-    if (fCheckPOW && !CheckProofOfWork(block.GetHash(), block.nBits, consensusParams))
+    if (fCheckPOW && !CheckProofOfWork(block, consensusParams))
         return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "high-hash", "proof of work failed");
 
     return true;
@@ -4735,7 +4735,7 @@ std::vector<unsigned char> ChainstateManager::GenerateCoinbaseCommitment(CBlock&
 bool HasValidProofOfWork(const std::vector<CBlockHeader>& headers, const Consensus::Params& consensusParams)
 {
     return std::all_of(headers.cbegin(), headers.cend(),
-            [&](const auto& header) { return CheckProofOfWork(header.GetHash(), header.nBits, consensusParams);});
+            [&](const auto& header) { return CheckProofOfWork(header, consensusParams);});
 }
 
 bool IsBlockMutated(const CBlock& block, bool check_witness_root)
@@ -4812,7 +4812,7 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
         }
 
         // Check that the block chain matches the known block chain up to a checkpoint
-        if (!checkpoint_data.CheckBlock(nHeight, block.GetHash())) {
+        if (!checkpoint_data.CheckBlock(nHeight, block.GetBlockIdentity())) {
             LogPrintf("ERROR: %s: rejected by checkpoint lock-in at %d\n", __func__, nHeight);
             return state.Invalid(BlockValidationResult::BLOCK_CHECKPOINT, "checkpoint-mismatch");
         }
@@ -4994,7 +4994,7 @@ bool ChainstateManager::AcceptBlockHeader(const CBlockHeader& block, BlockValida
     AssertLockHeld(cs_main);
 
     // Check for duplicate
-    uint256 hash = block.GetHash();
+    uint256 hash = block.GetBlockIdentity();
     BlockMap::iterator miSelf{m_blockman.m_block_index.find(hash)};
     if (hash != GetConsensus().hashGenesisBlock) {
         if (miSelf != m_blockman.m_block_index.end()) {
@@ -5332,7 +5332,7 @@ bool TestBlockValidity(BlockValidationState& state,
     AssertLockHeld(cs_main);
     assert(pindexPrev && pindexPrev == chainstate.m_chain.Tip());
     CCoinsViewCache viewNew(&chainstate.CoinsTip());
-    uint256 block_hash(block.GetHash());
+    uint256 block_hash(block.GetBlockIdentity());
     CBlockIndex indexDummy(block);
     indexDummy.pprev = pindexPrev;
     indexDummy.nHeight = pindexPrev->nHeight + 1;
@@ -5901,7 +5901,7 @@ bool Chainstate::LoadGenesisBlock()
     // m_blockman.m_block_index. Note that we can't use m_chain here, since it is
     // set based on the coins db, not the block index db, which is the only
     // thing loaded at this point.
-    if (m_blockman.m_block_index.count(params.GenesisBlock().GetHash()))
+    if (m_blockman.m_block_index.count(params.GenesisBlock().GetBlockIdentity()))
         return true;
 
     try {
@@ -5937,7 +5937,23 @@ void ChainstateManager::LoadExternalBlockFile(
         IOPRIO_IDLER(/*lowprio=*/true);
         file_in.SetIdlePriority();
 
-        BufferedFile blkdat{file_in, 2 * static_cast<uint64_t>(node::MAX_BLOCKFILE_SIZE), static_cast<uint64_t>(node::MAX_BLOCKFILE_SIZE) + 8};
+        const int64_t file_start{file_in.tell()};
+        file_in.seek(0, SEEK_END);
+        const int64_t file_end{file_in.tell()};
+        file_in.seek(file_start, SEEK_SET);
+        const uint64_t file_bytes{file_end > 0 ? static_cast<uint64_t>(file_end) : 0};
+        uint64_t rewind_room{file_bytes > 0 ? file_bytes + 8 : uint64_t{node::BLOCK_SERIALIZATION_HEADER_SIZE} + 8};
+        uint64_t buf_size{rewind_room + 1};
+        if (file_bytes > 0 && file_bytes <= std::numeric_limits<uint64_t>::max() / 2) {
+            buf_size = std::max(buf_size, file_bytes * 2);
+        }
+        if (buf_size > std::numeric_limits<size_t>::max()) {
+            buf_size = std::numeric_limits<size_t>::max();
+        }
+        if (rewind_room >= buf_size) {
+            rewind_room = buf_size - 1;
+        }
+        BufferedFile blkdat{file_in, buf_size, rewind_room};
         // nRewind indicates where to resume scanning in case something goes wrong,
         // such as a block fails to deserialize.
         uint64_t nRewind = blkdat.GetPos();
@@ -5947,7 +5963,7 @@ void ChainstateManager::LoadExternalBlockFile(
             blkdat.SetPos(nRewind);
             nRewind++; // start one byte further next time, in case of failure
             blkdat.SetLimit(); // remove former limit
-            unsigned int nSize = 0;
+            node::BlockDiskLength nSize{0};
             try {
                 // locate a header
                 MessageStartChars buf;
@@ -5959,8 +5975,14 @@ void ChainstateManager::LoadExternalBlockFile(
                 }
                 // read size
                 blkdat >> nSize;
-                if (nSize < 80 || nSize > node::MAX_BLOCKFILE_SIZE)
+                if (nSize < BLOCK_HEADER_V2_SERIALIZED_SIZE) {
                     continue;
+                }
+                const int64_t abs_after{file_start + static_cast<int64_t>(blkdat.GetPos())};
+                if (abs_after < 0 || file_end < abs_after ||
+                    nSize > static_cast<uint64_t>(file_end - abs_after)) {
+                    continue;
+                }
             } catch (const std::exception&) {
                 // no valid block header found; don't complain
                 // (this happens at the end of every blk.dat file)
@@ -5974,7 +5996,13 @@ void ChainstateManager::LoadExternalBlockFile(
                 blkdat.SetLimit(nBlockPos + nSize);
                 CBlockHeader header;
                 blkdat >> header;
-                const uint256 hash{header.GetHash()};
+                const int header_height{header.m_header_v2 ? header.m_height : 0};
+                const Consensus::BlockLimits size_limits{Consensus::LimitsForCap(
+                    Consensus::WorstCaseCapAtHeight(header_height, params.GetConsensus().nSubsidyHalvingInterval))};
+                if (nSize > size_limits.serialized_size) {
+                    continue;
+                }
+                const uint256 hash{header.GetBlockIdentity()};
                 // Skip the rest of this block (this may read from disk into memory); position to the marker before the
                 // next block, but it's still possible to rewind to the start of the current block (without a disk read).
                 nRewind = nBlockPos + nSize;
@@ -6066,13 +6094,13 @@ void ChainstateManager::LoadExternalBlockFile(
                         std::multimap<uint256, FlatFilePos>::iterator it = range.first;
                         std::shared_ptr<CBlock> pblockrecursive = std::make_shared<CBlock>();
                         if (m_blockman.ReadBlock(*pblockrecursive, it->second)) {
-                            LogDebug(BCLog::REINDEX, "%s: Processing out of order child %s of %s\n", __func__, pblockrecursive->GetHash().ToString(),
+                            LogDebug(BCLog::REINDEX, "%s: Processing out of order child %s of %s\n", __func__, pblockrecursive->GetBlockIdentity().ToString(),
                                     head.ToString());
                             LOCK(cs_main);
                             BlockValidationState dummy;
                             if (AcceptBlock(pblockrecursive, dummy, nullptr, true, &it->second, nullptr, true)) {
                                 nLoaded++;
-                                queue.push_back(pblockrecursive->GetHash());
+                                queue.push_back(pblockrecursive->GetBlockIdentity());
                             }
                         }
                         range.first++;
@@ -6084,7 +6112,7 @@ void ChainstateManager::LoadExternalBlockFile(
                 // historical bugs added extra data to the block files that does not deserialize cleanly.
                 // commonly this data is between readable blocks, but it does not really matter. such data is not fatal to the import process.
                 // the code that reads the block files deals with invalid data by simply ignoring it.
-                // it continues to search for the next {4 byte magic message start bytes + 4 byte length + block} that does deserialize cleanly
+                // it continues to search for the next {4 byte magic message start bytes + 8 byte length + block} that does deserialize cleanly
                 // and passes all of the other block validation checks dealing with POW and the merkle root, etc...
                 // we merely note with this informational log message when unexpected data is encountered.
                 // we could also be experiencing a storage system read error, or a read of a previous bad write. these are possible, but

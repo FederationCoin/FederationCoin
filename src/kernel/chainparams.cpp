@@ -5,6 +5,7 @@
 
 #include <kernel/chainparams.h>
 
+#include <arith_uint256.h>
 #include <chainparamsseeds.h>
 #include <consensus/amount.h>
 #include <consensus/merkle.h>
@@ -64,6 +65,25 @@ static constexpr uint32_t kRegtestMinerWindow = 120;
 static constexpr uint32_t kDummyMainBits = 0x1e00ffff;
 static constexpr uint32_t kSignetGenesisBits = 0x1e0377ae;
 static constexpr uint32_t kRegtestBits = 0x207fffff;
+
+/** T0[k] copies of genesis compact. Other kinds keep the same placeholder until pow-calibrate. Does not change genesis bytes. */
+static void FillWorkMenu(Consensus::Params& c, uint32_t genesis_compact)
+{
+    arith_uint256 t0;
+    t0.SetCompact(genesis_compact);
+    const uint256 t0u{ArithToUint256(t0)};
+    uint256 floor{c.powLimit};
+    if (c.nMinDifficultyBits != 0) {
+        arith_uint256 f;
+        f.SetCompact(c.nMinDifficultyBits);
+        floor = ArithToUint256(f);
+    }
+    for (int i{0}; i < 4; ++i) {
+        c.powT0[i] = t0u;
+        c.powLimitKind[i] = c.powLimit;
+        c.powFloor0[i] = floor;
+    }
+}
 
 static CBlock CreateGenesisBlock([[maybe_unused]] const char* pszTimestamp, const CScript& genesisOutputScript, uint32_t nTime, uint32_t nNonce, uint32_t nNonce2, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
@@ -133,6 +153,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
         consensus.powLimit = uint256{"000000ffff000000000000000000000000000000000000000000000000000000"};
+        FillWorkMenu(consensus, kDummyMainBits);
         consensus.nPowTargetTimespan = kPowTargetTimespan;
         consensus.nPowTargetSpacing = kPowTargetSpacing;
         consensus.fPowAllowMinDifficultyBlocks = false;
@@ -235,6 +256,7 @@ public:
         // 0x1b095cae so a laptop GPU can find a block in localhost suites.
         // CI never searches for a block; it only checks compiled-in PoW.
         consensus.nMinDifficultyBits = kTestnetBlake2bBits;
+        FillWorkMenu(consensus, kTestnetBlake2bBits);
         consensus.enforce_BIP94 = false;
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = kTestnetBip9Threshold;
@@ -322,6 +344,7 @@ public:
         consensus.nPowTargetSpacing = kPowTargetSpacing;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.nMinDifficultyBits = kTestnetBlake2bBits;
+        FillWorkMenu(consensus, kTestnetBlake2bBits);
         consensus.enforce_BIP94 = true;
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = kTestnetBip9Threshold;
@@ -445,6 +468,7 @@ public:
         consensus.nRuleChangeActivationThreshold = kMainBip9Threshold;
         consensus.nMinerConfirmationWindow = kMinerConfirmationWindow;
         consensus.powLimit = uint256{"00000377ae000000000000000000000000000000000000000000000000000000"};
+        FillWorkMenu(consensus, kSignetGenesisBits);
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
@@ -508,11 +532,12 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
         consensus.powLimit = uint256{"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"};
+        FillWorkMenu(consensus, kRegtestBits);
         consensus.nPowTargetTimespan = 24 * 60 * 60; // one day
         consensus.nPowTargetSpacing = kPowTargetSpacing;
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.enforce_BIP94 = opts.enforce_bip94;
-        consensus.fPowNoRetargeting = true;
+        consensus.fPowNoRetargeting = opts.pow_no_retargeting;
         consensus.nRuleChangeActivationThreshold = kRegtestBip9Threshold; // 75% of 120
         consensus.nMinerConfirmationWindow = kRegtestMinerWindow; // Faster than normal for regtest (120 instead of 1680)
 

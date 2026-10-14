@@ -18,6 +18,7 @@
 #include <consensus/merkle.h>
 #include <consensus/params.h>
 #include <consensus/validation.h>
+#include <consensus/work/kind.h>
 #include <core_io.h>
 #include <deploymentinfo.h>
 #include <deploymentstatus.h>
@@ -144,7 +145,7 @@ static bool GenerateBlock(ChainstateManager& chainman, CBlock&& block, uint64_t&
     block_out.reset();
     block.hashMerkleRoot = BlockMerkleRoot(block);
 
-    while (max_tries > 0 && block.nNonce < std::numeric_limits<uint32_t>::max() && !CheckProofOfWork(block.GetHash(), block.nBits, chainman.GetConsensus()) && !chainman.m_interrupt) {
+    while (max_tries > 0 && block.nNonce < std::numeric_limits<uint32_t>::max() && !CheckProofOfWork(block, chainman.GetConsensus()) && !chainman.m_interrupt) {
         ++block.nNonce;
         --max_tries;
     }
@@ -166,11 +167,14 @@ static bool GenerateBlock(ChainstateManager& chainman, CBlock&& block, uint64_t&
     return true;
 }
 
-static UniValue generateBlocks(ChainstateManager& chainman, Mining& miner, const CScript& coinbase_output_script, int nGenerate, uint64_t nMaxTries)
+static UniValue generateBlocks(ChainstateManager& chainman, Mining& miner, const CScript& coinbase_output_script, int nGenerate, uint64_t nMaxTries, uint8_t work_kind = 0)
 {
     UniValue blockHashes(UniValue::VARR);
     while (nGenerate > 0 && !chainman.m_interrupt) {
-        std::unique_ptr<BlockTemplate> block_template(miner.createNewBlock({ .coinbase_output_script = coinbase_output_script }));
+        node::BlockCreateOptions opts;
+        opts.coinbase_output_script = coinbase_output_script;
+        opts.work_kind = work_kind;
+        std::unique_ptr<BlockTemplate> block_template(miner.createNewBlock(opts));
         CHECK_NONFATAL(block_template);
 
         std::shared_ptr<const CBlock> block_out;
@@ -180,7 +184,7 @@ static UniValue generateBlocks(ChainstateManager& chainman, Mining& miner, const
 
         if (block_out) {
             --nGenerate;
-            blockHashes.push_back(block_out->GetHash().GetHex());
+            blockHashes.push_back(block_out->GetBlockIdentity().GetHex());
         }
     }
     return blockHashes;
@@ -274,6 +278,7 @@ static RPCHelpMan generatetoaddress()
              {"nblocks", RPCArg::Type::NUM, RPCArg::Optional::NO, "How many blocks are generated."},
              {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The address to send the newly generated bitcoin to."},
              {"maxtries", RPCArg::Type::NUM, RPCArg::Default{DEFAULT_MAX_TRIES}, "How many iterations to try."},
+             {"work_kind", RPCArg::Type::STR, RPCArg::Default{"blake2b"}, "Work kind: blake2b, sha256d, fp8gym, or poseidon2"},
          },
          RPCResult{
              RPCResult::Type::ARR, "", "hashes of blocks generated",
@@ -302,7 +307,17 @@ static RPCHelpMan generatetoaddress()
 
     CScript coinbase_output_script = GetScriptForDestination(destination);
 
-    return generateBlocks(chainman, miner, coinbase_output_script, num_blocks, max_tries);
+    uint8_t work_kind{0};
+    if (!request.params[3].isNull()) {
+        const std::string kind{request.params[3].get_str()};
+        if (kind == "blake2b") work_kind = 0;
+        else if (kind == "sha256d") work_kind = 1;
+        else if (kind == "fp8gym") work_kind = 2;
+        else if (kind == "poseidon2") work_kind = 3;
+        else throw JSONRPCError(RPC_INVALID_PARAMETER, "work_kind must be blake2b, sha256d, fp8gym, or poseidon2");
+    }
+
+    return generateBlocks(chainman, miner, coinbase_output_script, num_blocks, max_tries, work_kind);
 },
     };
 }
@@ -652,6 +667,7 @@ static RPCHelpMan getblocktemplate()
                 }},
                 {"longpollid", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "delay processing request until the result would vary significantly from the \"longpollid\" of a prior template"},
                 {"minfeerate", RPCArg::Type::NUM, RPCArg::DefaultHint{"set by -blockmintxfee"}, "only include transactions with a minimum sats/vbyte (disables template cache)"},
+                {"work_kind", RPCArg::Type::STR, RPCArg::Default{"blake2b"}, "Work kind: blake2b, sha256d, fp8gym, or poseidon2"},
                 {"data", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "proposed block data to check, encoded in hexadecimal; valid only for mode=\"proposal\""},
             },
             },
@@ -676,6 +692,7 @@ static RPCHelpMan getblocktemplate()
                 }},
                 {RPCResult::Type::NUM, "vbrequired", "bit mask of versionbits the server requires set in submissions"},
                 {RPCResult::Type::STR, "previousblockhash", "The hash of current highest block"},
+                {RPCResult::Type::STR, "work_kind", "Work kind for this template: blake2b, sha256d, fp8gym, or poseidon2"},
                 {RPCResult::Type::ARR, "transactions", "contents of non-coinbase transactions that should be included in the next block",
                 {
                     {RPCResult::Type::OBJ, "", "",
@@ -763,7 +780,7 @@ static RPCHelpMan getblocktemplate()
             if (!DecodeHexBlk(block, dataval.get_str()))
                 throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
 
-            uint256 hash = block.GetHash();
+            uint256 hash = block.GetBlockIdentity();
             const CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(hash);
             if (pindex) {
                 if (pindex->IsValid(BLOCK_VALID_SCRIPTS))
@@ -807,6 +824,14 @@ static RPCHelpMan getblocktemplate()
         }
         if (!oparam["minfeerate"].isNull()) {
             options.blockMinFeeRate = CFeeRate{AmountFromValue(oparam["minfeerate"]), COIN /* sat/vB */};
+        }
+        if (!oparam["work_kind"].isNull()) {
+            const std::string kind{oparam["work_kind"].get_str()};
+            if (kind == "blake2b") options.work_kind = 0;
+            else if (kind == "sha256d") options.work_kind = 1;
+            else if (kind == "fp8gym") options.work_kind = 2;
+            else if (kind == "poseidon2") options.work_kind = 3;
+            else throw JSONRPCError(RPC_INVALID_PARAMETER, "work_kind must be blake2b, sha256d, fp8gym, or poseidon2");
         }
         options = options.Clamped();
         bypass_cache |= !(options == options_def);
@@ -948,6 +973,7 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
     const bool fPreSegWit = !DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_SEGWIT);
 
     UniValue aCaps(UniValue::VARR); aCaps.push_back("proposal");
+    aCaps.push_back("work_kind");
 
     UniValue transactions(UniValue::VARR);
     std::map<uint256, int64_t> setTxIndex;
@@ -1025,6 +1051,9 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
     }
     if (block.m_header_v2) {
         aRules.push_back("!blake2b");
+        aRules.push_back("!sha256d");
+        aRules.push_back("!fp8gym");
+        aRules.push_back("!poseidon2");
         if (!setClientRules.count("blake2b")) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Support for 'blake2b' rule requires explicit client support");
         }
@@ -1042,8 +1071,8 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
                 // Not exposed to GBT at all
                 break;
             case ThresholdState::LOCKED_IN:
-                // Ensure bit is set in block version
-                block_header.nVersion |= chainman.m_versionbitscache.Mask(consensusParams, pos);
+                // Unused work-kind bits (10–27, 30) stay 0. Testdummy (28) and TOP_BITS (29) may signal.
+                block_header.nVersion |= chainman.m_versionbitscache.Mask(consensusParams, pos) & ~static_cast<int32_t>(Consensus::VERSION_WORK_RESERVED_MASK);
                 [[fallthrough]];
             case ThresholdState::STARTED:
             {
@@ -1091,6 +1120,11 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
     result.pushKV("vbrequired", vbrequired);
 
     result.pushKV("previousblockhash", block.hashPrevBlock.GetHex());
+    {
+        const auto tag{Consensus::DecodeWorkKindTag(block.GetCompleteVersion())};
+        const Consensus::WorkKind* kind{tag ? Consensus::LookupWorkKind(*tag) : nullptr};
+        result.pushKV("work_kind", kind ? kind->Name() : "blake2b");
+    }
     result.pushKV("transactions", std::move(transactions));
     result.pushKV("coinbaseaux", std::move(aux));
     result.pushKV("coinbasevalue", (int64_t)block.vtx[0]->vout[0].nValue);
@@ -1146,7 +1180,7 @@ public:
 
 protected:
     void BlockChecked(const CBlock& block, const BlockValidationState& stateIn) override {
-        if (block.GetHash() != hash)
+        if (block.GetBlockIdentity() != hash)
             return;
         found = true;
         state = stateIn;
@@ -1189,7 +1223,7 @@ static RPCHelpMan submitblock()
     }
 
     bool new_block;
-    auto sc = std::make_shared<submitblock_StateCatcher>(block.GetHash());
+    auto sc = std::make_shared<submitblock_StateCatcher>(block.GetBlockIdentity());
     CHECK_NONFATAL(chainman.m_options.signals)->RegisterSharedValidationInterface(sc);
     bool accepted = chainman.ProcessNewBlock(blockptr, /*force_processing=*/true, /*min_pow_checked=*/true, /*new_block=*/&new_block);
     CHECK_NONFATAL(chainman.m_options.signals)->UnregisterSharedValidationInterface(sc);

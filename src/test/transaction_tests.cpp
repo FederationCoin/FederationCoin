@@ -10,6 +10,7 @@
 #include <clientversion.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
+#include <consensus/flex_weight.h>
 #include <consensus/mldsa44_spend.h>
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
@@ -427,15 +428,15 @@ BOOST_AUTO_TEST_CASE(tx_has_no_frozen_byte_cap)
     BOOST_CHECK(CheckTransaction(CTransaction(tx), state));
     BOOST_CHECK(state.GetRejectReason() != "bad-txns-oversize");
 
-    // CheckTransaction has no byte cap. A stripped tx past CONTEXT_FREE_BLOCK_BYTES
-    // is not oversize; CheckBlock uses LimitsForCap.
+    // CheckTransaction has no byte cap. A stripped tx past the genesis flex
+    // floor is not oversize; CheckBlock uses LimitsForCap at header height.
     CMutableTransaction big;
     big.vin.resize(1);
     big.vin[0].prevout = COutPoint{Txid::FromUint256(uint256::ONE), 0};
-    big.vin[0].scriptSig.resize(CONTEXT_FREE_BLOCK_BYTES + 1);
+    big.vin[0].scriptSig.resize(2'500'001);
     big.vout.emplace_back(1, CScript() << OP_0 << std::vector<unsigned char>(WITNESS_V0_KEYHASH_SIZE, 0x03));
     const CTransaction tx_big{std::move(big)};
-    BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(tx_big))) > CONTEXT_FREE_BLOCK_BYTES);
+    BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(tx_big))) > Consensus::MIN_FLEX_BLOCK_WEIGHT);
     TxValidationState big_state;
     BOOST_CHECK(CheckTransaction(tx_big, big_state));
     BOOST_CHECK(big_state.GetRejectReason() != "bad-txns-oversize");

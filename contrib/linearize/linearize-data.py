@@ -280,8 +280,8 @@ class BlockDataCopier:
                     print("Premature end of block data")
                     return
 
-            inhdr = self.read_xored(self.inF, 8)
-            if (not inhdr or (inhdr[0] == "\0")):
+            inhdr = self.read_xored(self.inF, 12)
+            if not inhdr or len(inhdr) < 12:
                 self.inF.close()
                 self.inF = None
                 self.inFn = self.inFn + 1
@@ -289,13 +289,13 @@ class BlockDataCopier:
 
             inMagic = inhdr[:4]
             if (inMagic != self.settings['netmagic']):
-                # Seek backwards 7 bytes (skipping the first byte in the previous search)
+                # Seek backwards 11 bytes (skipping the first byte in the previous search)
                 # and continue searching from the new position if the magic bytes are not
                 # found.
-                self.inF.seek(-7, os.SEEK_CUR)
+                self.inF.seek(-11, os.SEEK_CUR)
                 continue
             inLenLE = inhdr[4:]
-            su = struct.unpack("<I", inLenLE)
+            su = struct.unpack("<Q", inLenLE)
             blk_hdr = self.read_xored(self.inF, 80)
             if blk_hdr[3] & 0x80:
                 blk_hdr += self.read_xored(self.inF, 84)

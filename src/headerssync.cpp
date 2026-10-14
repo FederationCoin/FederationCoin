@@ -152,7 +152,7 @@ bool HeadersSyncState::ValidateAndStoreHeadersCommitments(const std::vector<CBlo
     Assume(m_download_state == State::PRESYNC);
     if (m_download_state != State::PRESYNC) return false;
 
-    if (headers[0].hashPrevBlock != m_last_header_received.GetHash()) {
+    if (headers[0].hashPrevBlock != m_last_header_received.GetBlockIdentity()) {
         // Somehow our peer gave us a header that doesn't connect.
         // This might be benign -- perhaps our peer reorged away from the chain
         // they were on. Give up on this sync for now (likely we will start a
@@ -201,7 +201,7 @@ bool HeadersSyncState::ValidateAndProcessSingleHeader(const CBlockHeader& curren
 
     if (next_height % HEADER_COMMITMENT_PERIOD == m_commit_offset) {
         // Add a commitment.
-        m_header_commitments.push_back(m_hasher(current.GetHash()) & 1);
+        m_header_commitments.push_back(m_hasher(current.GetBlockIdentity()) & 1);
         if (m_header_commitments.size() > m_max_commitments) {
             // The peer's chain is too long; give up.
             // It's possible the chain grew since we started the sync; so
@@ -267,7 +267,7 @@ bool HeadersSyncState::ValidateAndStoreRedownloadedHeader(const CBlockHeader& he
             // we've run out of commitments.
             return false;
         }
-        bool commitment = m_hasher(header.GetHash()) & 1;
+        bool commitment = m_hasher(header.GetBlockIdentity()) & 1;
         bool expected_commitment = m_header_commitments.front();
         m_header_commitments.pop_front();
         if (commitment != expected_commitment) {
@@ -279,7 +279,7 @@ bool HeadersSyncState::ValidateAndStoreRedownloadedHeader(const CBlockHeader& he
     // Store this header for later processing.
     m_redownloaded_headers.emplace_back(header);
     m_redownload_buffer_last_height = next_height;
-    m_redownload_buffer_last_hash = header.GetHash();
+    m_redownload_buffer_last_hash = header.GetBlockIdentity();
 
     return true;
 }
@@ -297,7 +297,7 @@ std::vector<CBlockHeader> HeadersSyncState::PopHeadersReadyForAcceptance()
         ++height;
         ret.emplace_back(m_redownloaded_headers.front(), m_redownload_buffer_first_prev_hash, height);
         m_redownloaded_headers.pop_front();
-        m_redownload_buffer_first_prev_hash = ret.back().GetHash();
+        m_redownload_buffer_first_prev_hash = ret.back().GetBlockIdentity();
     }
     return ret;
 }
@@ -312,7 +312,7 @@ CBlockLocator HeadersSyncState::NextHeadersRequestLocator() const
 
     if (m_download_state == State::PRESYNC) {
         // During pre-synchronization, we continue from the last header received.
-        locator.push_back(m_last_header_received.GetHash());
+        locator.push_back(m_last_header_received.GetBlockIdentity());
     }
 
     if (m_download_state == State::REDOWNLOAD) {

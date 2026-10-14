@@ -297,6 +297,10 @@ BOOST_AUTO_TEST_CASE(checked_arith_bounds)
 
 BOOST_AUTO_TEST_CASE(worst_case_cap_at_height)
 {
+    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(2400000, 0), 2400000ULL);
+    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(2400000, 1), 3600000ULL);
+    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(2400000, 2), 5400000ULL);
+    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(5, 1), 7ULL);
     BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(0, 210000), 2400000ULL);
     BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(-1, 210000), 2400000ULL);
     BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(1, 0), 2400000ULL);
@@ -314,6 +318,7 @@ BOOST_AUTO_TEST_CASE(worst_case_cap_at_height)
         }
         break;
     }
+    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(Consensus::MIN_FLEX_BLOCK_WEIGHT, std::numeric_limits<uint64_t>::max()), grown_cap);
     BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(std::numeric_limits<int>::max(), 1), grown_cap);
     BOOST_CHECK(grown_cap <= Consensus::MAX_FLEX_BLOCK_WEIGHT);
 }

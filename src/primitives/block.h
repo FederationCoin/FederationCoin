@@ -166,8 +166,12 @@ public:
     }
 
     uint256 GetHash() const;
+    /** Chain link / P2P identity. Blake2b (tag 00) is GetHash(); other kinds are SHA-256d of the 164-byte header. */
+    uint256 GetBlockIdentity() const;
 };
 
+/** Serialized size of a version-2 header. Not a block-size cap. */
+static constexpr uint32_t BLOCK_HEADER_V2_SERIALIZED_SIZE{164};
 
 class CBlock : public CBlockHeader
 {

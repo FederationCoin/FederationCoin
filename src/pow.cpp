@@ -7,23 +7,13 @@
 
 #include <arith_uint256.h>
 #include <chain.h>
+#include <consensus/work/kind.h>
+#include <consensus/work/retarget.h>
 #include <primitives/block.h>
 #include <uint256.h>
 #include <util/check.h>
 
-/** Compact bits used for testnet min-difficulty blocks.
- *
- * When nMinDifficultyBits is set (testnet3 Blake2b floor), min-diff drops to
- * that floor rather than powLimit. Shared with the walk-back that skips
- * min-diff headers.
- */
-static unsigned int MinDifficultyNBits(const Consensus::Params& params)
-{
-    if (params.nMinDifficultyBits != 0) {
-        return params.nMinDifficultyBits;
-    }
-    return UintToArith256(params.powLimit).GetCompact();
-}
+#include <limits>
 
 /** Do not ease past nMinDifficultyBits (smaller target = harder). */
 static unsigned int ApplyMinDifficultyFloor(unsigned int nBits, const Consensus::Params& params)
@@ -43,137 +33,39 @@ static unsigned int ApplyMinDifficultyFloor(unsigned int nBits, const Consensus:
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params)
 {
-    unsigned int nMinDiffBits = MinDifficultyNBits(params);
+    const auto tag{Consensus::DecodeWorkKindTag(pblock->GetCompleteVersion())};
+    const Consensus::WorkKindTag kind_tag{tag ? *tag : Consensus::WorkKindTag::BLAKE2B};
+    const Consensus::WorkKind* kind{Consensus::LookupWorkKind(kind_tag)};
+    Assert(kind);
+    const uint256 S{Consensus::NextWorkScale(pindexLast, params)};
+    unsigned int nBits{kind->ExpectedNBits(S, params)};
 
-    unsigned int nBits;
-
-    // Only change once per difficulty adjustment interval
-    if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval() != 0)
-    {
-        if (params.fPowAllowMinDifficultyBlocks)
-        {
-            // Special difficulty rule for testnet:
-            // If the new block's timestamp is more than 2* 10 minutes
-            // then allow mining of a min-difficulty block.
-            if (pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing*2)
-                return nMinDiffBits;
-            else
-            {
-                // Look back to the last non-special-min-difficulty-rules-block
-                const CBlockIndex* pindex = pindexLast;
-                while (pindex->pprev && pindex->nHeight % params.DifficultyAdjustmentInterval() != 0 && pindex->nBits == nMinDiffBits)
-                    pindex = pindex->pprev;
-                nBits = pindex->nBits;
-            }
-        } else {
-            nBits = pindexLast->nBits;
-        }
-    } else {
-        // Go back by what we want to be 14 days worth of blocks
-        int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval()-1);
-        assert(nHeightFirst >= 0);
-        const CBlockIndex* pindexFirst = pindexLast->GetAncestor(nHeightFirst);
-        assert(pindexFirst);
-
-        nBits = CalculateNextWorkRequired(pindexLast, pindexFirst->GetBlockTime(), params);
+    if (params.fPowAllowMinDifficultyBlocks &&
+        pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing * 2) {
+        const size_t idx{static_cast<size_t>(kind_tag)};
+        arith_uint256 s{UintToArith256(S)};
+        if (s == 0) s = 1;
+        arith_uint256 floor{UintToArith256(params.powFloor0[idx])};
+        floor /= s;
+        if (floor == 0) floor = 1;
+        const arith_uint256 limit{UintToArith256(params.powLimitKind[idx])};
+        if (floor > limit) floor = limit;
+        nBits = floor.GetCompact();
     }
 
     return ApplyMinDifficultyFloor(nBits, params);
-}
-
-unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nFirstBlockTime, const Consensus::Params& params)
-{
-    if (params.fPowNoRetargeting)
-        return pindexLast->nBits;
-
-    // Limit adjustment step
-    int64_t nActualTimespan = pindexLast->GetBlockTime() - nFirstBlockTime;
-    if (nActualTimespan < params.nPowTargetTimespan/4)
-        nActualTimespan = params.nPowTargetTimespan/4;
-    if (nActualTimespan > params.nPowTargetTimespan*4)
-        nActualTimespan = params.nPowTargetTimespan*4;
-
-    // Retarget
-    const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
-    arith_uint256 bnNew;
-
-    // Special difficulty rule for Testnet4
-    if (params.enforce_BIP94) {
-        // Here we use the first block of the difficulty period. This way
-        // the real difficulty is always preserved in the first block as
-        // it is not allowed to use the min-difficulty exception.
-        int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval()-1);
-        const CBlockIndex* pindexFirst = pindexLast->GetAncestor(nHeightFirst);
-        bnNew.SetCompact(pindexFirst->nBits);
-    } else {
-        bnNew.SetCompact(pindexLast->nBits);
-    }
-
-    bnNew *= nActualTimespan;
-    bnNew /= params.nPowTargetTimespan;
-
-    if (bnNew > bnPowLimit)
-        bnNew = bnPowLimit;
-
-    if (params.nMinDifficultyBits != 0) {
-        arith_uint256 bnFloor;
-        bnFloor.SetCompact(params.nMinDifficultyBits);
-        if (bnNew > bnFloor) {
-            bnNew = bnFloor;
-        }
-    }
-
-    return bnNew.GetCompact();
 }
 
 // Check that on difficulty adjustments, the new difficulty does not increase
 // or decrease beyond the permitted limits.
 bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height, uint32_t old_nbits, uint32_t new_nbits)
 {
-    if (params.fPowAllowMinDifficultyBlocks) return true;
-
-    if (height % params.DifficultyAdjustmentInterval() == 0) {
-        int64_t smallest_timespan = params.nPowTargetTimespan/4;
-        int64_t largest_timespan = params.nPowTargetTimespan*4;
-
-        const arith_uint256 pow_limit = UintToArith256(params.powLimit);
-        arith_uint256 observed_new_target;
-        observed_new_target.SetCompact(new_nbits);
-
-        // Calculate the largest difficulty value possible:
-        arith_uint256 largest_difficulty_target;
-        largest_difficulty_target.SetCompact(old_nbits);
-        largest_difficulty_target *= largest_timespan;
-        largest_difficulty_target /= params.nPowTargetTimespan;
-
-        if (largest_difficulty_target > pow_limit) {
-            largest_difficulty_target = pow_limit;
-        }
-
-        // Round and then compare this new calculated value to what is
-        // observed.
-        arith_uint256 maximum_new_target;
-        maximum_new_target.SetCompact(largest_difficulty_target.GetCompact());
-        if (maximum_new_target < observed_new_target) return false;
-
-        // Calculate the smallest difficulty value possible:
-        arith_uint256 smallest_difficulty_target;
-        smallest_difficulty_target.SetCompact(old_nbits);
-        smallest_difficulty_target *= smallest_timespan;
-        smallest_difficulty_target /= params.nPowTargetTimespan;
-
-        if (smallest_difficulty_target > pow_limit) {
-            smallest_difficulty_target = pow_limit;
-        }
-
-        // Round and then compare this new calculated value to what is
-        // observed.
-        arith_uint256 minimum_new_target;
-        minimum_new_target.SetCompact(smallest_difficulty_target.GetCompact());
-        if (minimum_new_target > observed_new_target) return false;
-    } else if (old_nbits != new_nbits) {
-        return false;
-    }
+    // Mixed kinds have different compact nBits at the same S. Equal-nBits is
+    // not a consensus rule. ContextualCheckBlockHeader matches ExpectedNBits.
+    (void)params;
+    (void)height;
+    (void)old_nbits;
+    (void)new_nbits;
     return true;
 }
 
@@ -210,4 +102,19 @@ bool CheckProofOfWorkImpl(uint256 hash, unsigned int nBits, const Consensus::Par
         return false;
 
     return true;
+}
+
+bool CheckProofOfWork(const CBlockHeader& header, const Consensus::Params& params)
+{
+    if constexpr (G_FUZZING) return CheckProofOfWork(header.GetHash(), header.nBits, params);
+    return Consensus::CheckWorkKindHeader(header, params);
+}
+
+bool GrindProofOfWork(CBlockHeader& header, const Consensus::Params& params)
+{
+    for (uint32_t tries{0}; tries < std::numeric_limits<uint32_t>::max(); ++tries) {
+        if (CheckProofOfWork(header, params)) return true;
+        ++header.nNonce;
+    }
+    return CheckProofOfWork(header, params);
 }

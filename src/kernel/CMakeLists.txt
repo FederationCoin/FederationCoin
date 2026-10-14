@@ -28,6 +28,10 @@ add_library(bitcoinkernel
   ../consensus/mldsa87_spend.cpp
   ../consensus/secp_spend.cpp
   ../consensus/flex_weight.cpp
+  ../consensus/work/kind.cpp
+  ../consensus/work/fp8_gym.cpp
+  ../consensus/work/poseidon2.cpp
+  ../consensus/work/retarget.cpp
   ../consensus/block_limits.cpp
   ../consensus/epoch_watermark.cpp
   ../consensus/settlement_fee.cpp
@@ -96,6 +100,7 @@ add_library(bitcoinkernel
   ../validationinterface.cpp
   ../versionbits.cpp
 )
+set_source_files_properties(../consensus/work/fp8_gym.cpp PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-ffp-contract=off>")
 target_compile_definitions(bitcoinkernel
   PRIVATE
     BUILDING_FOR_LIBBITCOINKERNEL

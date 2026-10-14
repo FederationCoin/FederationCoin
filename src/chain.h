@@ -52,8 +52,8 @@ class CBlockFileInfo
 {
 public:
     unsigned int nBlocks{};      //!< number of blocks stored in file
-    unsigned int nSize{};        //!< number of used bytes of block file
-    unsigned int nUndoSize{};    //!< number of used bytes in the undo file
+    uint64_t nSize{};            //!< number of used bytes of block file
+    uint64_t nUndoSize{};        //!< number of used bytes in the undo file
     unsigned int nHeightFirst{}; //!< lowest height of block in file
     unsigned int nHeightLast{};  //!< highest height of block in file
     uint64_t nTimeFirst{};       //!< earliest time of block in file
@@ -160,10 +160,10 @@ public:
     int nFile GUARDED_BY(::cs_main){0};
 
     //! Byte offset within blk?????.dat where this block's data is stored
-    unsigned int nDataPos GUARDED_BY(::cs_main){0};
+    uint64_t nDataPos GUARDED_BY(::cs_main){0};
 
     //! Byte offset within rev?????.dat where this block's undo data is stored
-    unsigned int nUndoPos GUARDED_BY(::cs_main){0};
+    uint64_t nUndoPos GUARDED_BY(::cs_main){0};
 
     //! (memory only) Total amount of work (expected number of hashes) in the chain up to and including this block
     arith_uint256 nChainWork{};
@@ -190,6 +190,9 @@ public:
     //! Cap that applied to this block, and the in-progress epoch watermark.
     uint64_t nFlexCap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
     Consensus::EpochWatermark nEpochWatermark{};
+
+    //! Shared work-menu scale S at this height (genesis 1). Chainwork += S.
+    uint256 nWorkScale{uint256::ONE};
 
     //! (memory only) Sequential id assigned to distinguish order in which blocks are received.
     //! Initialized to SEQ_ID_INIT_FROM_DISK{1} when loading blocks from disk, except for blocks
@@ -374,6 +377,7 @@ public:
         if (obj.nStatus & BLOCK_HAVE_UNDO) READWRITE(VARINT(obj.nUndoPos));
         READWRITE(obj.nFlexCap);
         READWRITE(obj.nEpochWatermark);
+        READWRITE(obj.nWorkScale);
 
         // block header
         CBlockHeader header;
@@ -385,7 +389,7 @@ public:
 
     uint256 ConstructBlockHash() const
     {
-        return GetBlockHeader().GetHash();
+        return GetBlockHeader().GetBlockIdentity();
     }
 
     uint256 GetBlockHash() = delete;

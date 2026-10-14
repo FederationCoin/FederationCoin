@@ -13,7 +13,6 @@
 #include <common/system.h>
 #include <compat/compat.h>
 #include <consensus/amount.h>
-#include <consensus/consensus.h>
 #include <core_io.h>
 #include <key_io.h>
 #include <policy/policy.h>
@@ -32,6 +31,7 @@
 
 #include <cstdio>
 #include <functional>
+#include <limits>
 #include <memory>
 
 using util::SplitString;
@@ -275,13 +275,13 @@ static void MutateTxAddInput(CMutableTransaction& tx, const std::string& strInpu
         throw std::runtime_error("invalid TX input txid");
     }
 
-    static const unsigned int minTxOutSz = 9;
-    static const unsigned int maxVout = CONTEXT_FREE_BLOCK_BYTES / (WITNESS_SCALE_FACTOR * minTxOutSz);
+    // COutPoint::n is uint32_t. This is not a block-size ceiling.
+    constexpr int64_t max_vout{std::numeric_limits<uint32_t>::max()};
 
     // extract and validate vout
     const std::string& strVout = vStrInputParts[1];
     int64_t vout;
-    if (!ParseInt64(strVout, &vout) || vout < 0 || vout > static_cast<int64_t>(maxVout))
+    if (!ParseInt64(strVout, &vout) || vout < 0 || vout > max_vout)
         throw std::runtime_error("invalid TX input vout '" + strVout + "'");
 
     // extract the optional sequence number

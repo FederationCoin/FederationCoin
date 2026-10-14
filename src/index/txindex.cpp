@@ -97,6 +97,6 @@ bool TxIndex::FindTx(const uint256& tx_hash, uint256& block_hash, CTransactionRe
         LogError("%s: txid mismatch\n", __func__);
         return false;
     }
-    block_hash = header.GetHash();
+    block_hash = header.GetBlockIdentity();
     return true;
 }

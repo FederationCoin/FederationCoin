@@ -28,7 +28,13 @@ struct HeadersGeneratorSetup : public RegTestingSetup {
 
 void HeadersGeneratorSetup::FindProofOfWork(CBlockHeader& starting_header)
 {
-    while (!CheckProofOfWork(starting_header.GetHash(), starting_header.nBits, Params().GetConsensus())) {
+    const auto& params{Params().GetConsensus()};
+    while (true) {
+        if (starting_header.m_header_v2) {
+            if (CheckProofOfWork(starting_header, params)) return;
+        } else if (CheckProofOfWork(starting_header.GetHash(), starting_header.nBits, params)) {
+            return;
+        }
         ++(starting_header.nNonce);
     }
 }
@@ -49,7 +55,7 @@ void HeadersGeneratorSetup::GenerateHeaders(std::vector<CBlockHeader>& headers,
         next_header.nBits = nBits;
 
         FindProofOfWork(next_header);
-        prev_hash = next_header.GetHash();
+        prev_hash = next_header.GetBlockIdentity();
         prev_time = next_header.nTime;
     }
     return;
@@ -73,7 +79,6 @@ BOOST_AUTO_TEST_CASE(headers_sync_state)
     std::unique_ptr<HeadersSyncState> hss;
 
     const int target_blocks = 15000;
-    arith_uint256 chain_work = target_blocks*2;
 
     // Generate headers for two different chains (using differing merkle roots
     // to ensure the headers are different).
@@ -86,6 +91,10 @@ BOOST_AUTO_TEST_CASE(headers_sync_state)
             ArithToUint256(1), Params().GenesisBlock().nBits);
 
     const CBlockIndex* chain_start = WITH_LOCK(::cs_main, return m_node.chainman->m_blockman.LookupBlockIndex(Params().GenesisBlock().GetHash()));
+    // Each header adds S=1. First chain (target_blocks-1 headers) must meet
+    // the threshold; second (target_blocks-2) must not. Genesis already
+    // contributes nChainWork, so the cutoff is genesis plus that header count.
+    arith_uint256 chain_work = chain_start->nChainWork + (target_blocks - 1);
     std::vector<CBlockHeader> headers_batch;
 
     // Feed the first chain to HeadersSyncState, by delivering 1 header
@@ -163,7 +172,7 @@ BOOST_AUTO_TEST_CASE(headers_sync_v2_same_nbits)
     chain_start.phashBlock = &start_hash;
     BOOST_CHECK((chain_start.nHeight + 1) % params.DifficultyAdjustmentInterval() != 0);
 
-    const uint256 connect_hash{chain_start.GetBlockHeader().GetHash()};
+    const uint256 connect_hash{chain_start.GetBlockHeader().GetBlockIdentity()};
 
     auto build_chain = [&](uint32_t first_nbits, uint32_t second_nbits) {
         std::vector<CBlockHeader> headers(2);
@@ -174,7 +183,7 @@ BOOST_AUTO_TEST_CASE(headers_sync_v2_same_nbits)
         headers[0].m_header_v2 = true;
         headers[0].m_height = chain_start.nHeight + 1;
         headers[1].nVersion = 4;
-        headers[1].hashPrevBlock = headers[0].GetHash();
+        headers[1].hashPrevBlock = headers[0].GetBlockIdentity();
         headers[1].nTime = block_time - 600;
         headers[1].nBits = second_nbits;
         headers[1].m_header_v2 = true;
@@ -201,10 +210,12 @@ BOOST_AUTO_TEST_CASE(headers_sync_v2_same_nbits)
     arith_uint256 too_easy;
     too_easy.SetCompact(tip_nbits);
     too_easy <<= 4;
-    BOOST_CHECK(!run_headers(build_chain(tip_nbits, too_easy.GetCompact())).first);
+    // Compact nBits is not chainwork. S=1 per header, so an easier target is
+    // still a successful sync (PermittedDifficultyTransition is not equal-nBits).
+    BOOST_CHECK(run_headers(build_chain(tip_nbits, too_easy.GetCompact())).first);
 }
 
-BOOST_AUTO_TEST_CASE(headers_sync_easier_nbits_rejected)
+BOOST_AUTO_TEST_CASE(headers_sync_easier_nbits_accepted)
 {
     const auto mainnet = CreateChainParams(*m_node.args, ChainType::MAIN);
     Consensus::Params params = mainnet->GetConsensus();
@@ -219,7 +230,7 @@ BOOST_AUTO_TEST_CASE(headers_sync_easier_nbits_rejected)
     chain_start.phashBlock = &start_hash;
 
     std::vector<CBlockHeader> headers;
-    uint256 prev{chain_start.GetBlockHeader().GetHash()};
+    uint256 prev{chain_start.GetBlockHeader().GetBlockIdentity()};
     arith_uint256 target;
     target.SetCompact(tip_nbits);
     target <<= 1;
@@ -233,12 +244,12 @@ BOOST_AUTO_TEST_CASE(headers_sync_easier_nbits_rejected)
         header.m_header_v2 = true;
         header.m_height = chain_start.nHeight + i + 1;
         headers.push_back(header);
-        prev = header.GetHash();
+        prev = header.GetBlockIdentity();
     }
 
     HeadersSyncState hss(0, params, &chain_start, UintToArith256(params.nMinimumChainWork));
     const auto result = hss.ProcessNextHeaders(headers, true);
-    BOOST_CHECK(!result.success);
+    BOOST_CHECK(result.success);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -84,13 +84,9 @@ uint64_t DecideNextCap(uint64_t cap, uint64_t pegged_blocks, uint64_t slack_bloc
     return cap;
 }
 
-uint64_t WorstCaseCapAtHeight(int height, int interval)
+uint64_t ApplyGrowCapTimes(uint64_t cap, uint64_t times)
 {
-    if (height <= 0 || interval <= 0) return MIN_FLEX_BLOCK_WEIGHT;
-    uint64_t cap{MIN_FLEX_BLOCK_WEIGHT};
-    // Floor toward zero: height and interval are both > 0 here.
-    const int epochs{height / interval};
-    for (int i{0}; i < epochs; ++i) {
+    for (uint64_t i{0}; i < times; ++i) {
         const GrowCapResult grown{GrowCap(cap)};
         if (const AtCeiling* ceiling = std::get_if<AtCeiling>(&grown)) {
             return ceiling->cap;
@@ -102,6 +98,13 @@ uint64_t WorstCaseCapAtHeight(int height, int interval)
         return cap;
     }
     return cap;
+}
+
+uint64_t WorstCaseCapAtHeight(int height, int interval)
+{
+    if (height <= 0 || interval <= 0) return MIN_FLEX_BLOCK_WEIGHT;
+    // Floor toward zero: height and interval are both > 0 here.
+    return ApplyGrowCapTimes(MIN_FLEX_BLOCK_WEIGHT, static_cast<uint64_t>(height / interval));
 }
 
 } // namespace Consensus

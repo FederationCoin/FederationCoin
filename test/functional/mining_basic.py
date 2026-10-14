@@ -50,8 +50,6 @@ MAX_FUTURE_BLOCK_TIME = 2 * 3600
 MAX_TIMEWARP = 600
 ASSUMED_BLOCK_OVERHEAD_SIZE = 1000
 ASSUMED_BLOCK_OVERHEAD_WEIGHT = ASSUMED_BLOCK_OVERHEAD_SIZE * WITNESS_SCALE_FACTOR
-VERSIONBITS_TOP_BITS = 0x20000000
-VERSIONBITS_DEPLOYMENT_TESTDUMMY_BIT = 28
 HEADER_V2_VERSION_FLAG = 0x80000000
 DEFAULT_BLOCK_MIN_TX_FEE = 0  # default `-blockmintxfee` setting [sat/kvB]
 MAX_SIGOP_COST = 48000
@@ -99,7 +97,8 @@ class MiningTest(BitcoinTestFramework):
         assert_equal(HEADER_V2_VERSION_FLAG | 1337, self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)['version'])
         self.restart_node(0, extra_args=[f'-mocktime={t}'])
         self.connect_nodes(0, 1)
-        assert_equal(HEADER_V2_VERSION_FLAG | VERSIONBITS_TOP_BITS + (1 << VERSIONBITS_DEPLOYMENT_TESTDUMMY_BIT), self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)['version'])
+        # ComputeBlockVersion sets TOP_BITS and testdummy (STARTED after height 120).
+        assert_equal(HEADER_V2_VERSION_FLAG | 0x20000000 | (1 << 28), self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)['version'])
         self.restart_node(0)
         self.connect_nodes(0, 1)
 
@@ -500,7 +499,8 @@ class MiningTest(BitcoinTestFramework):
             'bits': nbits_str(REGTEST_N_BITS),
             'difficulty': Decimal('4.656542373906925E-10')
         })
-        assert_equal(mining_info['networkhashps'], Decimal('0.003333333333333334'))
+        # Each block adds S=1. 120-block lookup over 12-minute spacing is 1/600 H/s.
+        assert_equal(mining_info['networkhashps'], Decimal('0.001666666666666667'))
         assert_equal(mining_info['pooledtx'], 0)
 
         self.log.info("getblocktemplate: Test default witness commitment")

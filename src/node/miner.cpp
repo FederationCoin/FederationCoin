@@ -18,6 +18,7 @@
 #include <consensus/settlement_fee.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
+#include <consensus/work/kind.h>
 #include <deploymentstatus.h>
 #include <logging.h>
 #include <node/context.h>
@@ -189,6 +190,11 @@ std::shared_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
 
     pblock->m_header_v2 = true;
     pblock->nVersion = m_chainstate.m_chainman.m_versionbitscache.ComputeBlockVersion(pindexPrev, chainparams.GetConsensus());
+    const auto work_tag{static_cast<Consensus::WorkKindTag>(m_options.work_kind & 3)};
+    Consensus::ApplyWorkKindTag(*pblock, work_tag);
+    if (const Consensus::WorkKind* kind{Consensus::LookupWorkKind(work_tag)}) {
+        kind->PrepareTemplate(*pblock);
+    }
     // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
     if (chainparams.MineBlocksOnDemand()) {

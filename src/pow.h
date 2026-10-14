@@ -28,11 +28,14 @@ class arith_uint256;
 std::optional<arith_uint256> DeriveTarget(unsigned int nBits, const uint256 pow_limit);
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params&) ARG_NONNULL(1) ARG_NONNULL(2);
-unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nFirstBlockTime, const Consensus::Params&);
 
 /** Check whether a block hash satisfies the proof-of-work requirement specified by nBits */
 bool CheckProofOfWork(uint256 hash, unsigned int nBits, const Consensus::Params&);
 bool CheckProofOfWorkImpl(uint256 hash, unsigned int nBits, const Consensus::Params&);
+/** Header-v2 work menu: tag, tail, digest vs nBits. Header-only (no vtx). */
+bool CheckProofOfWork(const CBlockHeader& header, const Consensus::Params& params);
+/** Increment nNonce until CheckProofOfWork(header) succeeds. */
+bool GrindProofOfWork(CBlockHeader& header, const Consensus::Params& params);
 
 /**
  * Return false if the proof-of-work requirement specified by new_nbits at a

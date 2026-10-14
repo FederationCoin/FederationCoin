@@ -78,6 +78,8 @@ struct BlockCreateOptions {
     // Whether to call TestBlockValidity() at the end of CreateNewBlock().
     bool test_block_validity{true};
     bool print_modified_fee{DEFAULT_PRINT_MODIFIED_FEE};
+    /** WorkKindTag: 0 Blake2b (default), 1 SHA-256d, 2 FP8 gym, 3 Poseidon2. */
+    uint8_t work_kind{0};
 
     BlockCreateOptions Clamped() const;
 

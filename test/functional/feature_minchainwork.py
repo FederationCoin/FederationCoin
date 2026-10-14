@@ -24,8 +24,8 @@ from test_framework.util import (
     ensure_for,
 )
 
-# 2 hashes required per regtest block (with no difficulty adjustment)
-REGTEST_WORK_PER_BLOCK = 2
+# Each block adds S=1.
+REGTEST_WORK_PER_BLOCK = 1
 
 class MinimumChainWorkTest(BitcoinTestFramework):
     def set_test_params(self):
@@ -56,7 +56,8 @@ class MinimumChainWorkTest(BitcoinTestFramework):
 
         starting_blockcount = self.nodes[2].getblockcount()
 
-        num_blocks_to_generate = int((self.node_min_work[1] - starting_chain_work) / REGTEST_WORK_PER_BLOCK)
+        # Leave chainwork 1 below the threshold; the next two blocks exceed it (S=1).
+        num_blocks_to_generate = self.node_min_work[1] - starting_chain_work - 1
         self.log.info(f"Generating {num_blocks_to_generate} blocks on node0")
         hashes = self.generate(self.nodes[0], num_blocks_to_generate, sync_fun=self.no_op)
 
@@ -82,8 +83,8 @@ class MinimumChainWorkTest(BitcoinTestFramework):
         peer.send_and_ping(msg)
         ensure_for(duration=5, f=lambda: "headers" not in peer.last_message or len(peer.last_message["headers"].headers) == 0)
 
-        self.log.info("Generating one more block")
-        self.generate(self.nodes[0], 1)
+        self.log.info("Generating two more blocks to exceed minchainwork")
+        self.generate(self.nodes[0], 2)
 
         self.log.info("Verifying nodes are all synced")
 

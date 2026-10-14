@@ -13,6 +13,7 @@ from test_framework.messages import (
     blake2b_header_hash_components,
     from_hex,
     powhash,
+    uint256_from_compact,
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
@@ -97,6 +98,12 @@ class PowChangeTest(BitcoinTestFramework):
         template = node.getblocktemplate({"rules": ["segwit", "blake2b"]})
         assert template["version"] & 0x80000000
         assert "!blake2b" in template["rules"]
+        assert "!sha256d" in template["rules"]
+        assert "!fp8gym" in template["rules"]
+        assert "!poseidon2" in template["rules"]
+        assert_equal(template.get("work_kind"), "blake2b")
+        genesis_version = self.get_header(node.getblockhash(0)).get_complete_version()
+        assert_equal(genesis_version & 0x300, 0)
 
         self.generatetoaddress(node, 2, addr)
         tip_hash = node.getbestblockhash()
@@ -187,7 +194,12 @@ class PowChangeTest(BitcoinTestFramework):
             header_v2=True,
         )
         invalid_txcount.m_txcount += 1
-        invalid_txcount.solve()
+        # solve() would refresh m_txcount to len(vtx). Grind with the lying count.
+        invalid_txcount.rehash()
+        target = uint256_from_compact(invalid_txcount.nBits)
+        while invalid_txcount.sha256 > target:
+            invalid_txcount.nNonce += 1
+            invalid_txcount.rehash()
         assert_equal(node.submitblock(invalid_txcount.serialize().hex()), "bad-txnlist-size")
 
         invalid_height = create_block(
@@ -224,7 +236,11 @@ class PowChangeTest(BitcoinTestFramework):
             header_v2=True,
         )
         v2_header_only.m_txcount = 3
-        v2_header_only.solve()
+        v2_header_only.rehash()
+        header_target = uint256_from_compact(v2_header_only.nBits)
+        while v2_header_only.sha256 > header_target:
+            v2_header_only.nNonce += 1
+            v2_header_only.rehash()
         assert_equal(node.submitheader(hexdata=CBlockHeader(v2_header_only).serialize().hex()), None)
         v2_header_only_json = node.getblockheader(v2_header_only.hash, True)
         assert_equal(v2_header_only_json["header_version"], 2)

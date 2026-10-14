@@ -10,6 +10,17 @@
 #include <streams.h>
 #include <tinyformat.h>
 
+uint256 CBlockHeader::GetBlockIdentity() const
+{
+    if (!m_header_v2) return GetHash();
+    const uint32_t v{GetCompleteVersion()};
+    // Kind 00 is Blake2b GetHash (nVersion, including BIP9 bits, is in that digest).
+    if (((v >> 8) & 3u) == 0) {
+        return GetHash();
+    }
+    return (HashWriter{} << *this).GetHash();
+}
+
 uint256 CBlockHeader::GetHash() const
 {
     if (!m_header_v2) {  // SHA256d

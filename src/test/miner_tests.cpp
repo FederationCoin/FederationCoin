@@ -3,11 +3,13 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <consensus/block_limits.h>
-#include <consensus/consensus.h>
 #include <consensus/flex_weight.h>
+#include <consensus/merkle.h>
 #include <consensus/settlement_fee.h>
+#include <consensus/work/kind.h>
 #include <interfaces/mining.h>
 #include <node/miner.h>
+#include <pow.h>
 #include <policy/policy.h>
 #include <test/util/txmempool.h>
 #include <txmempool.h>
@@ -15,6 +17,9 @@
 #include <validation.h>
 
 #include <test/util/setup_common.h>
+
+#include <limits>
+#include <memory>
 
 #include <boost/test/unit_test.hpp>
 
@@ -167,15 +172,41 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
     TestPrioritisedMining(scriptPubKey, txFirst);
 }
 
+BOOST_AUTO_TEST_CASE(CreateNewBlock_all_work_kinds)
+{
+    auto mining{MakeMining()};
+    BOOST_REQUIRE(mining);
+    CScript scriptPubKey = MldsaScriptPubKey();
+    const auto& params{Assert(m_node.chainman)->GetParams().GetConsensus()};
+    for (uint8_t k{0}; k < Consensus::WORK_KIND_COUNT; ++k) {
+        node::BlockCreateOptions options;
+        options.coinbase_output_script = scriptPubKey;
+        options.work_kind = k;
+        std::unique_ptr<BlockTemplate> tmpl{mining->createNewBlock(options)};
+        BOOST_REQUIRE(tmpl);
+        CBlock block{tmpl->getBlock()};
+        const auto tag{Consensus::DecodeWorkKindTag(block.GetCompleteVersion())};
+        BOOST_REQUIRE(tag);
+        BOOST_CHECK_EQUAL(static_cast<int>(*tag), static_cast<int>(k));
+        block.hashMerkleRoot = BlockMerkleRoot(block);
+        BOOST_REQUIRE(GrindProofOfWork(block, params));
+        std::shared_ptr<const CBlock> shared{std::make_shared<const CBlock>(std::move(block))};
+        BOOST_REQUIRE(Assert(m_node.chainman)->ProcessNewBlock(shared, /*force_processing=*/true, /*min_pow_checked=*/true, nullptr));
+        LOCK(cs_main);
+        BOOST_CHECK_EQUAL(Assert(m_node.chainman)->ActiveTip()->GetBlockHash(), shared->GetBlockIdentity());
+    }
+}
+
 BOOST_AUTO_TEST_CASE(clamped_size_tracks_flex_not_file_window)
 {
     node::BlockCreateOptions options;
     options.nBlockMaxWeight = Consensus::MIN_FLEX_BLOCK_WEIGHT;
-    options.nBlockMaxSize = CONTEXT_FREE_BLOCK_BYTES + 1000;
+    options.nBlockMaxSize = std::numeric_limits<size_t>::max();
     const auto clamped{options.Clamped()};
-    BOOST_CHECK_GT(static_cast<uint64_t>(clamped.nBlockMaxSize), CONTEXT_FREE_BLOCK_BYTES);
-    BOOST_CHECK_LE(static_cast<uint64_t>(clamped.nBlockMaxSize),
-                   Consensus::LimitsForCap(Consensus::MAX_FLEX_BLOCK_WEIGHT).serialized_size);
+    const uint64_t serialized_ceiling{std::min<uint64_t>(
+        Consensus::LimitsForCap(Consensus::MAX_FLEX_BLOCK_WEIGHT).serialized_size,
+        std::numeric_limits<size_t>::max())};
+    BOOST_CHECK_EQUAL(static_cast<uint64_t>(clamped.nBlockMaxSize), serialized_ceiling);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

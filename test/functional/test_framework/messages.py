@@ -195,6 +195,30 @@ def powhash(header):
     return blake2b_header_hash_components(header)["result"][::-1]
 
 
+def block_identity(header):
+    """Chain-link / P2P hash. Blake2b GetHash for kind 00; else SHA-256d of 164."""
+    ser = CBlockHeader.serialize(header)
+    if not header.m_header_v2:
+        return hash256(ser)
+    version = header.get_complete_version()
+    kind = (version >> 8) & 3
+    if kind == 0:
+        return powhash(header)
+    return hash256(ser)
+
+
+def work_digest(header):
+    """Per-kind work digest. FP8 gym and Poseidon2 stay node-side."""
+    if not header.m_header_v2:
+        return hash256(CBlockHeader.serialize(header))
+    kind = (header.get_complete_version() >> 8) & 3
+    if kind == 0:
+        return powhash(header)
+    if kind == 1:
+        return hash256(CBlockHeader.serialize(header)[:80])
+    raise NotImplementedError("work_digest is node-side for fp8gym and poseidon2")
+
+
 def ser_compact_size(l):
     r = b""
     if l < 253:

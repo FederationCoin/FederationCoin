@@ -63,6 +63,9 @@ add_executable(test_bitcoin
   miner_tests.cpp
   flex_cap_dos_tests.cpp
   flex_weight_tests.cpp
+  work_kind_tests.cpp
+  fp8_gym_tests.cpp
+  poseidon2_pow_tests.cpp
   mldsa_multisig_tests.cpp
   mldsa_verify_tests.cpp
   mldsa_witness_tests.cpp

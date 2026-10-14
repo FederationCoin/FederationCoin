@@ -9,10 +9,6 @@
 #include <cstdlib>
 #include <stdint.h>
 
-/** 128 MiB blk*.dat window. Not a consensus cap. CheckBlock uses
- *  LimitsForCap(WorstCaseCapAtHeight). Live block bytes are
- *  Consensus::LimitsForCap. Disk rotation is not a consensus rule. */
-static constexpr uint64_t CONTEXT_FREE_BLOCK_BYTES = 0x8000000;
 /** Coinbase transaction outputs can only be spent after this number of new blocks (network rule) */
 static const int COINBASE_MATURITY = 100;
 

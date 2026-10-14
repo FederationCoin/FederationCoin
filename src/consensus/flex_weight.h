@@ -76,6 +76,12 @@ uint64_t ShrinkCap(uint64_t cap);
  *  Otherwise the cap stays. One stretch takes one branch. */
 uint64_t DecideNextCap(uint64_t cap, uint64_t pegged_blocks, uint64_t slack_blocks, int interval);
 
+/** Apply GrowCap `times` times. Floor toward zero is GrowCap's. Stops
+ *  on AtCeiling or MultiplyWouldOverflow so a large `times` does not
+ *  spin (from MIN_FLEX, AtCeiling is fewer than 100 steps). Does not
+ *  assume the caller passed a cap under MAX_FLEX_BLOCK_WEIGHT. */
+uint64_t ApplyGrowCapTimes(uint64_t cap, uint64_t times);
+
 /** Largest live cap the chain can have reached at height: MIN_FLEX grown
  *  at every subsidy boundary from 1 through height, never cut. Stops at
  *  AtCeiling. epochs is height / interval, floor toward zero. height <= 0

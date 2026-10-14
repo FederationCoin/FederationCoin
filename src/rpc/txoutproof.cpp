@@ -170,7 +170,7 @@ static RPCHelpMan gettxoutproof()
 
             if (prove_witness) {
                 UniValue proven{UniValue::VOBJ};
-                proven.pushKV("blockhash", block.GetHash().GetHex());
+                proven.pushKV("blockhash", block.GetBlockIdentity().GetHex());
                 proven.pushKV("blockheight", pblockindex->nHeight);
                 proven.pushKV("tx", txs);
                 UniValue res{UniValue::VOBJ};
@@ -283,7 +283,7 @@ static RPCHelpMan verifytxoutproof()
             ChainstateManager& chainman = EnsureAnyChainman(request.context);
             LOCK(cs_main);
 
-            const CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(merkleBlock.header.GetHash());
+            const CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(merkleBlock.header.GetBlockIdentity());
             if (!pindex || !chainman.ActiveChain().Contains(pindex) || pindex->nTx == 0) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found in chain");
             }
@@ -309,7 +309,7 @@ static RPCHelpMan verifytxoutproof()
             }
 
             if (verify_witness) {
-                res.pushKV("blockhash", merkleBlock.header.GetHash().GetHex());
+                res.pushKV("blockhash", merkleBlock.header.GetBlockIdentity().GetHex());
                 UniValue txs{UniValue::VARR};
                 for (size_t i{0}; i < vMatch.size(); ++i) {
                     UniValue tx{UniValue::VOBJ};

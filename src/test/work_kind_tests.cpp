@@ -118,9 +118,22 @@ BOOST_AUTO_TEST_CASE(sha256d_80_ignores_tail_bytes)
     BOOST_CHECK(!sha->TailRule(header));
     header.m_nonce2 = 0;
     BOOST_CHECK(sha->TailRule(header));
+    header.m_txcount = 1;
+    BOOST_CHECK(sha->TailRule(header));
     const uint256 id0{header.GetBlockIdentity()};
     header.m_nonce2 = 1;
     BOOST_CHECK(header.GetBlockIdentity() != id0);
+}
+
+BOOST_AUTO_TEST_CASE(v1_header_does_not_decode_fp8)
+{
+    const auto params{CreateChainParams(*m_node.args, ChainType::REGTEST)->GetConsensus()};
+    CBlockHeader header;
+    header.m_header_v2 = false;
+    header.nVersion = static_cast<int32_t>(2u << 8);
+    BOOST_CHECK(!header.m_header_v2);
+    BOOST_CHECK(!Consensus::DecodeWorkKindTag(header.GetCompleteVersion()));
+    BOOST_CHECK(!Consensus::CheckWorkKindHeader(header, params));
 }
 
 BOOST_AUTO_TEST_CASE(sniff_wrong_tag_rejected)

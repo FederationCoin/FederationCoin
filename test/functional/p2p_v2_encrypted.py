@@ -3,10 +3,9 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """
-Regtest window admit does not fit BIP324. -v2transport still speaks v1.
-V2 framing coverage is a unit test under MIN_FLEX admit.
+Encrypted P2P is v3 from genesis. Python v1 peers still downgrade.
 """
-from test_framework.messages import NODE_P2P_V2
+from test_framework.messages import NODE_P2P_V2, NODE_P2P_V3
 from test_framework.p2p import P2PInterface
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -28,9 +27,10 @@ class P2PEncrypted(BitcoinTestFramework):
         for node in (node0, node1):
             network_info = node.getnetworkinfo()
             assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V2, 0)
-            assert "P2P_V2" not in network_info["localservicesnames"]
+            assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V3, NODE_P2P_V3)
+            assert "P2P_V3" in network_info["localservicesnames"]
 
-        self.log.info("Inbound and outbound stay v1 when admit does not fit BIP324")
+        self.log.info("Python v1 peers still downgrade")
         node0.add_p2p_connection(P2PInterface(), wait_for_verack=True, supports_v2_p2p=False)
         node0.add_p2p_connection(P2PInterface(), wait_for_verack=True, supports_v2_p2p=False)
         node0.add_outbound_p2p_connection(P2PInterface(), p2p_idx=0, supports_v2_p2p=False, advertise_v2_p2p=False)
@@ -41,9 +41,13 @@ class P2PEncrypted(BitcoinTestFramework):
             assert_greater_than(peer['bytessent_per_msg']['version'], 0)
             assert_greater_than(peer['bytesrecv_per_msg']['verack'], 0)
 
-        self.connect_nodes(0, 1, peer_advertises_v2=False)
+        self.log.info("Two encrypted nodes speak v3")
+        self.connect_nodes(0, 1)
         self.sync_all()
         assert_equal(node0.getbestblockhash(), node1.getbestblockhash())
+        node_peers = [p for p in node0.getpeerinfo() if p["connection_type"] == "manual"]
+        assert_equal(len(node_peers), 1)
+        assert_equal(node_peers[0]["transport_protocol_type"], "v3")
 
 
 if __name__ == '__main__':

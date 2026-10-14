@@ -198,8 +198,14 @@ bool Consensus::CheckOutputSizes(const CTransaction& tx, TxValidationState& stat
     for (const auto& txout : tx.vout) {
         const CScript& script{txout.scriptPubKey};
         if (IsWitnessCommitmentScript(script)) continue;
-        if (IsModernSigTemplate(script) && script.size() <= DILITHIUM_POLICY_SCRIPT_MAX) continue;
-        if (script.size() <= MAX_OUTPUT_SCRIPT_SIZE) continue;
+        if (IsKnownModernSigTemplate(script) && script.size() <= DILITHIUM_POLICY_SCRIPT_MAX) continue;
+        int witness_version{0};
+        std::vector<unsigned char> witness_program;
+        if (script.IsWitnessProgram(witness_version, witness_program) &&
+            witness_version == 0 &&
+            witness_program.size() == WITNESS_V0_KEYHASH_SIZE) {
+            continue;
+        }
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vout-script");
     }
     return true;

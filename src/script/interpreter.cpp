@@ -1323,7 +1323,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 case OP_CHECKMODERNSIG:
                 case OP_CHECKMODERNPOLICY:
                 {
-                    if (sigversion == SigVersion::TAPSCRIPT) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                    if (sigversion != SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
                     if (!EvalCheckModern(opcode, stack, checker, fRequireMinimal, serror)) return false;
                 }
                 break;
@@ -1958,22 +1958,13 @@ bool GenericTransactionSignatureChecker<T>::CheckECDSASignature(const std::vecto
     if (sigversion == SigVersion::WITNESS_V0 && amount < 0) return HandleMissingData(m_mdb);
 
     uint256 sighash;
-    // The spender opts in per signature, via the hash type byte. Before
-    // activation the bit carries no meaning and the legacy message applies, so
-    // such a signature simply does not verify yet.
-    if (sighash_rules == SighashRules::UNIFIED && (nHashType & SIGHASH_UNIFIED)) {
-        // No midstate cache here. The per-transaction aggregates are
-        // precomputed, so cost is the fixed preimage plus the scriptCode
-        // rather than the whole transaction: linear in the number of inputs
-        // overall, which is what closes CVE-2013-2292. Repeated signatures
-        // over one large scriptCode still rehash it, giving up the Knots
-        // midstate cache for that case; the bound is no worse than BIP143
-        // without it.
-        if (!this->txdata) return HandleMissingData(m_mdb);
-        if (!SignatureHashUnified(sighash, scriptCode, *txTo, nIn, nHashType, sigversion, *this->txdata, nullptr, m_mdb)) return false;
-    } else {
-        sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata, &m_sighash_cache);
-    }
+    // UNIFIED is genesis. A hashtype without 0x20 is not a legacy fallback;
+    // that hasher is closed. The bit still has to be present so a signature
+    // is not valid under two messages.
+    if (sighash_rules != SighashRules::UNIFIED) return false;
+    if ((nHashType & SIGHASH_UNIFIED) == 0) return false;
+    if (!this->txdata) return HandleMissingData(m_mdb);
+    if (!SignatureHashUnified(sighash, CScript{}, *txTo, nIn, nHashType, sigversion, *this->txdata, nullptr, m_mdb)) return false;
 
     if (!VerifyECDSASignature(vchSig, pubkey, sighash))
         return false;
@@ -2122,8 +2113,12 @@ bool GenericTransactionSignatureChecker<T>::GetUnifiedSighash(uint256& hash_out)
 }
 
 // explicit instantiation
-// Explicit instantiation: sign.cpp calls this, and relying on it being
-// instantiated as a side effect of a call elsewhere in this file is fragile.
+// Explicit instantiation: sign.cpp and the script tests call these, and
+// relying on them being instantiated as a side effect of a call elsewhere
+// in this file is fragile. UNIFIED is genesis, so CheckECDSASignature no
+// longer instantiates the BIP143 hasher as a side effect.
+template uint256 SignatureHash<CTransaction>(const CScript&, const CTransaction&, unsigned int, int32_t, const CAmount&, SigVersion, const PrecomputedTransactionData*, SigHashCache*);
+template uint256 SignatureHash<CMutableTransaction>(const CScript&, const CMutableTransaction&, unsigned int, int32_t, const CAmount&, SigVersion, const PrecomputedTransactionData*, SigHashCache*);
 template bool SignatureHashUnified(uint256&, const CScript&, const CTransaction&, unsigned int, int32_t, SigVersion, const PrecomputedTransactionData&, const ScriptExecutionData*, MissingDataBehavior);
 template bool SignatureHashUnified(uint256&, const CScript&, const CMutableTransaction&, unsigned int, int32_t, SigVersion, const PrecomputedTransactionData&, const ScriptExecutionData*, MissingDataBehavior);
 
@@ -2321,9 +2316,8 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
         if (!(flags & SCRIPT_VERIFY_UNIFIED_SIGHASH)) {
             return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
         }
-        const auto single{MatchModernSingle(scriptPubKey)};
-        const auto policy{MatchModernPolicy(scriptPubKey)};
-        const ModernSigKind* kind{single ? single->kind : (policy ? policy->kind : nullptr)};
+        const auto parsed{ParseModernSig(scriptPubKey)};
+        const ModernSigKind* kind{parsed ? std::visit([](const auto& p) { return p.kind; }, *parsed) : nullptr};
         if (!kind) {
             return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
         }

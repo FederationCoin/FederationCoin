@@ -58,10 +58,9 @@ BOOST_AUTO_TEST_CASE(work_scale_s4_adds_four)
     BOOST_CHECK_EQUAL(GetBlockProof(idx), 4);
 }
 
-BOOST_AUTO_TEST_CASE(scale_zero_rescued)
+BOOST_AUTO_TEST_CASE(scale_slow_window_stays_one)
 {
-    const uint256 s{Consensus::ScaleAfterWindow(uint256::ZERO, 120, 30)};
-    BOOST_CHECK_EQUAL(UintToArith256(s), 4); // rescued 1 * 120 / 30
+    BOOST_CHECK_EQUAL(UintToArith256(Consensus::ScaleAfterWindow(uint256::ONE, 120, 480)), 1);
 }
 
 BOOST_AUTO_TEST_CASE(scale_times_four_and_div_four)
@@ -111,6 +110,7 @@ BOOST_AUTO_TEST_CASE(mixed_kind_window_one_s)
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::REGTEST);
     Consensus::Params params = chainParams->GetConsensus();
     params.fPowNoRetargeting = false;
+    params.fPowAllowMinDifficultyBlocks = false;
     auto blocks = MakeIndexChain(120, 1'000'000, 1, Consensus::WorkScaleOne());
     const uint256 s{Consensus::NextWorkScale(&blocks[119], params)};
     BOOST_CHECK_EQUAL(UintToArith256(s), 4);
@@ -126,8 +126,11 @@ BOOST_AUTO_TEST_CASE(mixed_kind_window_one_s)
     BOOST_CHECK_EQUAL(GetNextWorkRequired(&blocks[119], &h_sha, params), sha);
     CBlockHeader h_b{HeaderForKind(Consensus::WorkKindTag::BLAKE2B)};
     BOOST_CHECK_EQUAL(GetNextWorkRequired(&blocks[119], &h_b, params), b);
-    // Consecutive mixed kinds with distinct compact must be allowed (Verge-adjacent).
-    BOOST_CHECK(PermittedDifficultyTransition(params, 120, b, b + 1));
+    // Height 120 is the retarget on this chain (interval 120). Off-window
+    // compact must stay equal; a synthetic b+1 is not allowed there.
+    BOOST_CHECK(PermittedDifficultyTransition(params, 120, b, b));
+    BOOST_CHECK(PermittedDifficultyTransition(params, 121, b, b));
+    BOOST_CHECK(!PermittedDifficultyTransition(params, 121, b, b + 1));
 }
 
 BOOST_AUTO_TEST_CASE(halving_heights_do_not_move_s)
@@ -303,13 +306,15 @@ BOOST_AUTO_TEST_CASE(ChainParams_SIGNET_sanity)
     sanity_check_chainparams(*m_node.args, ChainType::SIGNET);
 }
 
-/* Mixed-kind compact nBits are not compared to the previous header. */
 BOOST_AUTO_TEST_CASE(permitted_difficulty_transition_gate)
 {
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
     const auto& params = chainParams->GetConsensus();
-    BOOST_CHECK(PermittedDifficultyTransition(params, 1, 0x1e00ffff, 0x1d00ffff));
-    BOOST_CHECK(PermittedDifficultyTransition(params, 1680, 0x1e00ffff, 0x1c00ffff));
+    BOOST_CHECK(!PermittedDifficultyTransition(params, 1, 0x1e00ffff, 0x1d00ffff));
+    BOOST_CHECK(PermittedDifficultyTransition(params, 1, 0x1e00ffff, 0x1e00ffff));
+    const int64_t interval{params.DifficultyAdjustmentInterval()};
+    BOOST_CHECK(PermittedDifficultyTransition(params, interval, 0x1e00ffff, 0x1e00ffff));
+    BOOST_CHECK(!PermittedDifficultyTransition(params, interval, 0x1e00ffff, 0x1c00ffff));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

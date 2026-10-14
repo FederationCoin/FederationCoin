@@ -16,6 +16,8 @@
 #include <txmempool.h>
 #include <validation.h>
 
+#include <algorithm>
+#include <limits>
 #include <unordered_map>
 
 CBlockHeaderAndShortTxIDs::CBlockHeaderAndShortTxIDs(const CBlock& block, const uint64_t nonce) :
@@ -51,7 +53,7 @@ uint64_t CBlockHeaderAndShortTxIDs::GetShortID(const Wtxid& wtxid) const {
 ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& cmpctblock, const std::vector<CTransactionRef>& extra_txn) {
     if (cmpctblock.header.IsNull() || (cmpctblock.shorttxids.empty() && cmpctblock.prefilledtxn.empty()))
         return READ_STATUS_INVALID;
-    const uint64_t tx_slots{Consensus::LimitsForCap(Consensus::BlockMessageAdmitWeight()).compact_tx_count};
+    const uint64_t tx_slots{Consensus::LimitsForCap(Consensus::BlockMessageReceiveWeight()).compact_tx_count};
     if (static_cast<uint64_t>(cmpctblock.shorttxids.size()) > tx_slots ||
         static_cast<uint64_t>(cmpctblock.prefilledtxn.size()) > tx_slots - static_cast<uint64_t>(cmpctblock.shorttxids.size()))
         return READ_STATUS_INVALID;
@@ -61,13 +63,17 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
     header = cmpctblock.header;
     txn_available.resize(cmpctblock.BlockTxCount());
 
-    int32_t lastprefilledindex = -1;
+    int64_t lastprefilledindex = -1;
     for (size_t i = 0; i < cmpctblock.prefilledtxn.size(); i++) {
         if (cmpctblock.prefilledtxn[i].tx->IsNull())
             return READ_STATUS_INVALID;
 
-        lastprefilledindex += cmpctblock.prefilledtxn[i].index + 1; //index is a uint16_t, so can't overflow here
-        if (lastprefilledindex > std::numeric_limits<uint16_t>::max())
+        if (lastprefilledindex > std::numeric_limits<int64_t>::max() - 1 -
+            static_cast<int64_t>(cmpctblock.prefilledtxn[i].index)) {
+            return READ_STATUS_INVALID;
+        }
+        lastprefilledindex += static_cast<int64_t>(cmpctblock.prefilledtxn[i].index) + 1;
+        if (lastprefilledindex > std::numeric_limits<uint32_t>::max())
             return READ_STATUS_INVALID;
         if ((uint32_t)lastprefilledindex > cmpctblock.shorttxids.size() + i) {
             // If we are inserting a tx at an index greater than our full list of shorttxids
@@ -83,8 +89,8 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
     // Because well-formed cmpctblock messages will have a (relatively) uniform distribution
     // of short IDs, any highly-uneven distribution of elements can be safely treated as a
     // READ_STATUS_FAILED.
-    std::unordered_map<uint64_t, uint16_t> shorttxids(cmpctblock.shorttxids.size());
-    uint16_t index_offset = 0;
+    std::unordered_map<uint64_t, uint32_t> shorttxids(cmpctblock.shorttxids.size());
+    uint32_t index_offset = 0;
     for (size_t i = 0; i < cmpctblock.shorttxids.size(); i++) {
         while (txn_available[i + index_offset])
             index_offset++;
@@ -112,7 +118,7 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
     LOCK(pool->cs);
     for (const auto& tx : pool->txns_randomized) {
         uint64_t shortid = cmpctblock.GetShortID(tx->GetWitnessHash());
-        std::unordered_map<uint64_t, uint16_t>::iterator idit = shorttxids.find(shortid);
+        std::unordered_map<uint64_t, uint32_t>::iterator idit = shorttxids.find(shortid);
         if (idit != shorttxids.end()) {
             if (!have_txn[idit->second]) {
                 txn_available[idit->second] = tx;
@@ -141,7 +147,7 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
             continue;
         }
         uint64_t shortid = cmpctblock.GetShortID(extra_txn[i]->GetWitnessHash());
-        std::unordered_map<uint64_t, uint16_t>::iterator idit = shorttxids.find(shortid);
+        std::unordered_map<uint64_t, uint32_t>::iterator idit = shorttxids.find(shortid);
         if (idit != shorttxids.end()) {
             if (!have_txn[idit->second]) {
                 txn_available[idit->second] = extra_txn[i];

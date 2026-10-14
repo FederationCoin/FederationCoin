@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <headerssync.h>
+#include <consensus/work/retarget.h>
 #include <logging.h>
 #include <pow.h>
 #include <util/check.h>
@@ -212,7 +213,7 @@ bool HeadersSyncState::ValidateAndProcessSingleHeader(const CBlockHeader& curren
         }
     }
 
-    m_current_chain_work += GetBlockProof(CBlockIndex(current));
+    m_current_chain_work += Consensus::ClaimedWorkFromHeader(current, m_consensus_params);
     m_last_header_received = current;
     m_current_height = next_height;
 
@@ -248,7 +249,7 @@ bool HeadersSyncState::ValidateAndStoreRedownloadedHeader(const CBlockHeader& he
     }
 
     // Track work on the redownloaded chain
-    m_redownload_chain_work += GetBlockProof(CBlockIndex(header));
+    m_redownload_chain_work += Consensus::ClaimedWorkFromHeader(header, m_consensus_params);
 
     if (m_redownload_chain_work >= m_minimum_required_work) {
         m_process_all_remaining_headers = true;

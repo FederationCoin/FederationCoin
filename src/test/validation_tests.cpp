@@ -11,6 +11,7 @@
 #include <core_io.h>
 #include <hash.h>
 #include <net.h>
+#include <script/script.h>
 #include <signet.h>
 #include <uint256.h>
 #include <util/chaintype.h>
@@ -76,6 +77,26 @@ BOOST_AUTO_TEST_CASE(subsidy_limit_test)
         BOOST_CHECK(MoneyRange(nSum));
     }
     BOOST_CHECK_EQUAL(nSum, CAmount{2099999997690000});
+}
+
+BOOST_AUTO_TEST_CASE(p2pkh_output_fails_checkblock)
+{
+    Consensus::Params params{};
+    params.nSubsidyHalvingInterval = 210000;
+    CBlock block;
+    block.m_header_v2 = true;
+    block.hashPrevBlock = uint256::ONE;
+    CMutableTransaction cb;
+    cb.vin.resize(1);
+    cb.vin[0].prevout.SetNull();
+    cb.vin[0].scriptSig = CScript() << OP_0 << OP_0;
+    CScript p2pkh;
+    p2pkh << OP_DUP << OP_HASH160 << std::vector<unsigned char>(20, 0x02) << OP_EQUALVERIFY << OP_CHECKSIG;
+    cb.vout.emplace_back(50 * COIN, p2pkh);
+    block.vtx.push_back(MakeTransactionRef(std::move(cb)));
+    BlockValidationState state;
+    BOOST_CHECK(!CheckBlock(block, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-txns-vout-script");
 }
 
 BOOST_AUTO_TEST_CASE(block_header_requires_v2)

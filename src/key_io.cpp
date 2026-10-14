@@ -85,7 +85,7 @@ public:
     std::string operator()(const ModernSigDestination& dest) const
     {
         const CScript& script{dest.GetScript()};
-        if (!IsModernSigTemplate(script) || script.size() > DILITHIUM_POLICY_SCRIPT_MAX) {
+        if (!IsKnownModernSigTemplate(script) || script.size() > DILITHIUM_POLICY_SCRIPT_MAX) {
             return {};
         }
         std::vector<unsigned char> data;
@@ -158,7 +158,7 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
             script_bytes.reserve((dec.data.size() * 5) / 8);
             if (ConvertBits<5, 8, false>([&](unsigned char c) { script_bytes.push_back(c); }, dec.data.begin(), dec.data.end())) {
                 const CScript script{script_bytes.begin(), script_bytes.end()};
-                if (IsModernSigTemplate(script) && script.size() <= DILITHIUM_POLICY_SCRIPT_MAX) {
+                if (IsKnownModernSigTemplate(script) && script.size() <= DILITHIUM_POLICY_SCRIPT_MAX) {
                     return ModernSigDestination(script);
                 }
             }

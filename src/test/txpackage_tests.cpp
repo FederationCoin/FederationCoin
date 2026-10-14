@@ -102,6 +102,7 @@ inline CTransactionRef create_placeholder_tx(size_t num_inputs, size_t num_outpu
     mtx.vin.resize(num_inputs);
     mtx.vout.resize(num_outputs);
     auto random_script = CScript() << ToByteVector(m_rng.rand256()) << ToByteVector(m_rng.rand256());
+    const CScript v0_20{CScript() << OP_0 << std::vector<unsigned char>(WITNESS_V0_KEYHASH_SIZE, 0x11)};
     for (size_t i{0}; i < num_inputs; ++i) {
         mtx.vin[i].prevout.hash = Txid::FromUint256(m_rng.rand256());
         mtx.vin[i].prevout.n = 0;
@@ -109,7 +110,7 @@ inline CTransactionRef create_placeholder_tx(size_t num_inputs, size_t num_outpu
     }
     for (size_t o{0}; o < num_outputs; ++o) {
         mtx.vout[o].nValue = 1 * CENT;
-        mtx.vout[o].scriptPubKey = P2WSH_OP_TRUE;
+        mtx.vout[o].scriptPubKey = v0_20;
     }
     return MakeTransactionRef(mtx);
 }

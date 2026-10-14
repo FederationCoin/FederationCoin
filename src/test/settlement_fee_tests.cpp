@@ -55,6 +55,17 @@ BOOST_AUTO_TEST_CASE(consensus_vsize_floors_remainder)
     BOOST_CHECK_EQUAL(MinimumFee(ConsensusVsize(48)), 1);
 }
 
+BOOST_AUTO_TEST_CASE(mempool_floor_uses_consensus_vsize)
+{
+    // Bitcoin-era ceil(weight/4) would charge MinimumFee(1) for weight 3.
+    // Mempool and ConnectBlock both pass ConsensusVsize (floor toward zero).
+    BOOST_CHECK_EQUAL((3 + WITNESS_SCALE_FACTOR - 1) / WITNESS_SCALE_FACTOR, 1);
+    BOOST_CHECK_EQUAL(ConsensusVsize(3), 0);
+    BOOST_CHECK_EQUAL(MinimumFee(ConsensusVsize(3)), 0);
+    BOOST_CHECK_EQUAL(ConsensusVsize(48), 12);
+    BOOST_CHECK_EQUAL(MinimumFee(ConsensusVsize(48)), 1);
+}
+
 BOOST_AUTO_TEST_CASE(data_carrier_nonce_and_scriptsig)
 {
     CScript commitment;

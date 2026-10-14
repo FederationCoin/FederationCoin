@@ -1203,13 +1203,11 @@ bool V2Transport::ProcessReceivedKeyBytes() noexcept
                   MakeWritableByteSpan(m_send_buffer).last(BIP324Cipher::GARBAGE_TERMINATOR_LEN).begin());
 
         // Construct version packet in the send buffer, with the sent garbage data as AAD.
-        // Offer v3 only when a v2 packet can no longer name a block at live admit.
-        // Remember what we sent; do not recompute from live admit at receive.
+        // v3 application framing from genesis. Empty version is the v1-plaintext
+        // downgrade, not a v2 application path.
         std::vector<std::byte> version_contents(VERSION_CONTENTS.begin(), VERSION_CONTENTS.end());
-        m_sent_v3_offer = !V2CanCarryAdmitCap();
-        if (m_sent_v3_offer) {
-            version_contents.push_back(std::byte{FCN_P2P_V3_VERSION_TAG});
-        }
+        m_sent_v3_offer = true;
+        version_contents.push_back(std::byte{FCN_P2P_V3_VERSION_TAG});
         m_send_buffer.resize(m_send_buffer.size() + BIP324Cipher::EXPANSION + version_contents.size());
         m_cipher.Encrypt(
             /*contents=*/version_contents,
@@ -1301,10 +1299,6 @@ bool V2Transport::ProcessReceivedPacketBytes() noexcept
             case RecvState::VERSION: {
                 const bool peer_v3{!m_recv_decode_buffer.empty() &&
                                   m_recv_decode_buffer[0] == FCN_P2P_V3_VERSION_TAG};
-                if (m_sent_v3_offer && !peer_v3) {
-                    LogDebug(BCLog::NET, "V3 transport error: peer did not offer v3, peer=%d\n", m_nodeid);
-                    return false;
-                }
                 if (m_sent_v3_offer && peer_v3) {
                     SetReceiveState(RecvState::APP_V3);
                 } else {
@@ -1660,10 +1654,9 @@ bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
         LOCK(m_send_mutex);
         return m_v1_fallback.SetMessageToSend(msg);
     }
-    // After advertising 0x03, do not emit an application frame until the peer
-    // version has selected APP_V3. Sending a BIP324 v2 frame here desyncs the
-    // peer that already entered APP_V3.
-    if (m_sent_v3_offer && !RecvAppIsV3()) return false;
+    // After advertising 0x03, wait for the peer version packet. Empty version
+    // selects v2 application; 0x03 selects APP_V3.
+    if (m_sent_v3_offer && m_recv_state == RecvState::VERSION) return false;
     const bool v3{RecvAppIsV3()};
     LOCK(m_send_mutex);
     // We only allow adding a new message to be sent when in the READY state (so the packet cipher
@@ -1681,7 +1674,9 @@ bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
             std::copy(msg.m_type.begin(), msg.m_type.end(), header.data() + 1);
         }
         WriteLE64(header.data() + header.size() - 8, msg.data.size());
-        if (msg.data.size() > CommandReceiveLimit(msg.m_type)) return false;
+        const bool block_cmd{msg.m_type == NetMsgType::BLOCK || msg.m_type == NetMsgType::CMPCTBLOCK ||
+                             msg.m_type == NetMsgType::BLOCKTXN};
+        if (!block_cmd && msg.data.size() > CommandReceiveLimit(msg.m_type)) return false;
         const size_t first_max{BIP324Cipher::MAX_AEAD_FRAME - header.size()};
         size_t offset{0};
         const size_t first_n{std::min(first_max, msg.data.size())};
@@ -1740,9 +1735,14 @@ bool V2Transport::MessageTooLargeToSend(const CSerializedNetMsg& msg) const noex
     LOCK(m_recv_mutex);
     LOCK(m_send_mutex);
     if (m_send_state == SendState::V1) return false;
-    if (RecvAppIsV3() || m_sent_v3_offer) {
+    if (RecvAppIsV3()) {
+        if (msg.m_type == NetMsgType::BLOCK || msg.m_type == NetMsgType::CMPCTBLOCK ||
+            msg.m_type == NetMsgType::BLOCKTXN) {
+            return false;
+        }
         return msg.data.size() > CommandReceiveLimit(msg.m_type);
     }
+    if (m_sent_v3_offer && m_recv_state == RecvState::VERSION) return false;
     const size_t contents_len{V2_MESSAGE_MAP(msg.m_type)
                                   ? 1 + msg.data.size()
                                   : 1 + CMessageHeader::MESSAGE_TYPE_SIZE + msg.data.size()};
@@ -4202,10 +4202,13 @@ bool EncryptedP2POffered(ServiceFlags flags) noexcept
 ServiceFlags CConnman::GetLocalServices() const
 {
     ServiceFlags flags{m_local_services};
-    // v3 replaces v2 only when encrypted P2P was already offered. -v2transport=0
-    // stays v1; it does not grow a V3 bit because admit cannot fit BIP324.
-    if (!V2CanCarryAdmitCap() && (flags & NODE_P2P_V2)) {
-        flags = ServiceFlags((flags & ~NODE_P2P_V2) | NODE_P2P_V3);
+    // Encrypted P2P advertises v3 from genesis. Keep v2 while a v2 packet
+    // can still name a block; -v2transport=0 stays v1.
+    if (flags & NODE_P2P_V2) {
+        flags = ServiceFlags(flags | NODE_P2P_V3);
+        if (!V2CanCarryAdmitCap()) {
+            flags = ServiceFlags(flags & ~NODE_P2P_V2);
+        }
     }
     return flags;
 }
@@ -4220,21 +4223,14 @@ bool V2CanCarryAdmitCap() noexcept
 
 void CConnman::DisconnectV2WhenAdmitExceeds()
 {
-    if (V2CanCarryAdmitCap()) return;
-    LOCK(m_nodes_mutex);
-    for (CNode* node : m_nodes) {
-        const TransportProtocolType type{node->m_transport->GetInfo().transport_type};
-        if (type == TransportProtocolType::V2 || type == TransportProtocolType::DETECTING) {
-            node->fDisconnect = true;
-        }
-    }
+    // v3 is offered from genesis. Do not drop the network at a predictable height.
 }
 
 static std::unique_ptr<Transport> MakeTransport(NodeId id, bool use_v2transport, bool inbound) noexcept
 {
-    // Encrypted handshake is BIP324. Application framing is v2 while admit
-    // fits; VERSION 0x03 selects v3 after the crossing. Unencrypted v1 is
-    // only the handshake downgrade.
+    // Encrypted handshake is BIP324. Version 0x03 selects v3 application
+    // frames when both sides offer. Empty version is v2 application. v1 is
+    // the unencrypted handshake downgrade.
     if (use_v2transport) {
         return std::make_unique<V2Transport>(id, /*initiating=*/!inbound);
     }

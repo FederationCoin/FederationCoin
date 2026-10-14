@@ -18,7 +18,9 @@ namespace Consensus {
 static constexpr unsigned BLOCK_MESSAGE_ADMIT_WINDOW{1024};
 
 /** One signature-cost unit per this many weight units. Floor toward zero.
- *  Bitcoin's 80,000 cost per 4,000,000 weight is the same ratio (1 per 50). */
+ *  Bitcoin's 80,000 cost per 4,000,000 weight is the same ratio (1 per 50).
+ *  This ratio is secp-era. Dilithium spends are bounded by weight, not by
+ *  this cost (their scripts carry no CHECKSIG-counted ops). */
 static constexpr uint64_t SIGOPS_WEIGHT_DIVISOR{50};
 
 /** Policy sigops cost is one fifth of the block figure. Floor toward zero. */
@@ -52,9 +54,15 @@ uint64_t AdmitWeightForWindow(uint64_t tip_cap, const EpochWatermark& tip_mark, 
  *  LimitsForCap of this weight. Starts at MIN_FLEX_BLOCK_WEIGHT. */
 uint64_t BlockMessageAdmitWeight();
 void SetBlockMessageAdmitWeight(uint64_t weight);
+/** Raise the receive floor to cover a header whose nFlexCap exceeds the tip window. */
+void NoteHeaderFlexCap(uint64_t cap);
+/** Tests restore this after a case that raised the indexed-header floor. */
+void SetHeaderMaxFlex(uint64_t cap);
+/** max(tip admit, highest indexed nFlexCap). Receive and compact slots use this. */
+uint64_t BlockMessageReceiveWeight();
 
 /** Serialized-size ceiling for block / cmpctblock / blocktxn. Derived from
- *  BlockMessageAdmitWeight(); not MAX_FLEX_BLOCK_WEIGHT. */
+ *  BlockMessageReceiveWeight(); not MAX_FLEX_BLOCK_WEIGHT. */
 uint64_t BlockMessageReceiveLimit();
 
 } // namespace Consensus

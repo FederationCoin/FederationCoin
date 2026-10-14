@@ -167,14 +167,14 @@ uint256 Fp8PackedCDigest(std::span<const uint8_t> packed_c)
     return digest;
 }
 
-uint256 Fp8GymDigest(const CBlockHeader& header)
+std::optional<uint256> Fp8GymDigest(const CBlockHeader& header)
 {
     std::vector<uint8_t> a, b;
     Fp8ExpandAB(header, a, b);
     std::vector<float> c;
-    if (!Fp8TiledMma(a, b, c)) return uint256::ONE; // Check will fail vs easy target only by luck; caller uses Check
+    if (!Fp8TiledMma(a, b, c)) return std::nullopt;
     const auto packed{Fp8QuantizeC(c)};
-    if (!packed) return uint256::ONE;
+    if (!packed) return std::nullopt;
     return Fp8PackedCDigest(*packed);
 }
 

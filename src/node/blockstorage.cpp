@@ -7,6 +7,7 @@
 #include <arith_uint256.h>
 #include <chain.h>
 #include <consensus/params.h>
+#include <consensus/work/kind.h>
 #include <consensus/work/retarget.h>
 #include <consensus/validation.h>
 #include <dbwrapper.h>
@@ -272,7 +273,15 @@ CBlockIndex* BlockManager::AddToBlockIndex(const CBlockHeader& block, CBlockInde
         pindexNew->nHeight = pindexNew->pprev->nHeight + 1;
         pindexNew->BuildSkip();
     }
-    pindexNew->nWorkScale = Consensus::NextWorkScale(pindexNew->pprev, GetConsensus());
+    const Consensus::Params& consensus{GetConsensus()};
+    pindexNew->nWorkScale = Consensus::NextWorkScale(pindexNew->pprev, consensus);
+    if (consensus.fPowAllowMinDifficultyBlocks) {
+        const auto tag{Consensus::DecodeWorkKindTag(block.GetCompleteVersion())};
+        if (tag) {
+            const auto met{Consensus::ScaleFromNBits(block.nBits, static_cast<size_t>(*tag), consensus)};
+            if (met) pindexNew->nWorkScale = *met;
+        }
+    }
     pindexNew->nTimeMax = (pindexNew->pprev ? std::max(pindexNew->pprev->nTimeMax, pindexNew->nTime) : pindexNew->nTime);
     pindexNew->nChainWork = (pindexNew->pprev ? pindexNew->pprev->nChainWork : 0) + GetBlockProof(*pindexNew);
     pindexNew->RaiseValidity(BLOCK_VALID_TREE);

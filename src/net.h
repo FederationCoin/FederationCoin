@@ -1354,7 +1354,7 @@ public:
     //! that peer during `net_processing.cpp:PushNodeVersion()`.
     ServiceFlags GetLocalServices() const;
 
-    /** Drop BIP324 v2 and still-detecting sessions when admit no longer fits v2. */
+    /** Kept for tests. Does not disconnect; v3 is offered from genesis. */
     void DisconnectV2WhenAdmitExceeds();
 
     //! Updates the local services that this node advertises to other peers

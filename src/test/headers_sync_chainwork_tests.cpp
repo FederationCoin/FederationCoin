@@ -5,6 +5,7 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <consensus/params.h>
+#include <consensus/work/kind.h>
 #include <headerssync.h>
 #include <pow.h>
 #include <test/util/setup_common.h>
@@ -44,15 +45,19 @@ void HeadersGeneratorSetup::GenerateHeaders(std::vector<CBlockHeader>& headers,
         const uint256& merkle_root, const uint32_t nBits)
 {
     uint256 prev_hash = starting_hash;
+    int32_t height{1};
 
     while (headers.size() < count) {
         headers.emplace_back();
         CBlockHeader& next_header = headers.back();;
+        next_header.m_header_v2 = true;
         next_header.nVersion = nVersion;
         next_header.hashPrevBlock = prev_hash;
         next_header.hashMerkleRoot = merkle_root;
         next_header.nTime = prev_time+1;
         next_header.nBits = nBits;
+        next_header.m_height = height++;
+        Consensus::ApplyWorkKindTag(next_header, Consensus::WorkKindTag::BLAKE2B);
 
         FindProofOfWork(next_header);
         prev_hash = next_header.GetBlockIdentity();
@@ -210,9 +215,8 @@ BOOST_AUTO_TEST_CASE(headers_sync_v2_same_nbits)
     arith_uint256 too_easy;
     too_easy.SetCompact(tip_nbits);
     too_easy <<= 4;
-    // Compact nBits is not chainwork. S=1 per header, so an easier target is
-    // still a successful sync (PermittedDifficultyTransition is not equal-nBits).
-    BOOST_CHECK(run_headers(build_chain(tip_nbits, too_easy.GetCompact())).first);
+    // Off-window easier nBits is a different S. Headers sync must reject it.
+    BOOST_CHECK(!run_headers(build_chain(tip_nbits, too_easy.GetCompact())).first);
 }
 
 BOOST_AUTO_TEST_CASE(headers_sync_easier_nbits_accepted)
@@ -249,7 +253,7 @@ BOOST_AUTO_TEST_CASE(headers_sync_easier_nbits_accepted)
 
     HeadersSyncState hss(0, params, &chain_start, UintToArith256(params.nMinimumChainWork));
     const auto result = hss.ProcessNextHeaders(headers, true);
-    BOOST_CHECK(result.success);
+    BOOST_CHECK(!result.success);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

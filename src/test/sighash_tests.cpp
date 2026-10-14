@@ -503,11 +503,9 @@ BOOST_AUTO_TEST_CASE(unified_sighash_signing_rules_are_always_unified)
 {
     Consensus::Params params;
     ArgsManager plain;
-    SetupSighashRulesArgs(plain);
     BOOST_CHECK(SighashRulesForSigning(plain, params) == SighashRules::UNIFIED);
 
     ArgsManager ignored_old_flag;
-    SetupSighashRulesArgs(ignored_old_flag);
     ignored_old_flag.ForceSetArg("-walletoldsigs", "1");
     BOOST_CHECK(SighashRulesForSigning(ignored_old_flag, params) == SighashRules::UNIFIED);
 }
@@ -608,17 +606,12 @@ BOOST_AUTO_TEST_CASE(unified_sighash_sign_and_verify_roundtrip)
         }
     }
 
-    // Sign under the legacy rules.
+    // UNIFIED is genesis. A creator that stays on the closed hasher refuses
+    // to sign, and a BIP143 signature does not verify under either flag set.
     CMutableTransaction legacy_tx{tx};
     SignatureData legacy_sigdata;
     MutableTransactionSignatureCreator legacy_creator{legacy_tx, 0, spent[0].nValue, &txdata, SIGHASH_ALL};
-    BOOST_CHECK(ProduceSignature(keystore, legacy_creator, spk, legacy_sigdata));
-    UpdateInput(legacy_tx.vin[0], legacy_sigdata);
-
-    // ...and it stays valid after activation: the legacy algorithm is
-    // unchanged, so a spender who never sets the bit is unaffected.
-    BOOST_CHECK(verify(legacy_tx, /*hf=*/false));
-    BOOST_CHECK(verify(legacy_tx, /*hf=*/true));
+    BOOST_CHECK(!ProduceSignature(keystore, legacy_creator, spk, legacy_sigdata));
 }
 
 BOOST_AUTO_TEST_CASE(unified_sighash_taproot_keypath_roundtrip)

@@ -11,6 +11,7 @@
 #include <consensus/params.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
+#include <consensus/work/kind.h>
 #include <key_io.h>
 #include <outputtype.h>
 #include <pow.h>
@@ -151,6 +152,7 @@ BOOST_AUTO_TEST_CASE(testnet_blake2b_floor)
 
     CBlockHeader next;
     next.nTime = genesis.nTime + 60;
+    Consensus::ApplyWorkKindTag(next, Consensus::WorkKindTag::BLAKE2B);
     BOOST_CHECK_EQUAL(GetNextWorkRequired(&genesis, &next, c), 0x1c03a830U);
 
     next.nTime = genesis.nTime + 21 * 60;

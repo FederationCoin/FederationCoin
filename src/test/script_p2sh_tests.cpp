@@ -125,7 +125,9 @@ BOOST_AUTO_TEST_CASE(sign)
     // All of the above should be OK, and the txTos have valid signatures
     // Check to make sure signature verification fails if we use the wrong ScriptSig:
     for (int i = 0; i < 8; i++) {
-        PrecomputedTransactionData txdata(txTo[i]);
+        std::vector<CTxOut> spent{txFrom.vout[txTo[i].vin[0].prevout.n]};
+        PrecomputedTransactionData txdata;
+        txdata.Init(CTransaction(txTo[i]), std::move(spent), /*force=*/true);
         for (int j = 0; j < 8; j++)
         {
             CScript sigSave = txTo[i].vin[0].scriptSig;

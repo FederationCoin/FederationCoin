@@ -46,8 +46,9 @@ namespace Consensus {
 struct Params;
 
 /**
- * Admit only product outputs: witness v0 with a 20-byte or 32-byte program,
- * and the 38-byte coinbase witness commitment. Empty scripts, OP_TRUE, and
+ * Admit only product outputs: native SegWit v0/20, a known modern-sig
+ * template (registry hit), and the 38-byte coinbase witness commitment.
+ * v0/32, unknown (algorithm, param), OP_TRUE, P2PKH, empty scripts, and
  * every other scriptPubKey fail.
  */
 bool CheckOutputSizes(const CTransaction& tx, TxValidationState& state);

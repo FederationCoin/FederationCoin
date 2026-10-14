@@ -7,7 +7,9 @@
 #include <consensus/epoch_watermark.h>
 #include <consensus/flex_weight.h>
 #include <consensus/spend_kind_weight.h>
+#include <script/modern_sig.h>
 #include <test/util/setup_common.h>
+#include <uint256.h>
 
 #include <variant>
 
@@ -45,8 +47,12 @@ BOOST_AUTO_TEST_CASE(simple_payment_weights)
     const std::optional<uint64_t> dilithium87{Consensus::SimplePaymentWeight(Consensus::SPEND_KIND_ROWS[2])};
     BOOST_REQUIRE(native && dilithium44 && dilithium87);
     BOOST_CHECK_EQUAL(*native, 439ULL);
-    BOOST_CHECK_EQUAL(*dilithium44, 4117ULL);
-    BOOST_CHECK_EQUAL(*dilithium87, 7604ULL);
+    BOOST_CHECK_EQUAL(*dilithium44, 4125ULL);
+    BOOST_CHECK_EQUAL(*dilithium87, 7612ULL);
+    BOOST_CHECK_EQUAL(BuildModernSingle(uint256::ZERO, ALGO_DILITHIUM, PARAM_DILITHIUM_44).size(),
+                      Consensus::SPEND_KIND_ROWS[1].spk_len);
+    BOOST_CHECK_EQUAL(BuildModernSingle(uint256::ZERO, ALGO_DILITHIUM, PARAM_DILITHIUM_87).size(),
+                      Consensus::SPEND_KIND_ROWS[2].spk_len);
     const std::optional<uint64_t> smallest{Consensus::SmallestSimplePaymentWeight(0)};
     BOOST_REQUIRE(smallest);
     BOOST_CHECK_EQUAL(*smallest, 439ULL);

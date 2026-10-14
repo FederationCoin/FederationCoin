@@ -72,7 +72,7 @@ BOOST_FIXTURE_TEST_CASE(multi_provider_infer_dilithium_input_size, TestChain100S
         uint8_t kind{0};
         CKeyID key_id;
         BOOST_REQUIRE(providers.GetMldsaProgram(parsed->fingerprint, kind, key_id));
-        BOOST_CHECK_EQUAL(kind, type == OutputType::DILITHIUM87 ? 87 : 44);
+        BOOST_CHECK_EQUAL(kind, type == OutputType::DILITHIUM87 ? PARAM_DILITHIUM_87 : PARAM_DILITHIUM_44);
         const auto desc{InferDescriptor(spk, providers)};
         BOOST_REQUIRE(desc);
         BOOST_REQUIRE(desc->MaxSatisfactionWeight(/*use_max_sig=*/false).has_value());

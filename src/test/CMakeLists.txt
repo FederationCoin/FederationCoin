@@ -73,6 +73,7 @@ add_executable(test_bitcoin
   mldsa87_verify_tests.cpp
   mldsa87_witness_tests.cpp
   mldsa_spend_spec_tests.cpp
+  mldsa_seed_tests.cpp
   secp_single_spend_tests.cpp
   miniminer_tests.cpp
   miniscript_tests.cpp

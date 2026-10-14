@@ -157,7 +157,7 @@ public:
         consensus.nPowTargetTimespan = kPowTargetTimespan;
         consensus.nPowTargetSpacing = kPowTargetSpacing;
         consensus.fPowAllowMinDifficultyBlocks = false;
-        consensus.enforce_BIP94 = false;
+        consensus.enforce_BIP94 = true;
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = kMainBip9Threshold;
         consensus.nMinerConfirmationWindow = kMinerConfirmationWindow;

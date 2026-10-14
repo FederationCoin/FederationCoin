@@ -139,7 +139,7 @@ bool CheckPolicySpendOf(uint8_t threshold, std::span<const uint256> hashes, cons
         if (!Kind::Verify(pubkey, signature, sighash)) return false;
         ++signed_ok;
     }
-    return signed_ok >= threshold;
+    return signed_ok == threshold;
 }
 
 enum class MlDsaWitnessLayout { Single, Policy, Neither };

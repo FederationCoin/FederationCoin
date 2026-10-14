@@ -1,12 +1,17 @@
 # FCN-P2P-v3
 
-Launch transport is BIP324 (**v2**): 3-byte length, one message per packet,
-`MAX_CONTENTS_LEN` = 2^24 − 1 (~16 MiB). **v1** (`V1Transport`) is the
-unencrypted handshake downgrade only. It is not the grow path.
+Encrypted handshake is BIP324. Application framing is **v3 from genesis**.
+**v1** (`V1Transport`) is the unencrypted handshake downgrade only.
 
-**v3** is dormant until live admit cannot fit in one v2 packet
-(`V2CanCarryAdmitCap()` is false). The trigger is live admit, not
-`MAX_FLEX_BLOCK_WEIGHT`. Until that crossing, this node speaks v2.
+Do not raise BIP324 `MAX_CONTENTS_LEN` (~16 MiB). Grown and historical
+blocks use v3 `MORE` frames. Non-block messages stay at 4,000,000 bytes
+(`MAX_PROTOCOL_MESSAGE_LENGTH`). That is not a consensus cap and is not
+32 MiB.
+
+Compact-block differential indexes (`PrefilledTransaction::index` and
+`BlockTransactionsRequest::indexes`) are **32-bit** from genesis. A
+16-bit index would plant a chatter ceiling near 65,535 transactions.
+This is our compact dialect, not a later BIP152 raise.
 
 ## Handshake
 
@@ -16,17 +21,16 @@ use the 3-byte length.
 
 Version packet contents:
 
-- empty: this side will speak v2 application packets
+- empty: this side speaks BIP324 v2 application packets
 - first byte `0x03`: this side offers v3 application packets
 
-This node sends `0x03` only when `V2CanCarryAdmitCap()` is false. It
-selects v3 application framing only when **both** sides offered `0x03`.
-If this side needs v3 and the peer sent empty, the connection drops.
-A peer that offers `0x03` while this side can still carry v2 is ignored;
-application packets stay v2.
+This node always sends `0x03`. It selects v3 application framing when
+**both** sides offered `0x03`. An empty peer version stays on v2
+application; it is not disconnected later when admit grows. Unencrypted
+v1 is only the prefix-detected handshake downgrade.
 
-Already-open v2 sessions at the crossing are disconnected so the next
-handshake can offer `0x03`. The same rebuild runs during IBD.
+Already-open v2 application sessions stay. There is no network-wide
+disconnect at a predictable height.
 
 ## Application packets
 
@@ -42,7 +46,7 @@ greater than that disconnects.
 
 `MORE` set means another frame follows for the same message. Ignore
 frames do not join the assembly. There is no n-of-m index; TCP is
-ordered.
+ordered. Small messages use one frame.
 
 First non-ignore frame contents:
 
@@ -56,9 +60,26 @@ Assembled bytes other than `total_payload` when `MORE` is clear
 disconnect. `MORE` set after `total_payload` bytes are already assembled
 disconnects.
 
+## Admit and send size
+
+Receive and send size for `block` / `cmpctblock` / `blocktxn` is a
+property of the **block**, not of our tip.
+
+- Unsolicited chatter uses the tip-window floor
+  (`AdmitWeightForWindow` looks **ahead** only).
+- Indexed headers raise a receive floor to that header's `nFlexCap`
+  (`NoteHeaderFlexCap`). A grow-fork we have not connected still
+  arrives.
+- v3 send of a served block is never `MessageTooLargeToSend` against
+  the live tip. After a shrink, historical larger blocks still send.
+  If a requested block still cannot be framed, log and drop that send
+  (`notfound` is the inventory miss path); do not stall the socket.
+
 ## Service bit
 
-`NODE_P2P_V2` is advertised while v2 can still carry admit. After the
-crossing, `GetLocalServices()` advertises `NODE_P2P_V3` instead. Outbound
-encrypted handshake is offered when either bit is set locally and the
-peer advertised either bit.
+`NODE_P2P_V3` is advertised from genesis whenever encrypted P2P is
+offered (`-v2transport=1`). `NODE_P2P_V2` stays advertised while a v2
+packet can still name a block at the live receive limit. After that,
+`GetLocalServices()` advertises `NODE_P2P_V3` only. Outbound encrypted
+handshake is offered when either bit is set locally and the peer
+advertised either bit. `-v2transport=0` stays v1.

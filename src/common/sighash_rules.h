@@ -12,8 +12,6 @@ namespace Consensus {
 struct Params;
 }
 
-void SetupSighashRulesArgs(ArgsManager& argsman);
-
 /** Signing is always the unified message. There is no compatibility window. */
 SighashRules SighashRulesForSigning(const ArgsManager& args, const Consensus::Params& params);
 

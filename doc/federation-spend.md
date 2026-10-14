@@ -110,24 +110,32 @@ no POLICY-tag fingerprint in the output.
 | Dilithium-87 policy | 2592 | 4627 | `OP_t <KEY hash>*n OP_n OP_1 OP_2 OP_CHECKMODERNPOLICY` |
 
 Seed is 32 bytes. Max keys in a policy is 12. 32-byte pushes use the
-minimal form (`0x20` then 32 bytes), not `OP_PUSHDATA1`.
+minimal form (`0x20` then 32 bytes), not `OP_PUSHDATA1`. A single-key
+locking script is **36 bytes** (`DILITHIUM_SINGLE_SCRIPT_SIZE`). An
+unknown `(algorithm, param)` pair is not an address.
 
 ## Derivation
 
-The ML-DSA seed is the **BIP32 child private key** (32 bytes) at the
-address path. There is no second child function and no
-`FCN-MLDSA*-CHILD` tag. Wallets derive the same hardened path they
-already use for that address, then FIPS 204 keygen with context
-`FederationCoin`. Knots HD: `m/0'/0'/n'` receive, `m/0'/1'/n'`
-change. Descriptor wallets use the descriptor path. The 32-byte
-private key at that node is the seed; do not hash it again.
+The ML-DSA seed is **not** a secp BIP32 child. A quantum break of an
+exported account xpub must not yield Dilithium seeds.
 
-Committed vector (`bip32_child_is_mldsa_seed` in
-`mldsa_spend_spec_tests.cpp`; same bytes in drongo): BIP32 seed `0x0b`
-then 31 zero bytes, path `m/0'/0'/0'`. Child private key
-`e1d174161b4abbe62bc2f998c79e8cf32d4b03f2d6f412b722645ad052c3061d`.
-44 KEY fingerprint `295be60dbfc76f27b3184cce5c4754737276a6835137ef8b6849859d063a37d4`.
-87 KEY fingerprint `f0a75c325805efe2a9267c5a626302401273cbbbe7dac033187abf55106e763c`.
+Tagged KDF, Blake2b-256 with no key:
+
+`Blake2b-256(tag || hd_seed || kind_id || le32(index))`
+
+| Field | Bytes |
+| --- | --- |
+| tag | ASCII `FederationCoin/ml-dsa-seed/v1` (no NUL) |
+| hd_seed | wallet HD seed, or the 32-byte root xprv secret |
+| kind_id | 1 = Dilithium 44, 2 = Dilithium 87, 3 = policy 44, 4 = policy 87 |
+| index | little-endian uint32. Bits 0–30 are the wallet index (policy keys: `wallet_index * 12 + slot`). Bit 31 is set for the change chain so receive and change at the same index do not share a seed. |
+
+One leaf must not serve every kind. FIPS 204 keygen then uses the
+derived 32-byte seed with context `FederationCoin`.
+
+Pinned vector (`mldsa_seed_tests.cpp`; same bytes in drongo): 32-byte
+seed of `0x42`, kind Dilithium 87, index 7 →
+`8d3755b302d8a066e6ae846b00e329cfd597043e812dc509b240876c171e8f68`.
 
 ## Single-key spend
 
@@ -184,8 +192,9 @@ scriptSig:     empty
 - One witness item per slot: empty → skip; otherwise pubkey ‖
   signature of **this** kind’s sizes (one item; the kind splits on its
   widths).
-- **`signed_ok >= t`**. Skip slots do not sign. `t` is on the output.
-  Do not loop `t`.
+- **`signed_ok == t`**. Extra filled slots fail (CHECKMULTISIG
+  shape). Skip slots do not sign. `t` is on the output. Do not loop
+  `t`.
 - Slot `i`’s pubkey must KEY-hash to that slot’s hash. Extra items fail.
 
 ## 1-of-1 vs single-key

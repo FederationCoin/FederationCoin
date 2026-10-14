@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <algorithm>
+#include <addresstype.h>
 #include <common/args.h>
 #include <common/messages.h>
 #include <common/system.h>
@@ -54,10 +55,29 @@ static bool IsDilithiumWitnessV0(const CScript& script)
     return IsModernSigTemplate(script);
 }
 
-/** Input weight when InferDescriptor is not solvable. Do not size a v0/32
- *  output as Dilithium 87 when the owning ScriptPubKeyMan is absent. */
-static std::optional<int64_t> ScriptShapedInputWeight(const CScript&, bool)
+/** Input weight from the script shape. Dilithium single and policy use the
+ *  kind's MaxSatisfactionWeight, not a nested-P2WPKH dummy. */
+static std::optional<int64_t> ScriptShapedInputWeight(const CScript& script, bool tx_is_segwit)
 {
+    const auto add_input = [&](int64_t sat_bytes, int64_t elems) -> int64_t {
+        const int64_t scriptsig_len{1};
+        const int64_t witstack_len{GetSizeOfCompactSize(elems)};
+        return (32 + 4 + 4 + scriptsig_len) * WITNESS_SCALE_FACTOR + witstack_len + sat_bytes;
+    };
+    if (const auto parsed{MatchModernSingle(script)}; parsed && parsed->kind) {
+        const int64_t pk{static_cast<int64_t>(parsed->kind->PubkeySize())};
+        const int64_t sig{static_cast<int64_t>(parsed->kind->SignatureSize())};
+        const int64_t sat{GetSizeOfCompactSize(pk) + pk + GetSizeOfCompactSize(sig) + sig};
+        return add_input(sat, 2);
+    }
+    if (const auto parsed{MatchModernPolicy(script)}; parsed && parsed->kind) {
+        const int64_t pk{static_cast<int64_t>(parsed->kind->PubkeySize())};
+        const int64_t sig{static_cast<int64_t>(parsed->kind->SignatureSize())};
+        const int64_t item{pk + sig};
+        const int64_t sat{static_cast<int64_t>(parsed->hashes.size()) * (GetSizeOfCompactSize(item) + item)};
+        return add_input(sat, parsed->hashes.size());
+    }
+    (void)tx_is_segwit;
     return std::nullopt;
 }
 
@@ -1185,10 +1205,32 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
 
     // Get size of spending the change output
     int change_spend_size = CalculateMaximumSignedInputSize(change_prototype_txout, &wallet, /*coin_control=*/nullptr);
-    // If the wallet doesn't know how to sign change output, assume p2sh-p2wpkh
-    // as lower-bound to allow BnB to do it's thing
     if (change_spend_size == -1) {
-        coin_selection_params.change_spend_size = DUMMY_NESTED_P2WPKH_INPUT_SIZE;
+        if (const auto shaped{ScriptShapedInputWeight(scriptChange, /*tx_is_segwit=*/true)}) {
+            coin_selection_params.change_spend_size = static_cast<int>(GetVirtualTransactionSize(*shaped, 0, 0));
+        } else {
+            CScript dummy_change;
+            switch (wallet.m_default_address_type) {
+            case OutputType::DILITHIUM87:
+                dummy_change = BuildModernSingle(uint256::ZERO, ALGO_DILITHIUM, PARAM_DILITHIUM_87);
+                break;
+            case OutputType::DILITHIUM44:
+                dummy_change = BuildModernSingle(uint256::ZERO, ALGO_DILITHIUM, PARAM_DILITHIUM_44);
+                break;
+            case OutputType::BECH32:
+                dummy_change = GetScriptForDestination(WitnessV0KeyHash(uint160{}));
+                break;
+            default:
+                dummy_change = GetScriptForDestination(WitnessV0KeyHash(uint160{}));
+                break;
+            }
+            if (const auto dummy_shaped{ScriptShapedInputWeight(dummy_change, /*tx_is_segwit=*/true)}) {
+                coin_selection_params.change_spend_size = static_cast<int>(GetVirtualTransactionSize(*dummy_shaped, 0, 0));
+            } else {
+                coin_selection_params.change_spend_size = GetVirtualTransactionSize(
+                    (32 + 4 + 4 + 1) * WITNESS_SCALE_FACTOR + GetSizeOfCompactSize(2) + 107, 0, 0);
+            }
+        }
     } else {
         coin_selection_params.change_spend_size = change_spend_size;
     }

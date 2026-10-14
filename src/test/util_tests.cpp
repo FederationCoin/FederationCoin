@@ -1806,7 +1806,7 @@ BOOST_AUTO_TEST_CASE(message_verify)
             RecodeKeyOrAddressForActiveChain("3LnYoUkFrhyYP3V7rq3mhpwALz1XbCY9Uq"),
          "AAAAAAHNcfHaNfl8f/+ZC2gTr8aF+0KgppYjKM94egaNm/u1ZAAAAAD8AEcwRAIhAJ6hdj61vLDP+aFa30qUZQmrbBfE0kiOObYvt5nqPSxsAh9IrOKFwflfPRUcQ/5e0REkdFHVP2GGdUsMgDet+sNlAUcwRAIgH3eW/VyFDoXvCasd8qxgwj5NDVo0weXvM6qyGXLCR5YCIEwjbEV6fS6RWP6QsKOcMwvlGr1/SgdCC6pW4eH87/YgAUxpUiECKJfGy28imLcuAeNBLHCNv3NRP5jnJwFDNRXCYNY/vJ4hAv1RQtaZs7+vKqQeWl2rb/jd/gMxkEjUnjZdDGPDZkMLIQL65cH2X5O7LujjTLDL2l8Pxy0Y2UUR99u1qCfjdz7dklOuAAAAAAEAAAAAAAAAAAFqAAAAAA==",
             "This will be a p2sh 2-of-3 multisig BIP 322 signed message"),
-        MessageVerificationResult::OK);
+        MessageVerificationResult::ERR_INVALID);
 
     // 3-of-3 p2wsh multisig BIP322 signature (created with the buidl-python library)
     // Keys are defined as (HDRootWIF, bip322_path)

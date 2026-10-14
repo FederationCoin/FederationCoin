@@ -44,7 +44,9 @@ bool MulGe(uint64_t a, uint64_t b, uint64_t c, uint64_t d);
 /** True when this block's leftover weight cannot fit one more simplest
  *  payment (max signature of a kind valid at this height) plus
  *  FULL_FIT_BUFFER_WEIGHT. Demand filled the cap. weight == cap is pegged.
- *  weight > cap is not a valid block and is not pegged. */
+ *  weight > cap is not a valid block and is not pegged.
+ *  Leftover-hole pegged is miner-fillable. The brake is 80% of a
+ *  FLEX_CEILING_INTERVAL plus AtCeiling, not a fee-weighted oracle. */
 bool Pegged(uint64_t block_weight, uint64_t cap, int height);
 
 /** True when block_weight * 5 < cap. Strictly under 20 percent of the live

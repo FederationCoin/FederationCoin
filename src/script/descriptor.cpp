@@ -7,6 +7,8 @@
 #include <addresstype.h>
 #include <consensus/mldsa87_spend.h>
 #include <consensus/mldsa44_spend.h>
+#include <consensus/mldsa_seed.h>
+#include <support/cleanse.h>
 #include <hash.h>
 #include <key.h>
 #include <key_io.h>
@@ -17,6 +19,7 @@
 #include <script/script.h>
 #include <script/signingprovider.h>
 #include <script/solver.h>
+#include <serialize.h>
 #include <uint256.h>
 
 #include <common/args.h>
@@ -27,6 +30,7 @@
 #include <util/vector.h>
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -951,10 +955,57 @@ public:
     }
 };
 
-/** Single-key Dilithium 87 or 44. Seed is the BIP32 child private key. */
+/** Seed material for tagged KDF. HD seed if present, else the 32-byte secret
+ *  that matches this key expression's root xpub (the master, on generated
+ *  wallets), else a const (non-ranged) secret. Never a ranged BIP32 child.
+ *  A foreign xpub with no matching root secret is a miss. */
+bool KdfMaterialForProvider(const PubkeyProvider& p, int pos, const SigningProvider& arg, std::vector<unsigned char>& material)
+{
+    if (arg.GetHDSeed(material) && !material.empty()) return true;
+    if (const auto xpub{p.GetRootExtPubKey()}) {
+        CKey root;
+        if (!arg.GetKey(xpub->pubkey.GetID(), root) || root.size() != 32) return false;
+        material.assign(UCharCast(root.begin()), UCharCast(root.end()));
+        return true;
+    }
+    if (p.IsRange()) return false;
+    CKey key;
+    if (!p.GetPrivKey(pos, arg, key) || key.size() != 32) return false;
+    material.assign(UCharCast(key.begin()), UCharCast(key.end()));
+    return true;
+}
+
+/** Last unhardened parent of a ranged origin is 0 (receive) or 1 (change). */
+bool OriginIsChangeChain(const KeyOriginInfo& origin)
+{
+    if (origin.path.size() < 2) return false;
+    return (origin.path[origin.path.size() - 2] & 0x7fffffffu) == 1;
+}
+
+uint32_t KdfIndexForOrigin(uint32_t pos, const KeyOriginInfo& origin)
+{
+    return Consensus::MlDsaKdfIndex(pos, OriginIsChangeChain(origin));
+}
+
+/** Single-key Dilithium 87 or 44. Seed is tagged KDF from HD seed or xprv root, not a BIP32 child. */
 class MldsaDescriptor final : public DescriptorImpl
 {
     const OutputType m_type;
+
+    Consensus::MlDsaSeedKind SeedKind() const
+    {
+        return m_type == OutputType::DILITHIUM87 ? Consensus::MlDsaSeedKind::Dilithium87
+                                                 : Consensus::MlDsaSeedKind::Dilithium44;
+    }
+    const ModernSigKind* Kind() const
+    {
+        return LookupModernSigKind(ALGO_DILITHIUM, m_type == OutputType::DILITHIUM87 ? PARAM_DILITHIUM_87
+                                                                                     : PARAM_DILITHIUM_44);
+    }
+    bool KdfMaterial(int pos, const SigningProvider& arg, std::vector<unsigned char>& material) const
+    {
+        return KdfMaterialForProvider(*m_pubkey_args[0], pos, arg, material);
+    }
 protected:
     std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, Span<const CScript>, FlatSigningProvider&) const override
     {
@@ -965,34 +1016,57 @@ protected:
         CPubKey pubkey;
         KeyOriginInfo origin;
         if (!m_pubkey_args[0]->GetPubKey(pos, arg, pubkey, origin, read_cache, write_cache)) return false;
-        const uint8_t kind{static_cast<uint8_t>(m_type == OutputType::DILITHIUM87 ? 87 : 44)};
+        const uint8_t param{static_cast<uint8_t>(m_type == OutputType::DILITHIUM87 ? PARAM_DILITHIUM_87 : PARAM_DILITHIUM_44)};
+        const ModernSigKind* kind{Kind()};
+        if (!kind) return false;
         uint256 program;
         uint8_t cached_kind{0};
-        const bool have_program{read_cache && read_cache->GetCachedMldsaProgram(pos, program, cached_kind) && cached_kind == kind};
+        const bool have_program{read_cache && read_cache->GetCachedMldsaProgram(pos, program, cached_kind) &&
+                                (cached_kind == param || cached_kind == (m_type == OutputType::DILITHIUM87 ? 87 : 44))};
+        std::vector<unsigned char> material;
+        const bool have_material{KdfMaterial(pos, arg, material)};
         if (!have_program) {
-            CKey key;
-            if (!m_pubkey_args[0]->GetPrivKey(pos, arg, key) || key.size() != 32) {
+            if (!have_material) {
                 out.origins.emplace(pubkey.GetID(), std::make_pair(pubkey, std::move(origin)));
                 out.pubkeys.emplace(pubkey.GetID(), pubkey);
-                out.mldsa_pending.push_back(MldsaProgramRecord{kind, pubkey.GetID()});
+                out.mldsa_pending.push_back(MldsaProgramRecord{param, pubkey.GetID()});
                 return false;
             }
-            const std::span<const unsigned char> seed{reinterpret_cast<const unsigned char*>(key.begin()), 32};
-            if (m_type == OutputType::DILITHIUM87) {
-                Consensus::MlDsa87Keypair kp;
-                if (!Consensus::MlDsa87Keygen(seed, kp)) return false;
-                program = Consensus::MlDsa87SingleKeyProgram(kp.pubkey);
-            } else {
-                Consensus::MlDsa44Keypair kp;
-                if (!Consensus::MlDsa44Keygen(seed, kp)) return false;
-                program = Consensus::MlDsa44SingleKeyProgram(kp.pubkey);
+            std::array<unsigned char, Consensus::MLDSA_DERIVED_SEED_SIZE> derived{};
+            if (!Consensus::DeriveMlDsaSeed(material, SeedKind(), KdfIndexForOrigin(static_cast<uint32_t>(pos), origin), derived)) {
+                memory_cleanse(material.data(), material.size());
+                return false;
             }
-            if (write_cache) write_cache->CacheMldsaProgram(pos, program, kind);
+            memory_cleanse(material.data(), material.size());
+            std::vector<unsigned char> pk;
+            std::vector<unsigned char> sk;
+            if (!kind->Keygen(derived, pk, sk)) {
+                memory_cleanse(derived.data(), derived.size());
+                return false;
+            }
+            memory_cleanse(sk.data(), sk.size());
+            if (!kind->KeyFingerprint(pk, program)) {
+                memory_cleanse(derived.data(), derived.size());
+                return false;
+            }
+            out.mldsa_seeds[program] = {derived.begin(), derived.end()};
+            memory_cleanse(derived.data(), derived.size());
+            if (write_cache) write_cache->CacheMldsaProgram(pos, program, param);
+            out.mldsa_programs[program] = MldsaProgramRecord{param, pubkey.GetID()};
+        } else if (have_material) {
+            std::array<unsigned char, Consensus::MLDSA_DERIVED_SEED_SIZE> derived{};
+            if (Consensus::DeriveMlDsaSeed(material, SeedKind(), KdfIndexForOrigin(static_cast<uint32_t>(pos), origin), derived)) {
+                out.mldsa_seeds[program] = {derived.begin(), derived.end()};
+                out.mldsa_programs[program] = MldsaProgramRecord{param, pubkey.GetID()};
+                memory_cleanse(derived.data(), derived.size());
+            }
+            memory_cleanse(material.data(), material.size());
+        }
+        if (!out.mldsa_programs.count(program)) {
+            out.mldsa_programs[program] = MldsaProgramRecord{param, pubkey.GetID()};
         }
         out.origins.emplace(pubkey.GetID(), std::make_pair(pubkey, std::move(origin)));
         out.pubkeys.emplace(pubkey.GetID(), pubkey);
-        out.mldsa_programs[program] = MldsaProgramRecord{kind, pubkey.GetID()};
-        const int32_t param{m_type == OutputType::DILITHIUM87 ? PARAM_DILITHIUM_87 : PARAM_DILITHIUM_44};
         output_scripts = Vector(BuildModernSingle(program, ALGO_DILITHIUM, param));
         return true;
     }
@@ -1021,6 +1095,138 @@ public:
     }
 
     std::optional<int64_t> MaxSatisfactionElems() const override { return 2; }
+};
+
+/** Policy Dilithium 87 or 44. Expand emits OP_CHECKMODERNPOLICY. Each key's
+ *  seed is tagged KDF at index pos * 12 + slot, never a BIP32 child. */
+class MldsaPolicyDescriptor final : public DescriptorImpl
+{
+    const uint8_t m_threshold;
+    const OutputType m_type;
+
+    Consensus::MlDsaSeedKind SeedKind() const
+    {
+        return m_type == OutputType::DILITHIUM87 ? Consensus::MlDsaSeedKind::Policy87
+                                                 : Consensus::MlDsaSeedKind::Policy44;
+    }
+    const ModernSigKind* Kind() const
+    {
+        return LookupModernSigKind(ALGO_DILITHIUM, m_type == OutputType::DILITHIUM87 ? PARAM_DILITHIUM_87
+                                                                                     : PARAM_DILITHIUM_44);
+    }
+    uint8_t Param() const
+    {
+        return static_cast<uint8_t>(m_type == OutputType::DILITHIUM87 ? PARAM_DILITHIUM_87 : PARAM_DILITHIUM_44);
+    }
+protected:
+    std::string ToStringExtra() const override { return strprintf("%i", m_threshold); }
+    std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, Span<const CScript>, FlatSigningProvider&) const override
+    {
+        return {};
+    }
+    bool ExpandHelper(int pos, const SigningProvider& arg, const DescriptorCache* read_cache, std::vector<CScript>& output_scripts, FlatSigningProvider& out, DescriptorCache* write_cache) const override
+    {
+        if (pos < 0) return false;
+        const uint32_t n{static_cast<uint32_t>(m_pubkey_args.size())};
+        if (n < 1 || n > MODERN_POLICY_MAX_KEYS) return false;
+        if (m_threshold < 1 || m_threshold > n) return false;
+        if (static_cast<uint32_t>(pos) > (0x7fffffffu - (MODERN_POLICY_MAX_KEYS - 1)) / MODERN_POLICY_MAX_KEYS) {
+            return false;
+        }
+        const uint32_t base{static_cast<uint32_t>(pos) * MODERN_POLICY_MAX_KEYS};
+        const uint8_t param{Param()};
+        const ModernSigKind* kind{Kind()};
+        if (!kind) return false;
+        std::vector<uint256> hashes;
+        hashes.reserve(n);
+        for (uint32_t k{0}; k < n; ++k) {
+            CPubKey pubkey;
+            KeyOriginInfo origin;
+            if (!m_pubkey_args[k]->GetPubKey(pos, arg, pubkey, origin, read_cache, write_cache)) return false;
+            out.origins.emplace(pubkey.GetID(), std::make_pair(pubkey, origin));
+            out.pubkeys.emplace(pubkey.GetID(), pubkey);
+            uint256 program;
+            uint8_t cached_kind{0};
+            const bool have_program{read_cache && read_cache->GetCachedMldsaProgram(base + k, program, cached_kind) &&
+                                    (cached_kind == param || cached_kind == (m_type == OutputType::DILITHIUM87 ? 87 : 44))};
+            std::vector<unsigned char> material;
+            const bool have_material{KdfMaterialForProvider(*m_pubkey_args[k], pos, arg, material)};
+            if (!have_program) {
+                if (!have_material) {
+                    out.mldsa_pending.push_back(MldsaProgramRecord{param, pubkey.GetID()});
+                    return false;
+                }
+                std::array<unsigned char, Consensus::MLDSA_DERIVED_SEED_SIZE> derived{};
+                if (!Consensus::DeriveMlDsaSeed(material, SeedKind(), KdfIndexForOrigin(base + k, origin), derived)) {
+                    memory_cleanse(material.data(), material.size());
+                    return false;
+                }
+                memory_cleanse(material.data(), material.size());
+                std::vector<unsigned char> pk;
+                std::vector<unsigned char> sk;
+                if (!kind->Keygen(derived, pk, sk)) {
+                    memory_cleanse(derived.data(), derived.size());
+                    return false;
+                }
+                memory_cleanse(sk.data(), sk.size());
+                if (!kind->KeyFingerprint(pk, program)) {
+                    memory_cleanse(derived.data(), derived.size());
+                    return false;
+                }
+                out.mldsa_seeds[program] = {derived.begin(), derived.end()};
+                memory_cleanse(derived.data(), derived.size());
+                if (write_cache) write_cache->CacheMldsaProgram(base + k, program, param);
+                out.mldsa_programs[program] = MldsaProgramRecord{param, pubkey.GetID()};
+            } else if (have_material) {
+                std::array<unsigned char, Consensus::MLDSA_DERIVED_SEED_SIZE> derived{};
+                if (Consensus::DeriveMlDsaSeed(material, SeedKind(), KdfIndexForOrigin(base + k, origin), derived)) {
+                    out.mldsa_seeds[program] = {derived.begin(), derived.end()};
+                    out.mldsa_programs[program] = MldsaProgramRecord{param, pubkey.GetID()};
+                    memory_cleanse(derived.data(), derived.size());
+                }
+                memory_cleanse(material.data(), material.size());
+            }
+            if (!out.mldsa_programs.count(program)) {
+                out.mldsa_programs[program] = MldsaProgramRecord{param, pubkey.GetID()};
+            }
+            hashes.push_back(program);
+        }
+        const auto script{BuildModernPolicy(m_threshold, hashes, ALGO_DILITHIUM, param)};
+        if (!script) return false;
+        output_scripts = Vector(std::move(*script));
+        return true;
+    }
+public:
+    MldsaPolicyDescriptor(uint8_t threshold, std::vector<std::unique_ptr<PubkeyProvider>> providers, OutputType type, std::string name)
+        : DescriptorImpl(std::move(providers), std::move(name)), m_threshold(threshold), m_type(type) {}
+    std::optional<OutputType> GetOutputType() const override { return m_type; }
+    bool IsSingleType() const final { return true; }
+    std::unique_ptr<DescriptorImpl> Clone() const override
+    {
+        std::vector<std::unique_ptr<PubkeyProvider>> providers;
+        providers.reserve(m_pubkey_args.size());
+        for (const auto& p : m_pubkey_args) providers.emplace_back(p->Clone());
+        return std::make_unique<MldsaPolicyDescriptor>(m_threshold, std::move(providers), m_type, m_name);
+    }
+    std::optional<int64_t> ScriptSize() const override
+    {
+        return static_cast<int64_t>(5 + 33 * m_pubkey_args.size());
+    }
+    std::optional<int64_t> MaxSatSize(bool) const override
+    {
+        const int64_t pk = m_type == OutputType::DILITHIUM87 ? Consensus::MLDSA87_PUBLIC_KEY_SIZE : Consensus::MLDSA44_PUBLIC_KEY_SIZE;
+        const int64_t sig = m_type == OutputType::DILITHIUM87 ? Consensus::MLDSA87_SIGNATURE_SIZE : Consensus::MLDSA44_SIGNATURE_SIZE;
+        const int64_t item = pk + sig;
+        return static_cast<int64_t>(m_pubkey_args.size()) * (GetSizeOfCompactSize(item) + item);
+    }
+    std::optional<int64_t> MaxSatisfactionWeight(bool use_max_sig) const override
+    {
+        return MaxSatSize(use_max_sig);
+    }
+    std::optional<int64_t> MaxSatisfactionElems() const override
+    {
+        return static_cast<int64_t>(m_pubkey_args.size());
+    }
 };
 
 /** A parsed combo(P) descriptor. */
@@ -1995,6 +2201,67 @@ std::vector<std::unique_ptr<DescriptorImpl>> ParseScript(uint32_t& key_exp_index
         }
         return ret;
     }
+    const char* policy_name{nullptr};
+    OutputType policy_type{};
+    if (ctx == ParseScriptContext::TOP && Func("mldsapolicy87", expr)) {
+        policy_name = "mldsapolicy87";
+        policy_type = OutputType::DILITHIUM87;
+    } else if (ctx == ParseScriptContext::TOP && Func("mldsapolicy", expr)) {
+        policy_name = "mldsapolicy";
+        policy_type = OutputType::DILITHIUM44;
+    }
+    if (policy_name) {
+        auto threshold = Expr(expr);
+        uint32_t thres{0};
+        if (!ParseUInt32(std::string(threshold.begin(), threshold.end()), &thres)) {
+            error = strprintf("%s(): threshold '%s' is not valid", policy_name, std::string(threshold.begin(), threshold.end()));
+            return {};
+        }
+        std::vector<std::vector<std::unique_ptr<PubkeyProvider>>> providers;
+        size_t max_providers_len{0};
+        while (expr.size()) {
+            if (!Const(",", expr)) {
+                error = strprintf("%s(): expected ',', got '%c'", policy_name, expr[0]);
+                return {};
+            }
+            auto arg = Expr(expr);
+            auto pks = ParsePubkey(key_exp_index, arg, ParseScriptContext::P2WPKH, out, error);
+            if (pks.empty()) {
+                error = strprintf("%s(): %s", policy_name, error);
+                return {};
+            }
+            max_providers_len = std::max(max_providers_len, pks.size());
+            providers.emplace_back(std::move(pks));
+            key_exp_index++;
+        }
+        if (providers.empty() || providers.size() > MODERN_POLICY_MAX_KEYS) {
+            error = strprintf("%s(): must have between 1 and %u keys, got %u", policy_name, MODERN_POLICY_MAX_KEYS, providers.size());
+            return {};
+        }
+        if (thres < 1 || thres > providers.size()) {
+            error = strprintf("%s(): threshold %u is not in 1..%u", policy_name, thres, providers.size());
+            return {};
+        }
+        for (auto& vec : providers) {
+            if (vec.size() == 1) {
+                for (size_t i = 1; i < max_providers_len; ++i) {
+                    vec.emplace_back(vec.at(0)->Clone());
+                }
+            } else if (vec.size() != max_providers_len) {
+                error = strprintf("%s(): multipath derivation paths have mismatched lengths", policy_name);
+                return {};
+            }
+        }
+        for (size_t i = 0; i < max_providers_len; ++i) {
+            std::vector<std::unique_ptr<PubkeyProvider>> pubs;
+            pubs.reserve(providers.size());
+            for (auto& pub : providers) {
+                pubs.emplace_back(std::move(pub.at(i)));
+            }
+            ret.emplace_back(std::make_unique<MldsaPolicyDescriptor>(static_cast<uint8_t>(thres), std::move(pubs), policy_type, policy_name));
+        }
+        return ret;
+    }
     if ((ctx == ParseScriptContext::TOP || ctx == ParseScriptContext::P2SH) && Func("wpkh", expr)) {
         auto pubkeys = ParsePubkey(key_exp_index, expr, ParseScriptContext::P2WPKH, out, error);
         if (pubkeys.empty()) {
@@ -2376,12 +2643,48 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
             CPubKey pk;
             if (provider.GetPubKey(key_id, pk)) {
                 if (auto pubkey_provider = InferPubkey(pk, ctx, provider)) {
-                    if (kind == 87) {
+                    if (kind == PARAM_DILITHIUM_87 || kind == 87) {
                         return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM87, "mldsa87");
                     }
-                    if (kind == 44) {
+                    if (kind == PARAM_DILITHIUM_44 || kind == 44) {
                         return std::make_unique<MldsaDescriptor>(std::move(pubkey_provider), OutputType::DILITHIUM44, "mldsa");
                     }
+                }
+            }
+        }
+    }
+    if (txntype == TxoutType::CHECKMODERNPOLICY && ctx == ParseScriptContext::TOP && data.size() >= 4) {
+        const uint8_t threshold{data.front()[0]};
+        const uint8_t param{data.back()[0]};
+        const uint8_t n{data[data.size() - 3][0]};
+        if (data.size() == static_cast<size_t>(n) + 4 && threshold >= 1 && threshold <= n && n <= MODERN_POLICY_MAX_KEYS) {
+            std::vector<std::unique_ptr<PubkeyProvider>> providers;
+            providers.reserve(n);
+            bool ok{true};
+            for (uint8_t i{0}; i < n; ++i) {
+                const uint256 program{Span<const unsigned char>{data[1 + i].data(), data[1 + i].size()}};
+                uint8_t kind{0};
+                CKeyID key_id;
+                CPubKey pk;
+                if (!provider.GetMldsaProgram(program, kind, key_id) || !provider.GetPubKey(key_id, pk)) {
+                    ok = false;
+                    break;
+                }
+                auto pubkey_provider = InferPubkey(pk, ctx, provider);
+                if (!pubkey_provider) {
+                    ok = false;
+                    break;
+                }
+                providers.emplace_back(std::move(pubkey_provider));
+            }
+            if (ok) {
+                const bool is_87{param == PARAM_DILITHIUM_87 || param == 87};
+                const bool is_44{param == PARAM_DILITHIUM_44 || param == 44};
+                if (is_87 || is_44) {
+                    return std::make_unique<MldsaPolicyDescriptor>(
+                        threshold, std::move(providers),
+                        is_87 ? OutputType::DILITHIUM87 : OutputType::DILITHIUM44,
+                        is_87 ? "mldsapolicy87" : "mldsapolicy");
                 }
             }
         }

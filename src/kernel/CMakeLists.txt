@@ -35,6 +35,7 @@ add_library(bitcoinkernel
   ../consensus/block_limits.cpp
   ../consensus/epoch_watermark.cpp
   ../consensus/settlement_fee.cpp
+  ../consensus/mldsa_seed.cpp
   ../consensus/tx_check.cpp
   ../consensus/tx_verify.cpp
   ../crypto/mldsa_randombytes.c

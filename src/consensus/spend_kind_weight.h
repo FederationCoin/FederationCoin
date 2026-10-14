@@ -10,6 +10,7 @@
 #include <consensus/mldsa44_spend.h>
 #include <consensus/secp_spend.h>
 #include <pubkey.h>
+#include <script/modern_sig.h>
 
 #include <array>
 #include <cstdint>
@@ -31,9 +32,12 @@ struct SpendKindRow {
  *  ML-DSA constants. */
 inline constexpr std::array<SpendKindRow, 3> SPEND_KIND_ROWS{{
     {/*valid_from=*/0, /*spk_len=*/22, /*pubkey_len=*/static_cast<uint32_t>(CPubKey::COMPRESSED_SIZE), /*max_sig_len=*/static_cast<uint32_t>(BIP66_DER_SIGHASH_SIZE_MAX)},
-    {/*valid_from=*/0, /*spk_len=*/34, /*pubkey_len=*/static_cast<uint32_t>(MLDSA44_PUBLIC_KEY_SIZE), /*max_sig_len=*/static_cast<uint32_t>(MLDSA44_SIGNATURE_SIZE)},
-    {/*valid_from=*/0, /*spk_len=*/34, /*pubkey_len=*/static_cast<uint32_t>(MLDSA87_PUBLIC_KEY_SIZE), /*max_sig_len=*/static_cast<uint32_t>(MLDSA87_SIGNATURE_SIZE)},
+    {/*valid_from=*/0, /*spk_len=*/DILITHIUM_SINGLE_SCRIPT_SIZE, /*pubkey_len=*/static_cast<uint32_t>(MLDSA44_PUBLIC_KEY_SIZE), /*max_sig_len=*/static_cast<uint32_t>(MLDSA44_SIGNATURE_SIZE)},
+    {/*valid_from=*/0, /*spk_len=*/DILITHIUM_SINGLE_SCRIPT_SIZE, /*pubkey_len=*/static_cast<uint32_t>(MLDSA87_PUBLIC_KEY_SIZE), /*max_sig_len=*/static_cast<uint32_t>(MLDSA87_SIGNATURE_SIZE)},
 }};
+static_assert(SPEND_KIND_ROWS[1].spk_len == DILITHIUM_SINGLE_SCRIPT_SIZE);
+static_assert(SPEND_KIND_ROWS[2].spk_len == DILITHIUM_SINGLE_SCRIPT_SIZE);
+static_assert(DILITHIUM_SINGLE_SCRIPT_SIZE == 36);
 
 /** Compact-size length for n < 253 (1 byte) or n <= 0xffff (3 bytes).
  *  Larger n is outside this table. nullopt, not a wrapped length. */

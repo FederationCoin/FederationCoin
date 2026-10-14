@@ -6,6 +6,7 @@
 #include <consensus/checked_arith.h>
 #include <primitives/transaction.h>
 
+#include <algorithm>
 #include <atomic>
 #include <limits>
 #include <variant>
@@ -13,6 +14,7 @@
 namespace Consensus {
 namespace {
 std::atomic<uint64_t> g_admit_weight{MIN_FLEX_BLOCK_WEIGHT};
+std::atomic<uint64_t> g_header_max_flex{MIN_FLEX_BLOCK_WEIGHT};
 
 static_assert(SIGOPS_WEIGHT_DIVISOR != 0);
 static_assert(STANDARD_TX_SIGOPS_DIVISOR != 0);
@@ -75,9 +77,26 @@ void SetBlockMessageAdmitWeight(uint64_t weight)
     g_admit_weight.store(weight);
 }
 
+void NoteHeaderFlexCap(uint64_t cap)
+{
+    uint64_t cur{g_header_max_flex.load()};
+    while (cap > cur && !g_header_max_flex.compare_exchange_weak(cur, cap)) {
+    }
+}
+
+void SetHeaderMaxFlex(uint64_t cap)
+{
+    g_header_max_flex.store(cap);
+}
+
+uint64_t BlockMessageReceiveWeight()
+{
+    return std::max(g_admit_weight.load(), g_header_max_flex.load());
+}
+
 uint64_t BlockMessageReceiveLimit()
 {
-    return LimitsForCap(BlockMessageAdmitWeight()).block_message_bytes;
+    return LimitsForCap(BlockMessageReceiveWeight()).block_message_bytes;
 }
 
 } // namespace Consensus

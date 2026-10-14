@@ -7,6 +7,7 @@
 #include <key.h>
 #include <key_io.h>
 #include <script/descriptor.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/sign.h>
 #include <script/solver.h>
@@ -1171,6 +1172,61 @@ BOOST_AUTO_TEST_CASE(mldsa_expand_is_public_and_cached)
     BOOST_CHECK(out44.keys.empty());
     BOOST_REQUIRE(parsed44[0]->ExpandFromCache(0, cache44, cached44, cache_out44));
     BOOST_CHECK(scripts44 == cached44);
+}
+
+BOOST_AUTO_TEST_CASE(mldsapolicy_expand_and_exact_t)
+{
+    const CKey k1{GenerateRandomKey()};
+    const CKey k2{GenerateRandomKey()};
+    const CKey k3{GenerateRandomKey()};
+    std::string error;
+    FlatSigningProvider ignore;
+    BOOST_CHECK(Parse("mldsapolicy(2," + EncodeSecret(k1) + ")", ignore, error, /*require_checksum=*/false).empty());
+    BOOST_CHECK(Parse("mldsapolicy(0," + EncodeSecret(k1) + "," + EncodeSecret(k2) + ")", ignore, error, /*require_checksum=*/false).empty());
+
+    const std::string desc{"mldsapolicy(2," + EncodeSecret(k1) + "," + EncodeSecret(k2) + "," + EncodeSecret(k3) + ")"};
+    FlatSigningProvider keys;
+    auto parsed{Parse(desc, keys, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed.size(), 1U);
+    BOOST_CHECK_EQUAL(*parsed[0]->GetOutputType(), OutputType::DILITHIUM44);
+
+    FlatSigningProvider out;
+    std::vector<CScript> scripts;
+    DescriptorCache cache;
+    BOOST_REQUIRE(parsed[0]->Expand(0, keys, scripts, out, &cache));
+    BOOST_REQUIRE_EQUAL(scripts.size(), 1U);
+    const auto policy{MatchModernPolicy(scripts[0])};
+    BOOST_REQUIRE(policy);
+    BOOST_REQUIRE(policy->kind);
+    BOOST_CHECK_EQUAL(policy->threshold, 2);
+    BOOST_CHECK_EQUAL(policy->hashes.size(), 3U);
+    BOOST_CHECK(IsKnownModernSigTemplate(scripts[0]));
+
+    FlatSigningProvider from_cache;
+    std::vector<CScript> cached_scripts;
+    BOOST_REQUIRE(parsed[0]->ExpandFromCache(0, cache, cached_scripts, from_cache));
+    BOOST_CHECK(scripts == cached_scripts);
+}
+
+BOOST_AUTO_TEST_CASE(mldsa_receive_and_change_diverge)
+{
+    const CKey seed_key{GenerateRandomKey()};
+    CExtKey master;
+    master.SetSeed(seed_key);
+    FlatSigningProvider keys;
+    keys.keys[master.key.GetPubKey().GetID()] = master.key;
+    std::string error;
+    auto recv = Parse("mldsa87(" + EncodeExtPubKey(master.Neuter()) + "/0/*)", keys, error, /*require_checksum=*/false);
+    auto change = Parse("mldsa87(" + EncodeExtPubKey(master.Neuter()) + "/1/*)", keys, error, /*require_checksum=*/false);
+    BOOST_REQUIRE_EQUAL(recv.size(), 1U);
+    BOOST_REQUIRE_EQUAL(change.size(), 1U);
+    FlatSigningProvider out_r, out_c;
+    std::vector<CScript> s_r, s_c;
+    BOOST_REQUIRE(recv[0]->Expand(0, keys, s_r, out_r, nullptr));
+    BOOST_REQUIRE(change[0]->Expand(0, keys, s_c, out_c, nullptr));
+    BOOST_REQUIRE_EQUAL(s_r.size(), 1U);
+    BOOST_REQUIRE_EQUAL(s_c.size(), 1U);
+    BOOST_CHECK(s_r[0] != s_c[0]);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

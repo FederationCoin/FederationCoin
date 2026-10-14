@@ -5,7 +5,7 @@
 """
 Test v2 transport
 """
-from test_framework.messages import NODE_P2P_V2
+from test_framework.messages import NODE_P2P_V2, NODE_P2P_V3
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
@@ -28,29 +28,35 @@ class V2TransportTest(BitcoinTestFramework):
         self.disconnect_nodes(2, 3)
         self.disconnect_nodes(3, 4)
 
-        # Regtest window admit does not fit BIP324. -v2transport does not
-        # advertise NODE_P2P_V2; peers use v1. V2 framing is a unit test.
-        for i in range(self.num_nodes):
+        # Encrypted P2P advertises V3 from genesis. The V2 bit drops when a
+        # v2 packet cannot name a block (regtest window admit).
+        for i in range(2):
             network_info = self.nodes[i].getnetworkinfo()
             assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V2, 0)
+            assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V3, NODE_P2P_V3)
             assert "P2P_V2" not in network_info["localservicesnames"]
+            assert "P2P_V3" in network_info["localservicesnames"]
+        for i in range(2, self.num_nodes):
+            network_info = self.nodes[i].getnetworkinfo()
+            assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V2, 0)
+            assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V3, 0)
+            assert "P2P_V2" not in network_info["localservicesnames"]
+            assert "P2P_V3" not in network_info["localservicesnames"]
 
-        # Nodes with -v2transport still sync over v1 when admit does not fit BIP324.
         assert_equal(self.nodes[0].getblockcount(), 0)
         assert_equal(self.nodes[1].getblockcount(), 0)
-        with self.nodes[0].assert_debug_log(expected_msgs=[],
-                                            unexpected_msgs=[sending_handshake, downgrading_to_v1]):
-            self.connect_nodes(0, 1, peer_advertises_v2=False)
+        with self.nodes[0].assert_debug_log(expected_msgs=[sending_handshake]):
+            self.connect_nodes(0, 1)
         self.generate(self.nodes[0], 5, sync_fun=lambda: self.sync_all(self.nodes[0:2]))
         assert_equal(self.nodes[1].getblockcount(), 5)
         node_0_info = self.nodes[0].getpeerinfo()
         node_1_info = self.nodes[1].getpeerinfo()
         assert_equal(len(node_0_info), 1)
         assert_equal(len(node_1_info), 1)
-        assert_equal(node_0_info[0]["transport_protocol_type"], "v1")
-        assert_equal(node_1_info[0]["transport_protocol_type"], "v1")
-        assert_equal(len(node_0_info[0]["session_id"]), 0)
-        assert_equal(len(node_1_info[0]["session_id"]), 0)
+        assert_equal(node_0_info[0]["transport_protocol_type"], "v3")
+        assert_equal(node_1_info[0]["transport_protocol_type"], "v3")
+        assert_equal(len(node_0_info[0]["session_id"]), 64)
+        assert_equal(len(node_1_info[0]["session_id"]), 64)
 
         # V1 nodes can sync with each other
         assert_equal(self.nodes[2].getblockcount(), 0)
@@ -112,9 +118,7 @@ class V2TransportTest(BitcoinTestFramework):
         assert_equal(len(node_0_info[0]["session_id"]), 0)
         assert_equal(len(node_3_info[0]["session_id"]), 0)
 
-        # Further blocks still sync over v1. BIP324 prefix detection is a
-        # unit test; regtest admit does not fit v2 framing.
-        self.connect_nodes(0, 1, peer_advertises_v2=False)
+        self.connect_nodes(0, 1)
         self.connect_nodes(1, 2, peer_advertises_v2=False)
         self.generate(self.nodes[1], 1, sync_fun=lambda: self.sync_all(self.nodes[0:4]))
         assert_equal(self.nodes[0].getblockcount(), 9)

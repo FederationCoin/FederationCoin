@@ -31,13 +31,11 @@ enum
     SIGHASH_NONE = 2,
     SIGHASH_SINGLE = 3,
     SIGHASH_ANYONECANPAY = 0x80,
-    /** Opt in to the hardfork signature hash.
+    /** Unified signature hash. Always on from genesis; not a height fork.
      *
-     * Set in the hash type byte by the spender. A node that has not activated
-     * the fork computes the legacy message for the same byte, so the signature
-     * does not verify there, which is what protects an opted-in transaction from
-     * replay. The legacy algorithm is unchanged, so a spender who never sets the
-     * bit is unaffected. */
+     * Present in the hash type byte. A hashtype without this bit is invalid.
+     * The legacy hasher is closed: CheckECDSASignature does not compute a
+     * BIP143/legacy message when the bit is missing. */
     SIGHASH_UNIFIED = 0x20,
 
     SIGHASH_DEFAULT = 0, //!< Taproot only; implied when sighash byte is missing, and equivalent to SIGHASH_ALL
@@ -158,19 +156,9 @@ enum : uint32_t {
     // OP_IF is also forbidden inside Tapscript
     SCRIPT_VERIFY_REDUCED_DATA = (1U << 21),
 
-    // Accept the hardfork signature hash, opted into per signature by
-    // SIGHASH_UNIFIED. Removes CVE-2013-2292 and CVE-2020-14199 for the inputs
-    // that opt in, which is not the same as closing them: an attacker picks the
-    // hash type and simply does not opt in.
-    //
-    // Unlike every other flag here, this one is a switch rather than a
-    // restriction. It makes opted-in signatures valid that were not, and it
-    // makes others invalid that were: a byte like 0x21 reads as ALL under the
-    // legacy algorithm today and means "opted in" once this applies, so the
-    // message it is checked against changes. So the usual "policy is at least
-    // as strict as consensus" reasoning runs backwards. The mempool therefore
-    // sets it wherever the fork is scheduled rather than tracking the height, so
-    // that a lagging node relays what its peers relay.
+    // Unified signature hash from genesis. Always set in GetBlockScriptFlags.
+    // A hashtype without SIGHASH_UNIFIED is invalid. Legacy BIP143/base
+    // hashing is closed.
     SCRIPT_VERIFY_UNIFIED_SIGHASH = (1U << 22),
 
     // Constants to point to the highest flag in use. Add new flags above this line.

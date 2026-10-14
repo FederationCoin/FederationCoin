@@ -10,8 +10,8 @@ from test_framework.blocktools import (
     create_block,
     create_coinbase,
 )
-from test_framework.messages import CBlockHeader, CTxOut
-from test_framework.p2p import P2PDataStore
+from test_framework.messages import CBlockHeader, CInv, CTxOut, MSG_BLOCK, msg_getdata
+from test_framework.p2p import P2PDataStore, P2PInterface
 from test_framework.script import CScript, OP_0
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
@@ -102,6 +102,7 @@ class FlexWeightTest(BitcoinTestFramework):
         assert result is None, f"block that fits the grown cap rejected: {result} weight={weight}"
         assert node.getblockcount() == 2 * REGTEST_HALVING_INTERVAL
         assert self.flexcap() == GROWN_CAP
+        grown_hash = node.getblockhash(2 * REGTEST_HALVING_INTERVAL)
 
         # Header-only parent: a grown child must not be marked permanently invalid.
         parent = self.make_weighted(FIT_AFTER_GROW)
@@ -133,7 +134,18 @@ class FlexWeightTest(BitcoinTestFramework):
         assert_equal(node.getblockcount(), 3 * REGTEST_HALVING_INTERVAL)
         assert self.flexcap() == MIN_CAP, "slack for four fifths of an epoch cuts back to the floor"
 
-        # IBD from genesis across the grow. Admit is the window, not tip+1.
+        self.log.info("Serve a historical grown block after the tip has shrunk")
+        historical = P2PInterface()
+        node.add_p2p_connection(historical)
+        historical.send_message(msg_getdata([CInv(MSG_BLOCK, int(grown_hash, 16))]))
+        historical.wait_for_block(int(grown_hash, 16))
+        node.disconnect_p2ps()
+
+        # IBD from a short no-grow fork onto a chain that grew then shrank.
+        # Admit is per-block, so the grown historical block still connects.
+        self.generate(self.nodes[1], 10, sync_fun=self.no_op)
+        assert_equal(self.nodes[1].getblockcount(), 10)
+        assert_equal(int(self.nodes[1].getblockchaininfo()["flexcap"]), MIN_CAP)
         self.connect_nodes(1, 0)
         self.sync_blocks()
         assert_equal(self.nodes[1].getblockcount(), node.getblockcount())

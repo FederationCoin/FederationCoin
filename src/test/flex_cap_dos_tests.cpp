@@ -248,6 +248,7 @@ static void SetTipCap(node::NodeContext& node, uint64_t cap)
 static void RestoreFloorLimit()
 {
     Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
 }
 
 static std::array<std::deque<SpendCoin>, KIND_COUNT> FundKinds(TestChain100Setup& setup, const SpendKeys& keys, uint64_t cap)
@@ -328,6 +329,7 @@ static CBlock ConnectPegged(TestChain100Setup& setup, const std::vector<CMutable
 
 BOOST_AUTO_TEST_CASE(wide_cap_connects_two_pegged_blocks)
 {
+    RestoreFloorLimit();
     const uint64_t cap{64000000};
     const Consensus::BlockLimits limits{Consensus::LimitsForCap(cap)};
     BOOST_CHECK_EQUAL(limits.sigops_cost, 1280000);
@@ -352,8 +354,20 @@ BOOST_AUTO_TEST_CASE(wide_cap_connects_two_pegged_blocks)
     RestoreFloorLimit();
 }
 
+BOOST_AUTO_TEST_CASE(header_flex_raises_receive_without_tip_admit)
+{
+    RestoreFloorLimit();
+    BOOST_CHECK_EQUAL(Consensus::BlockMessageAdmitWeight(), Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    BOOST_CHECK_EQUAL(Consensus::BlockMessageReceiveLimit(), Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    Consensus::NoteHeaderFlexCap(3600000);
+    BOOST_CHECK_EQUAL(Consensus::BlockMessageAdmitWeight(), Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    BOOST_CHECK_EQUAL(Consensus::BlockMessageReceiveLimit(), 3600000);
+    RestoreFloorLimit();
+}
+
 BOOST_AUTO_TEST_CASE(floor_connects_pegged_and_rejects_wide_payload)
 {
+    RestoreFloorLimit();
     const uint64_t cap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
     const Consensus::BlockLimits floor{Consensus::LimitsForCap(cap)};
     const Consensus::BlockLimits wide{Consensus::LimitsForCap(64000000)};

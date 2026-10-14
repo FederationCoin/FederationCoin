@@ -14,6 +14,8 @@
 #include <consensus/amount.h>
 #include <consensus/block_limits.h>
 #include <consensus/validation.h>
+#include <consensus/work/kind.h>
+#include <consensus/work/retarget.h>
 #include <deploymentstatus.h>
 #include <hash.h>
 #include <headerssync.h>
@@ -2081,7 +2083,6 @@ void PeerManagerImpl::NewPoWValidBlock(const CBlockIndex *pindex, const std::sha
 void PeerManagerImpl::UpdatedBlockTip(const CBlockIndex *pindexNew, const CBlockIndex *pindexFork, bool fInitialDownload)
 {
     SetBestBlock(pindexNew->nHeight, std::chrono::seconds{pindexNew->GetBlockTime()});
-    m_connman.DisconnectV2WhenAdmitExceeds();
 
     // Don't relay inventory during initial block download.
     if (fInitialDownload) return;
@@ -2520,15 +2521,34 @@ void PeerManagerImpl::SendBlockTransactions(CNode& pfrom, Peer& peer, const CBlo
 
 bool PeerManagerImpl::CheckHeadersPoW(const std::vector<CBlockHeader>& headers, const Consensus::Params& consensusParams, Peer& peer)
 {
-    // Do these headers have proof-of-work matching what's claimed?
-    if (!HasValidProofOfWork(headers, consensusParams)) {
-        Misbehaving(peer, "header with invalid proof of work");
+    for (const CBlockHeader& header : headers) {
+        if (!header.m_header_v2) {
+            Misbehaving(peer, "bad-header-version");
+            return false;
+        }
+        const auto tag{Consensus::DecodeWorkKindTag(header.GetCompleteVersion())};
+        if (!tag) {
+            Misbehaving(peer, "bad-work-kind");
+            return false;
+        }
+        const Consensus::WorkKind* kind{Consensus::LookupWorkKind(*tag)};
+        if (!kind || !kind->TailRule(header)) {
+            Misbehaving(peer, "bad-work-tail");
+            return false;
+        }
+        if (!Consensus::ScaleFromNBits(header.nBits, static_cast<size_t>(*tag), consensusParams)) {
+            Misbehaving(peer, "bad-diffbits");
+            return false;
+        }
+    }
+
+    if (!CheckHeadersAreContinuous(headers)) {
+        Misbehaving(peer, "non-continuous headers sequence");
         return false;
     }
 
-    // Are these headers connected to each other?
-    if (!CheckHeadersAreContinuous(headers)) {
-        Misbehaving(peer, "non-continuous headers sequence");
+    if (!HasValidProofOfWork(headers, consensusParams)) {
+        Misbehaving(peer, "header with invalid proof of work");
         return false;
     }
     return true;
@@ -2673,7 +2693,7 @@ bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfro
 bool PeerManagerImpl::TryLowWorkHeadersSync(Peer& peer, CNode& pfrom, const CBlockIndex* chain_start_header, std::vector<CBlockHeader>& headers)
 {
     // Calculate the claimed total work on this chain.
-    arith_uint256 total_work = chain_start_header->nChainWork + CalculateClaimedHeadersWork(headers);
+    arith_uint256 total_work = chain_start_header->nChainWork + CalculateClaimedHeadersWork(headers, m_chainparams.GetConsensus());
 
     // Our dynamic anti-DoS threshold (minimum work required on a headers chain
     // before we'll store it)
@@ -4369,7 +4389,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 MaybeSendGetHeaders(pfrom, GetLocator(m_chainman.m_best_header), *peer);
             }
             return;
-        } else if (prev_block->nChainWork + CalculateClaimedHeadersWork({{cmpctblock.header}}) < GetAntiDoSWorkThreshold()) {
+        } else if (prev_block->nChainWork + CalculateClaimedHeadersWork({{cmpctblock.header}}, m_chainparams.GetConsensus()) < GetAntiDoSWorkThreshold()) {
             // If we get a low-work header in a compact block, we can ignore it.
             LogDebug(BCLog::NET, "Ignoring low-work compact block from peer %d\n", pfrom.GetId());
             return;
@@ -4688,7 +4708,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             mapBlockSource.emplace(hash, std::make_pair(pfrom.GetId(), true));
 
             // Check claimed work on this block against our anti-dos thresholds.
-            if (prev_block && prev_block->nChainWork + CalculateClaimedHeadersWork({{pblock->GetBlockHeader()}}) >= GetAntiDoSWorkThreshold()) {
+            if (prev_block && prev_block->nChainWork + CalculateClaimedHeadersWork({{pblock->GetBlockHeader()}}, m_chainparams.GetConsensus()) >= GetAntiDoSWorkThreshold()) {
                 min_pow_checked = true;
             }
         }

@@ -4,9 +4,12 @@
 
 #include <blockencodings.h>
 #include <chainparams.h>
+#include <consensus/block_limits.h>
 #include <consensus/merkle.h>
 #include <pow.h>
 #include <streams.h>
+
+#include <limits>
 #include <test/util/random.h>
 #include <test/util/txmempool.h>
 
@@ -378,49 +381,55 @@ BOOST_AUTO_TEST_CASE(TransactionsRequestSerializationTest) {
 }
 
 BOOST_AUTO_TEST_CASE(TransactionsRequestDeserializationMaxTest) {
-    // Check that the highest legal index is decoded correctly
     BlockTransactionsRequest req0;
     req0.blockhash = m_rng.rand256();
-    req0.indexes.resize(1);
-    req0.indexes[0] = 0xffff;
+    req0.indexes = {0, 0xffff, 70000};
     DataStream stream{};
     stream << req0;
 
     BlockTransactionsRequest req1;
     stream >> req1;
     BOOST_CHECK_EQUAL(req0.indexes.size(), req1.indexes.size());
-    BOOST_CHECK_EQUAL(req0.indexes[0], req1.indexes[0]);
+    BOOST_CHECK_EQUAL(req1.indexes[0], 0U);
+    BOOST_CHECK_EQUAL(req1.indexes[1], 0xffffU);
+    BOOST_CHECK_EQUAL(req1.indexes[2], 70000U);
 }
 
 BOOST_AUTO_TEST_CASE(TransactionsRequestDeserializationOverflowTest) {
-    // Any set of index deltas that starts with N values that sum to (0x10000 - N)
-    // causes the edge-case overflow that was originally not checked for. Such
-    // a request cannot be created by serializing a real BlockTransactionsRequest
-    // due to the overflow, so here we'll serialize from raw deltas.
     BlockTransactionsRequest req0;
     req0.blockhash = m_rng.rand256();
-    req0.indexes.resize(3);
-    req0.indexes[0] = 0x7000;
-    req0.indexes[1] = 0x10000 - 0x7000 - 2;
-    req0.indexes[2] = 0;
     DataStream stream{};
     stream << req0.blockhash;
-    WriteCompactSize(stream, req0.indexes.size());
-    WriteCompactSize(stream, req0.indexes[0]);
-    WriteCompactSize(stream, req0.indexes[1]);
-    WriteCompactSize(stream, req0.indexes[2]);
-
+    WriteCompactSize(stream, 2);
+    WriteCompactSize(stream, std::numeric_limits<uint32_t>::max());
+    WriteCompactSize(stream, 1);
     BlockTransactionsRequest req1;
-    try {
-        stream >> req1;
-        // before patch: deserialize above succeeds and this check fails, demonstrating the overflow
-        BOOST_CHECK(req1.indexes[1] < req1.indexes[2]);
-        // this shouldn't be reachable before or after patch
-        BOOST_CHECK(0);
-    } catch(std::ios_base::failure &) {
-        // deserialize should fail
-        BOOST_CHECK(true); // Needed to suppress "Test case [...] did not check any assertions"
+    BOOST_CHECK_THROW(stream >> req1, std::ios_base::failure);
+}
+
+BOOST_AUTO_TEST_CASE(compact_block_seventy_thousand_indexes)
+{
+    const uint64_t saved_admit{Consensus::BlockMessageAdmitWeight()};
+    Consensus::SetBlockMessageAdmitWeight(3'600'000);
+    Consensus::SetHeaderMaxFlex(3'600'000);
+    auto rand_ctx(FastRandomContext(uint256{7}));
+    CBlock block(BuildBlockTestCase(rand_ctx));
+    TestHeaderAndShortIDs custom(block, rand_ctx);
+    custom.shorttxids.clear();
+    custom.shorttxids.reserve(70000);
+    for (uint32_t i = 0; i < 70000; ++i) {
+        custom.shorttxids.push_back((uint64_t{i} + 1) & 0xffffffffffffULL);
     }
+    DataStream stream{};
+    stream << custom;
+    CBlockHeaderAndShortTxIDs decoded;
+    stream >> decoded;
+    CTxMemPool& pool = *Assert(m_node.mempool);
+    PartiallyDownloadedBlock partial(&pool);
+    BOOST_CHECK(partial.InitData(decoded, empty_extra_txn) == READ_STATUS_OK);
+    BOOST_CHECK_EQUAL(decoded.BlockTxCount(), 70001);
+    Consensus::SetBlockMessageAdmitWeight(saved_admit);
+    Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

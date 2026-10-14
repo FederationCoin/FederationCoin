@@ -109,7 +109,7 @@ FUZZ_TARGET(headers_sync_state, .init = initialize_headers_sync_state_fuzz)
 
                     // If we get to redownloading, the presynced headers need
                     // to have the min amount of work on them.
-                    assert(CalculateClaimedHeadersWork(all_headers) >= min_work);
+                    assert(CalculateClaimedHeadersWork(all_headers, Params().GetConsensus()) >= min_work);
                 }
             }
 

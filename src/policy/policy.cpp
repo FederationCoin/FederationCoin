@@ -103,7 +103,8 @@ bool IsStandard(const CScript& scriptPubKey, const std::optional<unsigned>& max_
     } else if (whichType == TxoutType::PUBKEY ||
                whichType == TxoutType::PUBKEYHASH ||
                whichType == TxoutType::SCRIPTHASH ||
-               whichType == TxoutType::MULTISIG) {
+               whichType == TxoutType::MULTISIG ||
+               whichType == TxoutType::WITNESS_V1_TAPROOT) {
         return false;
     } else if (whichType == TxoutType::NULL_DATA) {
         if (!max_datacarrier_bytes || scriptPubKey.size() > *max_datacarrier_bytes) {
@@ -474,7 +475,7 @@ bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
             return false;
         }
 
-        if (witnessversion == 0 && witnessprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
+        if (witnessversion == 0 && witnessprogram.size() != WITNESS_V0_KEYHASH_SIZE) {
             MaybeReject("nonstandard");
             continue;
         }

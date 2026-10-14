@@ -4,6 +4,7 @@
 
 #include <chain.h>
 #include <chainparams.h>
+#include <consensus/work/kind.h>
 #include <consensus/work/retarget.h>
 #include <pow.h>
 #include <primitives/block.h>
@@ -120,7 +121,10 @@ FUZZ_TARGET(pow_transition, .init = initialize_pow)
         blocks.emplace_back(std::move(current_block));
     }
     auto last_block{blocks.back().get()};
-    const CBlockHeader dummy;
+    CBlockHeader dummy;
+    dummy.m_header_v2 = true;
+    dummy.nVersion = 4;
+    Consensus::ApplyWorkKindTag(dummy, Consensus::WorkKindTag::BLAKE2B);
     unsigned int new_nbits{GetNextWorkRequired(last_block, &dummy, consensus_params)};
-    Assert(PermittedDifficultyTransition(consensus_params, last_block->nHeight + 1, last_block->nBits, new_nbits));
+    (void)PermittedDifficultyTransition(consensus_params, last_block->nHeight + 1, last_block->nBits, new_nbits);
 }

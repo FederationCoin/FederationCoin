@@ -10,10 +10,6 @@
 #include <deploymentstatus.h>
 #include <util/translation.h>
 
-void SetupSighashRulesArgs(ArgsManager&)
-{
-}
-
 SighashRules SighashRulesForSigning(const ArgsManager&, const Consensus::Params&)
 {
     return SighashRules::UNIFIED;

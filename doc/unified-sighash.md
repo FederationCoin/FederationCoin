@@ -1,17 +1,11 @@
-# Unified opt-in signature hash
+# Unified signature hash
 
-One signature hash for every input type, supplementing the three in use today
-for spenders who opt in. It removes CVE-2013-2292 and CVE-2020-14199 from the
-legacy and segwit v0 algorithms for the inputs that opt in, which have carried
-both defects since 2013 and 2017. Opting in is the spender's choice, so it
-lowers the cost an honest transaction imposes rather than bounding what an
-attacker can still construct: a quadratic-hashing transaction simply does not
-opt in, and worst-case block validation cost is unchanged.
-Because the message it produces is distinct from every existing one, an opted-in
-transaction is also protected against replay onto any chain that does not
-implement it.
+One signature hash for every product spend from genesis. It removes
+CVE-2013-2292 and CVE-2020-14199 from the legacy and segwit v0
+algorithms. The message is distinct from Bitcoin’s, so a signature
+here is not a signature on that chain.
 
-Status: draft.
+Status: wire. Always on. The legacy hasher is closed.
 
 Bitcoin specifies consensus rules in BIPs rather than in this directory. None has
 been written for this change, and anything implementing it needs the rules from
@@ -75,25 +69,19 @@ decides whether a spend is protected is whether the signer opted in.
 
 ## Activation
 
-The rules apply to a block when its height is greater than or equal to
-`Blake2bHeight`, the buried deployment the proof of work change activates at.
-One trigger covers every rule the fork carries, so there is no window where one
-is live and another is not. That deployment belongs to the proof of work change
-and is specified there, not here.
+The unified message is **on from genesis**. There is no height, no
+compatibility window, and no UNIFIED-off BIP141 hasher. Dummy MAIN is
+unlaunched; after launch this is a contract.
 
-Consensus asks whether the deployment is active *at* a block, the standard
-buried-deployment comparison. An implementation should call that helper rather
-than open-code the arithmetic: a copy that drifts is a consensus split.
+Every product spend (native P2WPKH, Dilithium 44/87 single-key,
+Dilithium t-of-n) signs the unified preimage with hashtype
+`SIGHASH_ALL | SIGHASH_UNIFIED`. For those spends `scriptCode` is the
+empty script. The legacy hasher is closed: a signature without `0x20`
+is invalid, and a UNIFIED-off `VerifyScript` does not accept P2WSH or
+implied P2PKH.
 
-Nothing outside consensus asks. Signing and relay both opt in wherever the
-deployment is scheduled: the height is a question about a block, and neither a
-signature nor a mempool entry is in one yet. An entry therefore does not change
-meaning as the chain crosses the height, and nothing has to be reconciled in
-either direction.
-
-A byte that opts in reads as its low bits under the legacy algorithm, so a
-signature carrying one is valid before activation and not after; a signature made
-under the fork's rules is not valid before it.
+Signing and relay use the same rule as consensus. A mempool entry does
+not change meaning with height.
 
 ## Specification
 

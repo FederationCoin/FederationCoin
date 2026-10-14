@@ -9,6 +9,7 @@
 #include <uint256.h>
 
 #include <cstdint>
+#include <optional>
 
 class CBlockHeader;
 class CBlockIndex;
@@ -27,11 +28,21 @@ uint256 WorkScaleOne();
  */
 uint256 NextWorkScale(const CBlockIndex* pindexLast, const Params& params);
 
-/** Bound-safe S * expected / span. expected and span > 0. S==0 rescued to 1. */
+/** Bound-safe S * expected / span, floor toward zero.
+ *  expected and span > 0. Input S==0 is assert. After divide, S=0 (slow
+ *  window at genesis scale) becomes 1. */
 uint256 ScaleAfterWindow(const uint256& prev_scale, int64_t expected, int64_t span);
 
-/** Work added by one block at this scale. */
+/** Work added by one block at this scale. Input S==0 is assert, not clamp. */
 arith_uint256 WorkFromScale(const uint256& work_scale);
+
+/** S recovered from compact nBits: T0[k] / target, floor toward zero.
+ *  Invalid compact or target above powLimitKind[k] is nullopt. */
+std::optional<uint256> ScaleFromNBits(unsigned int nBits, size_t kind_index, const Params& params);
+
+/** Anti-DoS claimed work for a header: WorkFromScale(S_met). 0 if the
+ *  header is not v2 or nBits does not decode. */
+arith_uint256 ClaimedWorkFromHeader(const CBlockHeader& header, const Params& params);
 
 } // namespace Consensus
 

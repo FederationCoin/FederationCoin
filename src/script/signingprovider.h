@@ -165,8 +165,10 @@ public:
     virtual bool GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const { return false; }
     virtual bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const { return false; }
     virtual bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const { return false; }
-    /** Dilithium v0/32 program → kind (87 or 44) and the secp child key id. */
+    /** Dilithium v0/32 program → registry param (or legacy 87/44) and seed key id. */
     virtual bool GetMldsaProgram(const uint256& program, uint8_t& kind, CKeyID& key_id) const { return false; }
+    virtual bool GetHDSeed(std::vector<unsigned char>& seed) const { return false; }
+    virtual bool GetMldsaSeed(const uint256& program, std::vector<unsigned char>& seed) const { return false; }
 
     bool GetKeyByXOnly(const XOnlyPubKey& pubkey, CKey& key) const
     {
@@ -211,6 +213,8 @@ public:
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
     bool GetMldsaProgram(const uint256& program, uint8_t& kind, CKeyID& key_id) const override;
+    bool GetHDSeed(std::vector<unsigned char>& seed) const override;
+    bool GetMldsaSeed(const uint256& program, std::vector<unsigned char>& seed) const override;
 };
 
 struct MldsaProgramRecord {
@@ -229,6 +233,10 @@ struct FlatSigningProvider final : public SigningProvider
     /** Kind + key id from a public Dilithium descriptor. Bound to the output
      *  program at fund/sign time; Expand cannot keygen without the seed. */
     std::vector<MldsaProgramRecord> mldsa_pending;
+    /** Pre-BIP32 HD seed bytes for tagged Dilithium derivation. Empty if unknown. */
+    std::vector<unsigned char> hd_seed;
+    /** Tagged 32-byte Dilithium seeds keyed by program hash. */
+    std::map<uint256, std::vector<unsigned char>> mldsa_seeds;
 
     bool GetCScript(const CScriptID& scriptid, CScript& script) const override;
     bool GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const override;
@@ -238,6 +246,8 @@ struct FlatSigningProvider final : public SigningProvider
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
     bool GetMldsaProgram(const uint256& program, uint8_t& kind, CKeyID& key_id) const override;
+    bool GetHDSeed(std::vector<unsigned char>& seed) const override;
+    bool GetMldsaSeed(const uint256& program, std::vector<unsigned char>& seed) const override;
 
     void AddMasterKey(const CExtKey& key);
     FlatSigningProvider& Merge(FlatSigningProvider&& b) LIFETIMEBOUND;
@@ -333,6 +343,8 @@ public:
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
     bool GetMldsaProgram(const uint256& program, uint8_t& kind, CKeyID& key_id) const override;
+    bool GetHDSeed(std::vector<unsigned char>& seed) const override;
+    bool GetMldsaSeed(const uint256& program, std::vector<unsigned char>& seed) const override;
 };
 
 #endif // BITCOIN_SCRIPT_SIGNINGPROVIDER_H

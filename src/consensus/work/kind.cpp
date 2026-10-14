@@ -115,7 +115,11 @@ class Fp8GymWork final : public WorkKind
 public:
     WorkKindTag Kind() const override { return WorkKindTag::FP8_GYM; }
     const char* Name() const override { return "fp8gym"; }
-    uint256 WorkDigest(const CBlockHeader& header) const override { return Fp8GymDigest(header); }
+    uint256 WorkDigest(const CBlockHeader& header) const override
+    {
+        const auto digest{Fp8GymDigest(header)};
+        return digest.value_or(uint256{});
+    }
     bool TailRule(const CBlockHeader& header) const override
     {
         if (header.m_flags != 0) return false;
@@ -134,13 +138,15 @@ public:
     }
     bool Check(const CBlockHeader& header, unsigned int nBits, const Params& params) const override
     {
-        std::vector<uint8_t> a, b;
-        Fp8ExpandAB(header, a, b);
-        std::vector<float> c;
-        if (!Fp8TiledMma(a, b, c)) return false;
-        const auto packed{Fp8QuantizeC(c)};
-        if (!packed) return false;
-        return DigestMeetsTarget(Fp8PackedCDigest(*packed), nBits, params.powLimitKind[2]);
+        bool fNegative{false};
+        bool fOverflow{false};
+        arith_uint256 bnTarget;
+        bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
+        const arith_uint256 limit{UintToArith256(params.powLimitKind[2])};
+        if (fNegative || bnTarget == 0 || fOverflow || bnTarget > limit) return false;
+        const auto digest{Fp8GymDigest(header)};
+        if (!digest) return false;
+        return UintToArith256(*digest) < bnTarget;
     }
     unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const override
     {
@@ -259,6 +265,7 @@ unsigned int CompactTargetForScale(size_t kind_index, const uint256& work_scale,
 
 bool CheckWorkKindHeader(const CBlockHeader& header, const Params& params)
 {
+    if (!header.m_header_v2) return false;
     const auto tag{DecodeWorkKindTag(header.GetCompleteVersion())};
     if (!tag) return false;
     const WorkKind* kind{LookupWorkKind(*tag)};
@@ -271,8 +278,9 @@ bool CheckWorkKindHeader(const CBlockHeader& header, const Params& params)
 bool CheckWorkKindBlock(const CBlock& block, const Params& params)
 {
     if (!CheckWorkKindHeader(block, params)) return false;
-    if (block.m_txcount != block.vtx.size()) return false;
-    return true;
+    const auto tag{DecodeWorkKindTag(block.GetCompleteVersion())};
+    if (!tag) return false;
+    return block.m_txcount == block.vtx.size();
 }
 
 } // namespace Consensus

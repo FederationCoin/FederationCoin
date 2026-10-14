@@ -8,8 +8,11 @@
 #include <consensus/mldsa87_spend.h>
 #include <consensus/mldsa_fingerprint.h>
 
+#include <support/cleanse.h>
+
 #include <algorithm>
 #include <cassert>
+#include <utility>
 
 namespace {
 
@@ -96,9 +99,80 @@ public:
             if (!SpendKind::Verify(pubkey, signature, message)) return false;
             ++signed_ok;
         }
-        return signed_ok >= threshold;
+        return signed_ok == threshold;
     }
+    std::size_t SeedSize() const override { return 32; }
+    std::size_t SecretSize() const override;
+    bool Keygen(std::span<const unsigned char> seed,
+                std::vector<unsigned char>& pubkey,
+                std::vector<unsigned char>& secret) const override;
+    bool Sign(std::span<const unsigned char> secret,
+              std::span<const unsigned char> message,
+              std::vector<unsigned char>& signature) const override;
 };
+
+template <>
+std::size_t DilithiumModernKind<Consensus::MlDsa44Kind>::SecretSize() const
+{
+    return Consensus::MLDSA44_SECRET_KEY_SIZE;
+}
+template <>
+std::size_t DilithiumModernKind<Consensus::MlDsa87Kind>::SecretSize() const
+{
+    return Consensus::MLDSA87_SECRET_KEY_SIZE;
+}
+
+template <>
+bool DilithiumModernKind<Consensus::MlDsa44Kind>::Keygen(std::span<const unsigned char> seed,
+                                                        std::vector<unsigned char>& pubkey,
+                                                        std::vector<unsigned char>& secret) const
+{
+    Consensus::MlDsa44Keypair kp;
+    if (!Consensus::MlDsa44Keygen(seed, kp)) return false;
+    pubkey.assign(kp.pubkey.begin(), kp.pubkey.end());
+    secret.assign(kp.secret.begin(), kp.secret.end());
+    memory_cleanse(kp.secret.data(), kp.secret.size());
+    return true;
+}
+template <>
+bool DilithiumModernKind<Consensus::MlDsa87Kind>::Keygen(std::span<const unsigned char> seed,
+                                                        std::vector<unsigned char>& pubkey,
+                                                        std::vector<unsigned char>& secret) const
+{
+    Consensus::MlDsa87Keypair kp;
+    if (!Consensus::MlDsa87Keygen(seed, kp)) return false;
+    pubkey.assign(kp.pubkey.begin(), kp.pubkey.end());
+    secret.assign(kp.secret.begin(), kp.secret.end());
+    memory_cleanse(kp.secret.data(), kp.secret.size());
+    return true;
+}
+
+template <>
+bool DilithiumModernKind<Consensus::MlDsa44Kind>::Sign(std::span<const unsigned char> secret,
+                                                      std::span<const unsigned char> message,
+                                                      std::vector<unsigned char>& signature) const
+{
+    if (secret.size() != Consensus::MLDSA44_SECRET_KEY_SIZE) return false;
+    Consensus::MlDsa44Keypair kp;
+    std::copy(secret.begin(), secret.end(), kp.secret.begin());
+    signature.resize(Consensus::MLDSA44_SIGNATURE_SIZE);
+    const bool ok{Consensus::MlDsa44Sign(kp, message, signature)};
+    memory_cleanse(kp.secret.data(), kp.secret.size());
+    return ok;
+}
+template <>
+bool DilithiumModernKind<Consensus::MlDsa87Kind>::Sign(std::span<const unsigned char> secret,
+                                                      std::span<const unsigned char> message,
+                                                      std::vector<unsigned char>& signature) const
+{
+    if (secret.size() != Consensus::MLDSA87_SECRET_KEY_SIZE) return false;
+    Consensus::MlDsa87Keypair kp;
+    std::copy(secret.begin(), secret.end(), kp.secret.begin());
+    signature.resize(Consensus::MLDSA87_SIGNATURE_SIZE);
+    const bool ok{Consensus::MlDsa87Sign(kp, message, signature)};
+    memory_cleanse(kp.secret.data(), kp.secret.size());
+    return ok;
+}
 
 const DilithiumModernKind<Consensus::MlDsa44Kind> g_dilithium_44;
 const DilithiumModernKind<Consensus::MlDsa87Kind> g_dilithium_87;
@@ -174,9 +248,23 @@ std::optional<ModernPolicyParsed> MatchModernPolicy(const CScript& script)
     return parsed;
 }
 
+std::optional<ModernSigParsed> ParseModernSig(const CScript& script)
+{
+    if (auto single{MatchModernSingle(script)}) return ModernSigParsed{std::move(*single)};
+    if (auto policy{MatchModernPolicy(script)}) return ModernSigParsed{std::move(*policy)};
+    return std::nullopt;
+}
+
 bool IsModernSigTemplate(const CScript& script)
 {
-    return MatchModernSingle(script).has_value() || MatchModernPolicy(script).has_value();
+    return ParseModernSig(script).has_value();
+}
+
+bool IsKnownModernSigTemplate(const CScript& script)
+{
+    const auto parsed{ParseModernSig(script)};
+    if (!parsed) return false;
+    return std::visit([](const auto& p) { return p.kind != nullptr; }, *parsed);
 }
 
 CScript BuildModernSingle(const uint256& fingerprint, int32_t algorithm, int32_t param)

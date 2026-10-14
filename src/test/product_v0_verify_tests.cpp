@@ -198,12 +198,24 @@ BOOST_AUTO_TEST_CASE(verifyscript_rejects_bip141_p2wsh)
     BOOST_CHECK_EQUAL(VerifySpend(spend), ScriptCheckSpend(spend));
 }
 
-BOOST_AUTO_TEST_CASE(verifyscript_unified_off_fails)
+BOOST_AUTO_TEST_CASE(verifyscript_standard_includes_unified)
 {
     const SignedSpend spend{SignSecpUnified()};
     ScriptError err{SCRIPT_ERR_OK};
     TransactionSignatureChecker checker(&spend.tx, 0, spend.spent.nValue, spend.txdata, MissingDataBehavior::ASSERT_FAIL);
     const unsigned int flags{STANDARD_SCRIPT_VERIFY_FLAGS};
+    BOOST_CHECK(flags & SCRIPT_VERIFY_UNIFIED_SIGHASH);
+    BOOST_CHECK(VerifyScript(spend.tx.vin[0].scriptSig, spend.spent.scriptPubKey,
+                             &spend.tx.vin[0].scriptWitness, flags, checker, &err));
+    BOOST_CHECK_EQUAL(err, SCRIPT_ERR_OK);
+}
+
+BOOST_AUTO_TEST_CASE(verifyscript_without_unified_flag_fails)
+{
+    const SignedSpend spend{SignSecpUnified()};
+    ScriptError err{SCRIPT_ERR_OK};
+    TransactionSignatureChecker checker(&spend.tx, 0, spend.spent.nValue, spend.txdata, MissingDataBehavior::ASSERT_FAIL);
+    const unsigned int flags{STANDARD_SCRIPT_VERIFY_FLAGS & ~SCRIPT_VERIFY_UNIFIED_SIGHASH};
     BOOST_CHECK(!(flags & SCRIPT_VERIFY_UNIFIED_SIGHASH));
     BOOST_CHECK(!VerifyScript(spend.tx.vin[0].scriptSig, spend.spent.scriptPubKey,
                               &spend.tx.vin[0].scriptWitness, flags, checker, &err));

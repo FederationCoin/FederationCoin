@@ -43,7 +43,8 @@ bool Fp8TiledMma(std::span<const uint8_t> a, std::span<const uint8_t> b, std::ve
 /** Quantize C to packed E4M3FN. Nullopt if any Inf/NaN. */
 std::optional<std::vector<uint8_t>> Fp8QuantizeC(std::span<const float> c);
 
-uint256 Fp8GymDigest(const CBlockHeader& header);
+/** Packed-C digest, or nullopt if MMA/quantize fails. Not uint256::ONE. */
+std::optional<uint256> Fp8GymDigest(const CBlockHeader& header);
 uint256 Fp8PackedCDigest(std::span<const uint8_t> packed_c);
 
 } // namespace Consensus

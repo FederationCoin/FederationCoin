@@ -60,6 +60,18 @@ bool HidingSigningProvider::GetMldsaProgram(const uint256& program, uint8_t& kin
     return m_provider->GetMldsaProgram(program, kind, key_id);
 }
 
+bool HidingSigningProvider::GetHDSeed(std::vector<unsigned char>& seed) const
+{
+    if (m_hide_secret) return false;
+    return m_provider->GetHDSeed(seed);
+}
+
+bool HidingSigningProvider::GetMldsaSeed(const uint256& program, std::vector<unsigned char>& seed) const
+{
+    if (m_hide_secret) return false;
+    return m_provider->GetMldsaSeed(program, seed);
+}
+
 bool FlatSigningProvider::GetCScript(const CScriptID& scriptid, CScript& script) const { return LookupHelper(scripts, scriptid, script); }
 bool FlatSigningProvider::GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const { return LookupHelper(pubkeys, keyid, pubkey); }
 bool FlatSigningProvider::GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const
@@ -98,6 +110,18 @@ bool FlatSigningProvider::GetMldsaProgram(const uint256& program, uint8_t& kind,
     return true;
 }
 
+bool FlatSigningProvider::GetHDSeed(std::vector<unsigned char>& seed) const
+{
+    if (hd_seed.empty()) return false;
+    seed = hd_seed;
+    return true;
+}
+
+bool FlatSigningProvider::GetMldsaSeed(const uint256& program, std::vector<unsigned char>& seed) const
+{
+    return LookupHelper(mldsa_seeds, program, seed);
+}
+
 void FlatSigningProvider::AddMasterKey(const CExtKey& key)
 {
     CPubKey pubkey = key.Neuter().pubkey;
@@ -117,6 +141,8 @@ FlatSigningProvider& FlatSigningProvider::Merge(FlatSigningProvider&& b)
     tr_trees.merge(b.tr_trees);
     mldsa_programs.merge(b.mldsa_programs);
     mldsa_pending.insert(mldsa_pending.end(), b.mldsa_pending.begin(), b.mldsa_pending.end());
+    if (hd_seed.empty()) hd_seed = std::move(b.hd_seed);
+    mldsa_seeds.merge(b.mldsa_seeds);
     return *this;
 }
 
@@ -319,6 +345,22 @@ bool MultiSigningProvider::GetMldsaProgram(const uint256& program, uint8_t& kind
 {
     for (const auto& provider: m_providers) {
         if (provider->GetMldsaProgram(program, kind, key_id)) return true;
+    }
+    return false;
+}
+
+bool MultiSigningProvider::GetHDSeed(std::vector<unsigned char>& seed) const
+{
+    for (const auto& provider: m_providers) {
+        if (provider->GetHDSeed(seed)) return true;
+    }
+    return false;
+}
+
+bool MultiSigningProvider::GetMldsaSeed(const uint256& program, std::vector<unsigned char>& seed) const
+{
+    for (const auto& provider: m_providers) {
+        if (provider->GetMldsaSeed(program, seed)) return true;
     }
     return false;
 }

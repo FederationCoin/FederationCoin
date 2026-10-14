@@ -34,9 +34,10 @@ static unsigned int ApplyMinDifficultyFloor(unsigned int nBits, const Consensus:
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params)
 {
     const auto tag{Consensus::DecodeWorkKindTag(pblock->GetCompleteVersion())};
-    const Consensus::WorkKindTag kind_tag{tag ? *tag : Consensus::WorkKindTag::BLAKE2B};
+    if (!tag) return 0;
+    const Consensus::WorkKindTag kind_tag{*tag};
     const Consensus::WorkKind* kind{Consensus::LookupWorkKind(kind_tag)};
-    Assert(kind);
+    if (!kind) return 0;
     const uint256 S{Consensus::NextWorkScale(pindexLast, params)};
     unsigned int nBits{kind->ExpectedNBits(S, params)};
 
@@ -60,13 +61,28 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
 // or decrease beyond the permitted limits.
 bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height, uint32_t old_nbits, uint32_t new_nbits)
 {
-    // Mixed kinds have different compact nBits at the same S. Equal-nBits is
-    // not a consensus rule. ContextualCheckBlockHeader matches ExpectedNBits.
-    (void)params;
-    (void)height;
-    (void)old_nbits;
-    (void)new_nbits;
-    return true;
+    if (params.fPowAllowMinDifficultyBlocks) return true;
+    if (params.fPowNoRetargeting) return true;
+    const int64_t interval{params.DifficultyAdjustmentInterval()};
+    if (interval <= 0) return false;
+
+    bool f_negative{false};
+    bool f_overflow{false};
+    arith_uint256 old_target;
+    old_target.SetCompact(old_nbits, &f_negative, &f_overflow);
+    if (f_negative || old_target == 0 || f_overflow) return false;
+    arith_uint256 new_target;
+    new_target.SetCompact(new_nbits, &f_negative, &f_overflow);
+    if (f_negative || new_target == 0 || f_overflow) return false;
+
+    if (height % interval == 0) {
+        // ScaleAfterWindow clamps span to [expected/4, expected*4], so S
+        // (and therefore the compact target at fixed T0) moves by at most 4x.
+        if (new_target > old_target * 4) return false;
+        if (old_target > new_target * 4) return false;
+        return true;
+    }
+    return old_nbits == new_nbits;
 }
 
 // Bypasses the actual proof of work check during fuzz testing with a simplified validation checking whether

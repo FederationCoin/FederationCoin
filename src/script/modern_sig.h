@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <variant>
 #include <vector>
 
 class ModernSigKind;
@@ -51,6 +52,14 @@ public:
                               std::span<const uint256> hashes,
                               const std::vector<std::vector<unsigned char>>& witness,
                               std::span<const unsigned char> message) const = 0;
+    virtual std::size_t SeedSize() const = 0;
+    virtual std::size_t SecretSize() const = 0;
+    virtual bool Keygen(std::span<const unsigned char> seed,
+                        std::vector<unsigned char>& pubkey,
+                        std::vector<unsigned char>& secret) const = 0;
+    virtual bool Sign(std::span<const unsigned char> secret,
+                     std::span<const unsigned char> message,
+                     std::vector<unsigned char>& signature) const = 0;
 };
 
 /** Closed table keyed by (algorithm, param). Miss is nullptr. */
@@ -73,12 +82,16 @@ struct ModernPolicyParsed {
     const ModernSigKind* kind{nullptr};
 };
 
-/** True when scriptPubKey is a single-key or policy modern-sig template
- *  (minimal 32-byte pushes, small-int t/n/algo/param). Unknown pairs still
- *  match; kind is null. Unsorted policy hashes do not match. */
-bool IsModernSigTemplate(const CScript& script);
+/** Template match (minimal 32-byte pushes, small-int t/n/algo/param).
+ *  Unknown (algorithm, param) still match; kind is null. Unsorted policy
+ *  hashes do not match. */
+using ModernSigParsed = std::variant<ModernSingleParsed, ModernPolicyParsed>;
+std::optional<ModernSigParsed> ParseModernSig(const CScript& script);
 std::optional<ModernSingleParsed> MatchModernSingle(const CScript& script);
 std::optional<ModernPolicyParsed> MatchModernPolicy(const CScript& script);
+bool IsModernSigTemplate(const CScript& script);
+/** Template and a registry hit. Unknown pairs are not spendable. */
+bool IsKnownModernSigTemplate(const CScript& script);
 
 CScript BuildModernSingle(const uint256& fingerprint, int32_t algorithm, int32_t param);
 /** Nullopt if n is not 1..12, t is not 1..n, or hashes are not unique after

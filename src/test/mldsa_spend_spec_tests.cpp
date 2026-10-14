@@ -7,9 +7,11 @@
 #include <consensus/consensus.h>
 #include <consensus/mldsa44_spend.h>
 #include <consensus/mldsa87_spend.h>
+#include <consensus/mldsa_seed.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
 #include <key.h>
+#include <key_io.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
 #include <script/mldsa_merge.h>
@@ -133,7 +135,7 @@ static bool ScriptCheckFails(const CScript& spk, const std::vector<std::vector<u
     tx.vin[0].scriptWitness.stack = witness;
     tx.vout.resize(1);
     tx.vout[0].nValue = 1;
-    tx.vout[0].scriptPubKey = CScript() << OP_TRUE;
+    tx.vout[0].scriptPubKey = CScript() << OP_0 << std::vector<unsigned char>(WITNESS_V0_KEYHASH_SIZE, 0x03);
 
     CTxOut spent;
     spent.nValue = 1;
@@ -282,7 +284,7 @@ BOOST_AUTO_TEST_CASE(policy_slots_44)
     AppendSigned44(all_signed, holders[0], sighash);
     AppendSigned44(all_signed, holders[1], sighash);
     AppendSigned44(all_signed, holders[2], sighash);
-    BOOST_CHECK(Consensus::CheckMultisig44Spend(2, hashes, all_signed, sighash));
+    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, all_signed, sighash));
 
     std::vector<std::vector<unsigned char>> truncated;
     truncated.emplace_back(holders[0].key.pubkey.begin(), holders[0].key.pubkey.end());
@@ -422,7 +424,11 @@ BOOST_AUTO_TEST_CASE(policy_matrix_44_and_87)
     } rows[] = {
         {1, 2, 1, true},
         {1, 2, 0, false},
+        {2, 3, 2, true},
+        {2, 3, 3, false},
+        {2, 3, 1, false},
         {3, 5, 3, true},
+        {3, 5, 4, false},
         {3, 5, 2, false},
         {11, 12, 11, true},
         {11, 12, 10, false},
@@ -503,9 +509,14 @@ BOOST_AUTO_TEST_CASE(p2wsh_and_op_true_rejected)
     op_true << OP_TRUE;
     BOOST_CHECK_LE(op_true.size(), MAX_OUTPUT_SCRIPT_SIZE);
     TxValidationState state;
-    BOOST_CHECK(Consensus::CheckOutputSizes(TxWithScript(op_true), state));
+    BOOST_CHECK(!Consensus::CheckOutputSizes(TxWithScript(op_true), state));
+    CScript p2pkh;
+    p2pkh << OP_DUP << OP_HASH160 << std::vector<unsigned char>(20, 0x02) << OP_EQUALVERIFY << OP_CHECKSIG;
     state = {};
-    BOOST_CHECK(Consensus::CheckOutputSizes(TxWithScript(CScript{}), state));
+    BOOST_CHECK(!Consensus::CheckOutputSizes(TxWithScript(p2pkh), state));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-txns-vout-script");
+    state = {};
+    BOOST_CHECK(!Consensus::CheckOutputSizes(TxWithScript(CScript{}), state));
     const CScript v0_20{CScript() << OP_0 << std::vector<unsigned char>(WITNESS_V0_KEYHASH_SIZE, 0x03)};
     state = {};
     BOOST_CHECK(Consensus::CheckOutputSizes(TxWithScript(v0_20), state));
@@ -528,7 +539,7 @@ BOOST_AUTO_TEST_CASE(p2wsh_and_op_true_rejected)
     const CScript v0_32{CScript() << OP_0 << std::vector<unsigned char>(burn.begin(), burn.end())};
     BOOST_CHECK_EQUAL(v0_32.size(), 34U);
     state = {};
-    BOOST_CHECK(Consensus::CheckOutputSizes(TxWithScript(v0_32), state));
+    BOOST_CHECK(!Consensus::CheckOutputSizes(TxWithScript(v0_32), state));
     std::vector<std::vector<unsigned char>> p2wsh;
     p2wsh.push_back({OP_TRUE});
     BOOST_CHECK(ScriptCheckFails(v0_32, p2wsh));
@@ -568,6 +579,8 @@ BOOST_AUTO_TEST_CASE(unknown_pair_pushdata_and_scriptsig)
     const std::vector<unsigned char> sig44{BytesFromHex(s44["signature"].get_str())};
     std::vector<std::vector<unsigned char>> w44{pubkey44, sig44};
     BOOST_CHECK(ScriptCheckFails(unknown, w44));
+    BOOST_CHECK(!IsKnownModernSigTemplate(unknown));
+    BOOST_CHECK(EncodeDestination(ModernSigDestination(unknown)).empty());
 
     const uint256 program{HashFromHex(s44["program"].get_str())};
     std::vector<unsigned char> pushdata;
@@ -585,7 +598,7 @@ BOOST_AUTO_TEST_CASE(unknown_pair_pushdata_and_scriptsig)
     BOOST_CHECK(ScriptCheckFails(good, w44, CScript() << OP_0));
 }
 
-BOOST_AUTO_TEST_CASE(bip32_child_is_mldsa_seed)
+BOOST_AUTO_TEST_CASE(tagged_kdf_is_mldsa_seed)
 {
     std::array<std::byte, 32> master_seed{};
     master_seed[0] = std::byte{0x0b};
@@ -596,26 +609,91 @@ BOOST_AUTO_TEST_CASE(bip32_child_is_mldsa_seed)
     BOOST_REQUIRE(account.Derive(chain, 0x80000000));
     BOOST_REQUIRE(chain.Derive(child, 0x80000000));
     BOOST_REQUIRE_EQUAL(child.key.size(), 32U);
-    const std::span<const unsigned char> seed{UCharCast(child.key.begin()), child.key.size()};
 
-    Consensus::MlDsa44Keypair k44;
-    BOOST_REQUIRE(Consensus::MlDsa44Keygen(seed, k44));
-    const uint256 p44{Consensus::MlDsa44SingleKeyProgram(k44.pubkey)};
-    Consensus::MlDsa87Keypair k87;
-    BOOST_REQUIRE(Consensus::MlDsa87Keygen(seed, k87));
-    const uint256 p87{Consensus::MlDsa87SingleKeyProgram(k87.pubkey)};
-    BOOST_CHECK(p44 != p87);
-
-    Consensus::MlDsa44Keypair from_master;
-    const std::span<const unsigned char> master_span{
+    const std::span<const unsigned char> hd{
         reinterpret_cast<const unsigned char*>(master_seed.data()), master_seed.size()};
-    BOOST_REQUIRE(Consensus::MlDsa44Keygen(master_span, from_master));
-    BOOST_CHECK(p44 != Consensus::MlDsa44SingleKeyProgram(from_master.pubkey));
-
+    std::array<unsigned char, Consensus::MLDSA_DERIVED_SEED_SIZE> derived44{};
+    std::array<unsigned char, Consensus::MLDSA_DERIVED_SEED_SIZE> derived87{};
+    BOOST_REQUIRE(Consensus::DeriveMlDsaSeed(hd, Consensus::MlDsaSeedKind::Dilithium44, 0, derived44));
+    BOOST_REQUIRE(Consensus::DeriveMlDsaSeed(hd, Consensus::MlDsaSeedKind::Dilithium87, 0, derived87));
+    BOOST_CHECK(derived44 != derived87);
+    BOOST_CHECK(HexStr(Span{UCharCast(child.key.begin()), child.key.size()}) != HexStr(derived44));
     BOOST_CHECK_EQUAL(HexStr(Span{UCharCast(child.key.begin()), child.key.size()}),
                       "e1d174161b4abbe62bc2f998c79e8cf32d4b03f2d6f412b722645ad052c3061d");
-    BOOST_CHECK_EQUAL(HexStr(p44), "295be60dbfc76f27b3184cce5c4754737276a6835137ef8b6849859d063a37d4");
-    BOOST_CHECK_EQUAL(HexStr(p87), "f0a75c325805efe2a9267c5a626302401273cbbbe7dac033187abf55106e763c");
+
+    Consensus::MlDsa44Keypair k44;
+    BOOST_REQUIRE(Consensus::MlDsa44Keygen(derived44, k44));
+    Consensus::MlDsa87Keypair k87;
+    BOOST_REQUIRE(Consensus::MlDsa87Keygen(derived87, k87));
+    BOOST_CHECK(Consensus::MlDsa44SingleKeyProgram(k44.pubkey) != Consensus::MlDsa87SingleKeyProgram(k87.pubkey));
+}
+
+BOOST_AUTO_TEST_CASE(verify_script_policy_exact_t)
+{
+    std::vector<Holder44> holders;
+    holders.push_back(MakeHolder44(1));
+    holders.push_back(MakeHolder44(2));
+    holders.push_back(MakeHolder44(3));
+    std::sort(holders.begin(), holders.end(), [](const Holder44& a, const Holder44& b) { return a.hash < b.hash; });
+    const std::array<uint256, 3> hashes{holders[0].hash, holders[1].hash, holders[2].hash};
+    const auto program{Consensus::MlDsa44PolicyProgram(2, hashes)};
+    BOOST_REQUIRE(program);
+
+    CMutableTransaction tx;
+    tx.vin.resize(1);
+    tx.vin[0].prevout = COutPoint{Txid::FromUint256(uint256::ONE), 0};
+    tx.vout.resize(1);
+    tx.vout[0].nValue = 1;
+    tx.vout[0].scriptPubKey = CScript() << OP_0 << std::vector<unsigned char>(WITNESS_V0_KEYHASH_SIZE, 0x03);
+
+    CTxOut spent{1, *program};
+    const CTransaction unsigned_tx{tx};
+    PrecomputedTransactionData txdata;
+    txdata.Init(unsigned_tx, {spent}, /*force=*/true);
+    TransactionSignatureChecker checker(&unsigned_tx, 0, spent.nValue, txdata, MissingDataBehavior::ASSERT_FAIL);
+    uint256 sighash;
+    BOOST_REQUIRE(checker.GetUnifiedSighash(sighash));
+    std::array<unsigned char, 32> msg{};
+    std::copy(sighash.begin(), sighash.end(), msg.begin());
+
+    std::vector<std::vector<unsigned char>> exact;
+    AppendSigned44(exact, holders[0], msg);
+    AppendSigned44(exact, holders[1], msg);
+    AppendSkipped(exact);
+    BOOST_CHECK(!ScriptCheckFails(*program, exact));
+
+    std::vector<std::vector<unsigned char>> extra;
+    AppendSigned44(extra, holders[0], msg);
+    AppendSigned44(extra, holders[1], msg);
+    AppendSigned44(extra, holders[2], msg);
+    BOOST_CHECK(ScriptCheckFails(*program, extra));
+
+    std::vector<std::vector<unsigned char>> shortfall;
+    AppendSigned44(shortfall, holders[0], msg);
+    AppendSkipped(shortfall);
+    AppendSkipped(shortfall);
+    BOOST_CHECK(ScriptCheckFails(*program, shortfall));
+}
+
+BOOST_AUTO_TEST_CASE(unified_off_p2wsh_rejected)
+{
+    uint256 burn;
+    std::fill(burn.begin(), burn.end(), static_cast<unsigned char>(0x11));
+    const CScript v0_32{CScript() << OP_0 << std::vector<unsigned char>(burn.begin(), burn.end())};
+    CMutableTransaction tx;
+    tx.vin.resize(1);
+    tx.vin[0].prevout = COutPoint{Txid::FromUint256(uint256::ONE), 0};
+    tx.vin[0].scriptWitness.stack = {{OP_TRUE}};
+    tx.vout.resize(1);
+    tx.vout[0].nValue = 1;
+    tx.vout[0].scriptPubKey = CScript() << OP_0 << std::vector<unsigned char>(WITNESS_V0_KEYHASH_SIZE, 0x03);
+    CTxOut spent{1, v0_32};
+    PrecomputedTransactionData txdata;
+    txdata.Init(tx, {spent}, /*force=*/true);
+    MutableTransactionSignatureChecker checker(&tx, 0, spent.nValue, txdata, MissingDataBehavior::FAIL);
+    ScriptError err{SCRIPT_ERR_OK};
+    const unsigned flags_no_unified{STANDARD_SCRIPT_VERIFY_FLAGS & ~SCRIPT_VERIFY_UNIFIED_SIGHASH};
+    BOOST_CHECK(!VerifyScript(CScript{}, v0_32, &tx.vin[0].scriptWitness, flags_no_unified, checker, &err));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -145,13 +145,13 @@ TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned c
 {
     vSolutionsRet.clear();
 
-    if (const auto single{MatchModernSingle(scriptPubKey)}) {
+    if (const auto single{MatchModernSingle(scriptPubKey)}; single && single->kind) {
         vSolutionsRet.push_back(std::vector<unsigned char>(single->fingerprint.begin(), single->fingerprint.end()));
         vSolutionsRet.push_back({static_cast<unsigned char>(single->algorithm)});
         vSolutionsRet.push_back({static_cast<unsigned char>(single->param)});
         return TxoutType::CHECKMODERNSIG;
     }
-    if (const auto policy{MatchModernPolicy(scriptPubKey)}) {
+    if (const auto policy{MatchModernPolicy(scriptPubKey)}; policy && policy->kind) {
         vSolutionsRet.push_back({policy->threshold});
         for (const uint256& hash : policy->hashes) {
             vSolutionsRet.push_back(std::vector<unsigned char>(hash.begin(), hash.end()));

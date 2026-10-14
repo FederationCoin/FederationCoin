@@ -6,6 +6,8 @@
 
 #include <arith_uint256.h>
 #include <chain.h>
+#include <consensus/work/kind.h>
+#include <primitives/block.h>
 #include <util/check.h>
 
 namespace Consensus {
@@ -20,12 +22,15 @@ uint256 ScaleAfterWindow(const uint256& prev_scale, int64_t expected, int64_t sp
     Assert(expected > 0);
     Assert(span > 0);
     arith_uint256 s{UintToArith256(prev_scale)};
-    if (s == 0) s = 1;
+    Assert(s != 0);
     const arith_uint256 exp{static_cast<uint64_t>(expected)};
     const arith_uint256 max{~arith_uint256(0)};
     Assert(s <= max / exp);
     s *= exp;
     s /= static_cast<uint64_t>(span);
+    // Floor toward zero. A slow window at genesis scale (S=1, span=4*expected)
+    // yields 0; the next scale stays 1. That is the producer of a valid S, not
+    // a clamp of a zero input.
     if (s == 0) s = 1;
     return ArithToUint256(s);
 }
@@ -33,7 +38,7 @@ uint256 ScaleAfterWindow(const uint256& prev_scale, int64_t expected, int64_t sp
 arith_uint256 WorkFromScale(const uint256& work_scale)
 {
     arith_uint256 s{UintToArith256(work_scale)};
-    if (s == 0) s = 1;
+    Assert(s != 0);
     return s;
 }
 
@@ -59,6 +64,31 @@ uint256 NextWorkScale(const CBlockIndex* pindexLast, const Params& params)
     if (span > expected * 4) span = expected * 4;
     if (span <= 0) span = 1;
     return ScaleAfterWindow(parent_s, expected, span);
+}
+
+std::optional<uint256> ScaleFromNBits(unsigned int nBits, size_t kind_index, const Params& params)
+{
+    if (kind_index >= WORK_KIND_COUNT) return std::nullopt;
+    bool f_negative{false};
+    bool f_overflow{false};
+    arith_uint256 target;
+    target.SetCompact(nBits, &f_negative, &f_overflow);
+    if (f_negative || target == 0 || f_overflow) return std::nullopt;
+    if (target > UintToArith256(params.powLimitKind[kind_index])) return std::nullopt;
+    arith_uint256 t0{UintToArith256(params.powT0[kind_index])};
+    if (t0 == 0) return std::nullopt;
+    arith_uint256 s{t0 / target};
+    if (s == 0) s = 1;
+    return ArithToUint256(s);
+}
+
+arith_uint256 ClaimedWorkFromHeader(const CBlockHeader& header, const Params& params)
+{
+    const auto tag{DecodeWorkKindTag(header.GetCompleteVersion())};
+    if (!tag) return 0;
+    const auto scale{ScaleFromNBits(header.nBits, static_cast<size_t>(*tag), params)};
+    if (!scale) return 0;
+    return WorkFromScale(*scale);
 }
 
 } // namespace Consensus

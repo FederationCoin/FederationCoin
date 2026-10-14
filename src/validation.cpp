@@ -13,6 +13,7 @@
 #include <clientversion.h>
 #include <consensus/amount.h>
 #include <consensus/block_limits.h>
+#include <consensus/checked_arith.h>
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
 #include <consensus/epoch_watermark.h>
@@ -24,6 +25,8 @@
 #include <consensus/tx_check.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
+#include <consensus/work/kind.h>
+#include <consensus/work/retarget.h>
 #include <cuckoocache.h>
 #include <deploymentinfo.h>
 #include <flatfile.h>
@@ -283,24 +286,7 @@ bool CheckSequenceLocksAtTip(CBlockIndex* tip,
 // Returns the script flags which should be checked for a given block
 static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const ChainstateManager& chainman);
 
-/** Whether the hardfork rules will apply to a block built on `pindexPrev`.
- *
- * A height is known before the block exists, so a caller can reach the same
- * answer consensus will. */
-/** The hardfork script flag the mempool verifies under.
- *
- * Not keyed to the height. An opted-in signature is the same signature at every
- * height, and refusing it below the activation one only stops a node whose
- * blocks lag from relaying what the chain it is catching up to already accepts.
- * Consensus still decides whether a block may carry one, which is where the
- * height belongs.
- *
- * Where the fork is not scheduled there is nothing to accept, so the flag stays
- * off and the byte keeps the meaning it has always had on that chain. */
-static unsigned int UnifiedSighashMempoolFlag(const ChainstateManager&)
-{
-    return SCRIPT_VERIFY_UNIFIED_SIGHASH;
-}
+/** UNIFIED is genesis. Mempool and consensus use SCRIPT_VERIFY_UNIFIED_SIGHASH. */
 
 /** Compute accurate total signature operation cost of a transaction.
  *  Not consensus-critical, since legacy sigops counting is always used in the protocol.
@@ -1175,7 +1161,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
                              strprintf("%d < %d", ws.m_modified_fees, m_pool.m_opts.min_relay_feerate.GetFee(ws.m_vsize)));
     }
     {
-        const int64_t min_fee_vbytes{static_cast<int64_t>(GetTransactionWeight(*ws.m_ptx) / WITNESS_SCALE_FACTOR)};
+        const int64_t min_fee_vbytes{ConsensusVsize(GetTransactionWeight(*ws.m_ptx))};
         if (!FeeMeetsMinimumRate(ws.m_base_fees, min_fee_vbytes)) {
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-min-fee",
                                  strprintf("fee %d is below the minimum %d", ws.m_base_fees, MinimumFee(min_fee_vbytes)));
@@ -1569,7 +1555,7 @@ bool MemPoolAccept::PolicyScriptChecks(const ATMPArgs& args, Workspace& ws)
     // what that precomputes depends on SCRIPT_VERIFY_UNIFIED_SIGHASH, so both take
     // that flag from the same place.
     const unsigned int scriptVerifyFlags = PolicyScriptVerifyFlags(args.m_ignore_rejects) |
-        UnifiedSighashMempoolFlag(m_active_chainstate.m_chainman);
+        SCRIPT_VERIFY_UNIFIED_SIGHASH;
 
     // Check input scripts and signatures.
     // This is done last to help prevent CPU exhaustion denial-of-service attacks.
@@ -1613,8 +1599,8 @@ bool MemPoolAccept::ConsensusScriptChecks(const ATMPArgs& args, Workspace& ws)
     // higher and may be the one that activates. Drop that bit and take the next
     // block's rules instead, matching PolicyScriptChecks so the two agree and
     // the shared precomputed data is built once.
-    unsigned int currentBlockScriptVerifyFlags{GetBlockScriptFlags(*m_active_chainstate.m_chain.Tip(), m_active_chainstate.m_chainman) & ~uint32_t{SCRIPT_VERIFY_UNIFIED_SIGHASH}};
-    currentBlockScriptVerifyFlags |= UnifiedSighashMempoolFlag(m_active_chainstate.m_chainman);
+    unsigned int currentBlockScriptVerifyFlags{GetBlockScriptFlags(*m_active_chainstate.m_chain.Tip(), m_active_chainstate.m_chainman)};
+    currentBlockScriptVerifyFlags |= SCRIPT_VERIFY_UNIFIED_SIGHASH;
     if (!CheckInputsFromMempoolAndCache(tx, state, m_view, m_pool, currentBlockScriptVerifyFlags,
                                         ws.m_precomputed_txdata, m_active_chainstate.CoinsTip(), GetValidationCache())) {
         LogError("BUG! PLEASE REPORT THIS! CheckInputScripts failed against latest-block but not STANDARD flags %s, %s", hash.ToString(), state.ToString());
@@ -2817,6 +2803,7 @@ static void CommitFlexWatermark(CBlockIndex& index, const FlexWatermarkComputed&
 {
     index.nFlexCap = wm.nFlexCap;
     index.nEpochWatermark = wm.nEpochWatermark;
+    Consensus::NoteHeaderFlexCap(wm.nFlexCap);
 }
 
 /** Gossip admit bound from the active tip only. Background assumeutxo must not publish. */
@@ -3148,7 +3135,13 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         // * legacy (always)
         // * p2sh (when P2SH enabled in flags and excludes coinbase)
         // * witness (when witness enabled in flags and excludes coinbase)
-        nSigOpsCost += GetTransactionSigOpCost(tx, view, flags);
+        const int64_t tx_sigops{GetTransactionSigOpCost(tx, view, flags)};
+        int64_t next_sigops{0};
+        if (!Consensus::CheckedAddSigned(nSigOpsCost, tx_sigops, next_sigops)) {
+            state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "sigops overflow");
+            break;
+        }
+        nSigOpsCost = next_sigops;
         if (nSigOpsCost > Consensus::LimitsForCap(flex_wm.nFlexCap).sigops_cost) {
             state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "too many sigops");
             break;
@@ -4676,6 +4669,13 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, tx_state.GetRejectReason(),
                                  strprintf("Transaction check failed (tx hash %s) %s", tx->GetHash().ToString(), tx_state.GetDebugMessage()));
         }
+        // Genesis coinbase is the all-zero P2PK unspendable script. Every later
+        // output is v0/20, a known Dilithium template, or the 38-byte commitment.
+        if (!block.hashPrevBlock.IsNull() && !Consensus::CheckOutputSizes(*tx, tx_state)) {
+            assert(tx_state.GetResult() == TxValidationResult::TX_CONSENSUS);
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, tx_state.GetRejectReason(),
+                                 strprintf("Transaction check failed (tx hash %s) %s", tx->GetHash().ToString(), tx_state.GetDebugMessage()));
+        }
     }
     unsigned int nSigOps = 0;
     for (const auto& tx : block.vtx)
@@ -4769,12 +4769,11 @@ bool IsBlockMutated(const CBlock& block, bool check_witness_root)
     return false;
 }
 
-arith_uint256 CalculateClaimedHeadersWork(std::span<const CBlockHeader> headers)
+arith_uint256 CalculateClaimedHeadersWork(std::span<const CBlockHeader> headers, const Consensus::Params& params)
 {
     arith_uint256 total_work{0};
     for (const CBlockHeader& header : headers) {
-        CBlockIndex dummy(header);
-        total_work += GetBlockProof(dummy);
+        total_work += Consensus::ClaimedWorkFromHeader(header, params);
     }
     return total_work;
 }

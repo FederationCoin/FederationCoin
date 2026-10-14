@@ -129,6 +129,7 @@ add_library(bitcoin_consensus STATIC EXCLUDE_FROM_ALL
   consensus/block_limits.cpp
   consensus/epoch_watermark.cpp
   consensus/settlement_fee.cpp
+  consensus/mldsa_seed.cpp
   consensus/tx_check.cpp
   consensus/work/kind.cpp
   consensus/work/fp8_gym.cpp

@@ -1419,6 +1419,7 @@ public:
 BOOST_AUTO_TEST_CASE(command_receive_limits)
 {
     const uint64_t saved{Consensus::BlockMessageAdmitWeight()};
+    Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
     Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
     BOOST_CHECK_EQUAL(MAX_PROTOCOL_MESSAGE_LENGTH, 4'000'000U);
     BOOST_CHECK_EQUAL(CommandReceiveLimit("tx"), 4'000'000ULL);
@@ -1793,7 +1794,11 @@ BOOST_AUTO_TEST_CASE(v3_handshake_frames_and_fail_closed)
         CSerializedNetMsg over;
         over.m_type = "block";
         over.data.resize(static_cast<size_t>(CommandReceiveLimit("block") + 1));
-        BOOST_CHECK(tester.TooLargeToSend(over));
+        BOOST_CHECK(!tester.TooLargeToSend(over));
+        CSerializedNetMsg ping_over;
+        ping_over.m_type = "ping";
+        ping_over.data.resize(static_cast<size_t>(CommandReceiveLimit("ping") + 1));
+        BOOST_CHECK(tester.TooLargeToSend(ping_over));
     }
 
     {
@@ -1806,7 +1811,10 @@ BOOST_AUTO_TEST_CASE(v3_handshake_frames_and_fail_closed)
         tester.SendGarbageTerm();
         tester.SendVersion();
         ret = tester.Interact();
-        BOOST_CHECK(!ret);
+        BOOST_REQUIRE(ret && ret->empty());
+        tester.ReceiveGarbage();
+        tester.ReceiveVersion();
+        BOOST_CHECK(tester.Info().transport_type == TransportProtocolType::V2);
     }
 
     {
@@ -2005,9 +2013,10 @@ BOOST_AUTO_TEST_CASE(local_services_swap_v3_at_crossing)
     const uint64_t saved{Consensus::BlockMessageAdmitWeight()};
     m_node.connman->AddLocalServices(NODE_P2P_V2);
     Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
     const ServiceFlags below{m_node.connman->GetLocalServices()};
     BOOST_CHECK(below & NODE_P2P_V2);
-    BOOST_CHECK(!(below & NODE_P2P_V3));
+    BOOST_CHECK(below & NODE_P2P_V3);
     BOOST_CHECK(EncryptedP2POffered(below));
     Consensus::SetBlockMessageAdmitWeight(BIP324Cipher::MAX_CONTENTS_LEN);
     const ServiceFlags above{m_node.connman->GetLocalServices()};
@@ -2048,10 +2057,31 @@ BOOST_AUTO_TEST_CASE(disconnect_v2_when_admit_exceeds)
     BOOST_CHECK(!v1->fDisconnect);
     Consensus::SetBlockMessageAdmitWeight(BIP324Cipher::MAX_CONTENTS_LEN);
     connman.DisconnectV2WhenAdmitExceeds();
-    BOOST_CHECK(detecting->fDisconnect);
+    BOOST_CHECK(!detecting->fDisconnect);
     BOOST_CHECK(!v1->fDisconnect);
     connman.ClearTestNodes();
     Consensus::SetBlockMessageAdmitWeight(saved);
+}
+
+BOOST_AUTO_TEST_CASE(v3_handshake_from_genesis)
+{
+    Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    V2TransportTester tester(m_rng, false);
+    tester.SendKey();
+    tester.SendGarbage();
+    auto ret = tester.Interact();
+    BOOST_REQUIRE(ret && ret->empty());
+    tester.ReceiveKey();
+    tester.SendGarbageTerm();
+    const uint8_t tag{FCN_P2P_V3_VERSION_TAG};
+    tester.SendVersion(Span{&tag, 1});
+    ret = tester.Interact();
+    BOOST_REQUIRE(ret && ret->empty());
+    tester.ReceiveGarbage();
+    tester.ReceiveVersion();
+    tester.CompareSessionIDs();
+    BOOST_CHECK(tester.Info().transport_type == TransportProtocolType::V3);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

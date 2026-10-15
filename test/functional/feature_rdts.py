@@ -156,17 +156,23 @@ class ReducedDataTest(BitcoinTestFramework):
 
         node = self.nodes[0]
 
-        # Test 1.1: 34-byte P2WSH output (exactly at limit - should pass)
+        # Leftover P2WSH (v0/32) is not a product output. Dilithium singles
+        # are CHECKMODERNSIG templates, not OP_0 <32>.
         witness_program_32 = b'\x00' * 32
-        script_p2wsh = CScript([OP_0, witness_program_32])  # OP_0 (1 byte) + 32-byte push = 34 bytes
+        script_p2wsh = CScript([OP_0, witness_program_32])
         assert_equal(len(script_p2wsh), 34)
+        tx_p2wsh = self.create_test_transaction(script_p2wsh)
+        result = node.testmempoolaccept([tx_p2wsh.serialize().hex()])[0]
+        assert_equal(result['allowed'], False)
+        assert 'bad-txns-vout-script' in result['reject-reason']
+        self.log.info("  leftover 34-byte P2WSH output rejected")
 
-        tx_valid = self.create_test_transaction(script_p2wsh)
+        script_p2wpkh = CScript([OP_0, b'\x00' * 20])
+        assert_equal(len(script_p2wpkh), 22)
+        tx_valid = self.create_test_transaction(script_p2wpkh)
         result = node.testmempoolaccept([tx_valid.serialize().hex()])[0]
-        if not result['allowed']:
-            self.log.info(f"  DEBUG: P2WSH rejection reason: {result}")
         assert_equal(result['allowed'], True)
-        self.log.info("  ✓ 34-byte P2WSH output accepted")
+        self.log.info("  22-byte P2WPKH output accepted")
 
         # Test 1.2: 35-byte P2PK output (exceeds limit - should fail)
         pubkey_33 = b'\x02' + b'\x00' * 32  # Compressed pubkey
@@ -204,7 +210,7 @@ class ReducedDataTest(BitcoinTestFramework):
         assert len(script_opreturn) <= MAX_OUTPUT_DATA_SIZE
         result = node.testmempoolaccept([with_data(script_opreturn).serialize().hex()])[0]
         assert_equal(result['allowed'], False)
-        assert 'bad-txns-datacarrier' in result['reject-reason'], result
+        assert 'bad-txns-vout-script' in result['reject-reason'], result
         self.log.info(f"  ✓ OP_RETURN with {len(script_opreturn)} bytes rejected")
 
         # Larger than the data-output ceiling: the size check rejects it first.
@@ -911,16 +917,21 @@ class ReducedDataTest(BitcoinTestFramework):
             block.solve()
             return block
 
-        # Test 1: 34-byte P2WSH generation tx output (exactly at limit - should pass)
-        self.log.info("  Test: 34-byte P2WSH generation tx output (at limit)")
+        # Leftover P2WSH is not a legal coinbase payout. P2WPKH is.
+        self.log.info("  Test: leftover P2WSH generation output is rejected")
         witness_program_32 = b'\x00' * 32
         script_p2wsh = CScript([OP_0, witness_program_32])
         assert_equal(len(script_p2wsh), 34)
+        block_p2wsh = create_block_with_generation_output(script_p2wsh)
+        result = node.submitblock(block_p2wsh.serialize().hex())
+        assert_equal(result, 'bad-txns-vout-script')
+        self.log.info("  leftover 34-byte P2WSH generation output rejected")
 
-        block_valid = create_block_with_generation_output(script_p2wsh)
+        script_p2wpkh = CScript([OP_0, b'\x00' * 20])
+        block_valid = create_block_with_generation_output(script_p2wpkh)
         result = node.submitblock(block_valid.serialize().hex())
         assert_equal(result, None)
-        self.log.info("  ✓ 34-byte P2WSH generation tx output accepted")
+        self.log.info("  22-byte P2WPKH generation output accepted")
 
         # Test 2: 35-byte P2PK generation tx output (exceeds limit - should fail)
         self.log.info("  Test: 35-byte P2PK generation tx output (exceeds limit)")
@@ -949,7 +960,7 @@ class ReducedDataTest(BitcoinTestFramework):
         block_opreturn_valid.solve()
 
         result = node.submitblock(block_opreturn_valid.serialize().hex())
-        assert_equal(result, 'bad-txns-datacarrier')
+        assert_equal(result, 'bad-txns-vout-script')
         self.log.info("  ✓ Generation tx with an extra OP_RETURN rejected")
 
         # Test 4: Generation tx with OP_RETURN at 84 bytes (exceeds limit - should fail)

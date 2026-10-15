@@ -2,9 +2,15 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <consensus/mldsa44_spend.h>
 #include <consensus/mldsa_seed.h>
 #include <test/util/setup_common.h>
+#include <uint256.h>
 #include <util/strencodings.h>
+
+#include <algorithm>
+#include <array>
+#include <vector>
 
 #include <boost/test/unit_test.hpp>
 
@@ -50,6 +56,27 @@ BOOST_AUTO_TEST_CASE(change_bit_diverges)
     BOOST_REQUIRE(Consensus::DeriveMlDsaSeed(seed, Consensus::MlDsaSeedKind::Dilithium87, recv_i, recv));
     BOOST_REQUIRE(Consensus::DeriveMlDsaSeed(seed, Consensus::MlDsaSeedKind::Dilithium87, change_i, change));
     BOOST_CHECK(recv != change);
+}
+
+BOOST_AUTO_TEST_CASE(policy_xprvs_scriptpubkey_vector)
+{
+    const std::vector<unsigned char> xprv0(32, 0xa1);
+    const std::vector<unsigned char> xprv1(32, 0xb2);
+    std::array<unsigned char, Consensus::MLDSA_DERIVED_SEED_SIZE> d0{};
+    std::array<unsigned char, Consensus::MLDSA_DERIVED_SEED_SIZE> d1{};
+    const uint32_t i0{Consensus::MlDsaKdfIndex(0 * 12 + 0, false)};
+    const uint32_t i1{Consensus::MlDsaKdfIndex(0 * 12 + 1, false)};
+    BOOST_REQUIRE(Consensus::DeriveMlDsaSeed(xprv0, Consensus::MlDsaSeedKind::Policy44, i0, d0));
+    BOOST_REQUIRE(Consensus::DeriveMlDsaSeed(xprv1, Consensus::MlDsaSeedKind::Policy44, i1, d1));
+    Consensus::MlDsa44Keypair k0;
+    Consensus::MlDsa44Keypair k1;
+    BOOST_REQUIRE(Consensus::MlDsa44Keygen(d0, k0));
+    BOOST_REQUIRE(Consensus::MlDsa44Keygen(d1, k1));
+    std::vector<uint256> hashes{Consensus::MlDsa44KeyHash(k0.pubkey), Consensus::MlDsa44KeyHash(k1.pubkey)};
+    std::sort(hashes.begin(), hashes.end());
+    const auto program{Consensus::MlDsa44PolicyProgram(1, hashes)};
+    BOOST_REQUIRE(program);
+    BOOST_CHECK_EQUAL(HexStr(*program), "51202b84379230309a0492bcb24fd24d52b1b81f89cfc4f821890770fd0e7cf335d920bf4fc5ead1b5876b86d9083d563608f8446e6f2b8288be542c2c99e213b66017525151bc");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

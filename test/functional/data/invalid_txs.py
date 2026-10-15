@@ -115,7 +115,8 @@ class InputMissing(BadTxTemplate):
 # The following check prevents exploit of lack of merkle
 # tree depth commitment (CVE-2017-12842)
 class SizeTooSmall(BadTxTemplate):
-    reject_reason = "tx-size-small"
+    # The 64-byte pad is OP_RETURN, which CheckOutputSizes rejects first.
+    reject_reason = "bad-txns-vout-script"
     valid_in_block = False
 
     def get_tx(self):

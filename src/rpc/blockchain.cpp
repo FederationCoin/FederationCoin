@@ -116,9 +116,11 @@ UniValue WriteUTXOSnapshot(
  */
 double GetDifficulty(const CBlockIndex& blockindex)
 {
+    const uint32_t mantissa{blockindex.nBits & 0x00ffffff};
+    if (mantissa == 0) return 0;
     int nShift = (blockindex.nBits >> 24) & 0xff;
     double dDiff =
-        (double)0x0000ffff / (double)(blockindex.nBits & 0x00ffffff);
+        (double)0x0000ffff / (double)mantissa;
 
     while (nShift < 29)
     {

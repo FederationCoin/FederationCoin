@@ -61,25 +61,25 @@ BOOST_AUTO_TEST_CASE(two_of_three)
     AppendSkipped(one_signature);
     AppendSkipped(one_signature);
     BOOST_CHECK(one_signature[2].empty());
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, one_signature, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, one_signature, sighash));
 
     std::vector<std::vector<unsigned char>> two_signatures;
     AppendSigned(two_signatures, holders[0], sighash);
     AppendSigned(two_signatures, holders[1], sighash);
     AppendSkipped(two_signatures);
     BOOST_CHECK(two_signatures.back().empty());
-    BOOST_CHECK(Consensus::CheckMultisig44Spend(2, hashes, two_signatures, sighash));
+    BOOST_CHECK(Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, two_signatures, sighash));
 
     std::vector<std::vector<unsigned char>> extra{two_signatures};
     extra.push_back({0x00});
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, extra, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, extra, sighash));
 
     const auto outsider{MakeHolder(9)};
     std::vector<std::vector<unsigned char>> other_keys;
     AppendSigned(other_keys, holders[0], sighash);
     AppendSigned(other_keys, holders[1], sighash);
     AppendSigned(other_keys, outsider, sighash);
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, other_keys, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, other_keys, sighash));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

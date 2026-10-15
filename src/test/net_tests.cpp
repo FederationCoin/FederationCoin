@@ -1430,9 +1430,16 @@ BOOST_AUTO_TEST_CASE(command_receive_limits)
     BOOST_CHECK_EQUAL(CommandReceiveLimit("blocktxn"), Consensus::BlockMessageReceiveLimit());
     BOOST_CHECK(V2CanCarryAdmitCap());
     constexpr uint64_t overhead{1 + CMessageHeader::MESSAGE_TYPE_SIZE};
-    Consensus::SetBlockMessageAdmitWeight(BIP324Cipher::MAX_CONTENTS_LEN - overhead);
+    const uint64_t max_recv{BIP324Cipher::MAX_CONTENTS_LEN - overhead};
+    uint64_t fit{max_recv * 2 / 3};
+    while (Consensus::ApplyGrowCapTimes(fit, 1) > max_recv) {
+        Assert(fit > 0);
+        --fit;
+    }
+    while (Consensus::ApplyGrowCapTimes(fit + 1, 1) <= max_recv) ++fit;
+    Consensus::SetBlockMessageAdmitWeight(fit);
     BOOST_CHECK(V2CanCarryAdmitCap());
-    Consensus::SetBlockMessageAdmitWeight(BIP324Cipher::MAX_CONTENTS_LEN - overhead + 1);
+    Consensus::SetBlockMessageAdmitWeight(fit + 1);
     BOOST_CHECK(!V2CanCarryAdmitCap());
     Consensus::SetBlockMessageAdmitWeight(BIP324Cipher::MAX_CONTENTS_LEN);
     BOOST_CHECK(!V2CanCarryAdmitCap());

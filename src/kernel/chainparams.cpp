@@ -66,22 +66,18 @@ static constexpr uint32_t kDummyMainBits = 0x1e00ffff;
 static constexpr uint32_t kSignetGenesisBits = 0x1e0377ae;
 static constexpr uint32_t kRegtestBits = 0x207fffff;
 
-/** T0[k] copies of genesis compact. Other kinds keep the same placeholder until pow-calibrate. Does not change genesis bytes. */
+/** One T0 from genesis compact. All kinds share it. Does not change genesis bytes. */
 static void FillWorkMenu(Consensus::Params& c, uint32_t genesis_compact)
 {
     arith_uint256 t0;
     t0.SetCompact(genesis_compact);
-    const uint256 t0u{ArithToUint256(t0)};
-    uint256 floor{c.powLimit};
+    c.powT0 = ArithToUint256(t0);
+    c.powLimitKind = c.powLimit;
+    c.powFloor0 = c.powLimit;
     if (c.nMinDifficultyBits != 0) {
         arith_uint256 f;
         f.SetCompact(c.nMinDifficultyBits);
-        floor = ArithToUint256(f);
-    }
-    for (int i{0}; i < 4; ++i) {
-        c.powT0[i] = t0u;
-        c.powLimitKind[i] = c.powLimit;
-        c.powFloor0[i] = floor;
+        c.powFloor0 = ArithToUint256(f);
     }
 }
 

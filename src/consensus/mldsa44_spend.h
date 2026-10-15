@@ -60,12 +60,10 @@ std::optional<CScript> MlDsa44PolicyProgram(uint8_t threshold, std::span<const u
 
 /** True when this two-item witness spends fingerprint as ML-DSA-44 single-key. */
 bool CheckSingleKey44Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
-/** True when this n-item witness (empty skip or pubkey‖sig) meets threshold. */
-bool CheckMultisig44Spend(uint8_t threshold, std::span<const uint256> hashes, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
 
 using MlDsa44WitnessLayout = MlDsaWitnessLayout;
 /** Shape only: Single, Policy, or Neither. Validity is CheckSingleKey44Spend
- *  / CheckMultisig44Spend. */
+ *  / CheckPolicySpendOf. */
 MlDsa44WitnessLayout ClassifyMlDsa44Witness(const std::vector<std::vector<unsigned char>>& witness);
 
 } // namespace Consensus

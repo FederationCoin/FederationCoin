@@ -43,13 +43,12 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
 
     if (params.fPowAllowMinDifficultyBlocks &&
         pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing * 2) {
-        const size_t idx{static_cast<size_t>(kind_tag)};
         arith_uint256 s{UintToArith256(S)};
         if (s == 0) s = 1;
-        arith_uint256 floor{UintToArith256(params.powFloor0[idx])};
+        arith_uint256 floor{UintToArith256(params.powFloor0)};
         floor /= s;
         if (floor == 0) floor = 1;
-        const arith_uint256 limit{UintToArith256(params.powLimitKind[idx])};
+        const arith_uint256 limit{UintToArith256(params.powLimitKind)};
         if (floor > limit) floor = limit;
         nBits = floor.GetCompact();
     }

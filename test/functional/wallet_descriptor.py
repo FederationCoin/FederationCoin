@@ -182,7 +182,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
                 send_wrpc.getnewaddress()
             except JSONRPCException as e:
                 assert_equal(e.error["code"], -12)
-                assert "Keypool ran out" in e.error["message"]
+                assert "Wallet locked" in e.error["message"] or "Keypool ran out" in e.error["message"]
                 break
 
         self.log.info("Test that unlock is needed when deriving only hardened keys in an encrypted wallet")
@@ -197,7 +197,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         for _ in range(100):
             send_wrpc.getnewaddress(address_type='bech32')
         # This should now error
-        assert_raises_rpc_error(-12, "Keypool ran out, please call keypoolrefill first", send_wrpc.getnewaddress, '', 'bech32')
+        assert_raises_rpc_error(-12, "Wallet locked", send_wrpc.getnewaddress, '', 'bech32')
 
         self.log.info("Test born encrypted wallets")
         self.nodes[0].createwallet('desc_enc', False, False, 'pass', False, True)

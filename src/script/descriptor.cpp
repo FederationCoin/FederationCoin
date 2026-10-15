@@ -955,19 +955,36 @@ public:
     }
 };
 
-/** Seed material for tagged KDF. HD seed if present, else the 32-byte secret
- *  that matches this key expression's root xpub (the master, on generated
- *  wallets), else a const (non-ranged) secret. Never a ranged BIP32 child.
- *  A foreign xpub with no matching root secret is a miss. */
-bool KdfMaterialForProvider(const PubkeyProvider& p, int pos, const SigningProvider& arg, std::vector<unsigned char>& material)
+/** 32-byte secret of this expression's root xprv. Never the wallet HD seed. */
+bool KdfMaterialFromRootXprv(const PubkeyProvider& p, const SigningProvider& arg, std::vector<unsigned char>& material)
 {
-    if (arg.GetHDSeed(material) && !material.empty()) return true;
     if (const auto xpub{p.GetRootExtPubKey()}) {
         CKey root;
         if (!arg.GetKey(xpub->pubkey.GetID(), root) || root.size() != 32) return false;
         material.assign(UCharCast(root.begin()), UCharCast(root.end()));
         return true;
     }
+    return false;
+}
+
+/** Single-key Dilithium: wallet HD seed, else this key's root xprv, else a
+ *  const (non-ranged) secret. Never a ranged BIP32 child. */
+bool KdfMaterialForSingleKey(const PubkeyProvider& p, int pos, const SigningProvider& arg, std::vector<unsigned char>& material)
+{
+    if (arg.GetHDSeed(material) && !material.empty()) return true;
+    if (KdfMaterialFromRootXprv(p, arg, material)) return true;
+    if (p.IsRange()) return false;
+    CKey key;
+    if (!p.GetPrivKey(pos, arg, key) || key.size() != 32) return false;
+    material.assign(UCharCast(key.begin()), UCharCast(key.end()));
+    return true;
+}
+
+/** Policy slot: that slot's root xprv, else a const secret of that
+ *  provider. Never the wallet-wide HD seed. */
+bool KdfMaterialForPolicySlot(const PubkeyProvider& p, int pos, const SigningProvider& arg, std::vector<unsigned char>& material)
+{
+    if (KdfMaterialFromRootXprv(p, arg, material)) return true;
     if (p.IsRange()) return false;
     CKey key;
     if (!p.GetPrivKey(pos, arg, key) || key.size() != 32) return false;
@@ -1004,7 +1021,7 @@ class MldsaDescriptor final : public DescriptorImpl
     }
     bool KdfMaterial(int pos, const SigningProvider& arg, std::vector<unsigned char>& material) const
     {
-        return KdfMaterialForProvider(*m_pubkey_args[0], pos, arg, material);
+        return KdfMaterialForSingleKey(*m_pubkey_args[0], pos, arg, material);
     }
 protected:
     std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, Span<const CScript>, FlatSigningProvider&) const override
@@ -1097,8 +1114,9 @@ public:
     std::optional<int64_t> MaxSatisfactionElems() const override { return 2; }
 };
 
-/** Policy Dilithium 87 or 44. Expand emits OP_CHECKMODERNPOLICY. Each key's
- *  seed is tagged KDF at index pos * 12 + slot, never a BIP32 child. */
+/** Policy Dilithium 87 or 44. Expand emits OP_CHECKMODERNPOLICY. Each slot's
+ *  seed is tagged KDF from that slot's root xprv at index pos * 12 + slot,
+ *  never the wallet HD seed and never a BIP32 child. */
 class MldsaPolicyDescriptor final : public DescriptorImpl
 {
     const uint8_t m_threshold;
@@ -1150,7 +1168,7 @@ protected:
             const bool have_program{read_cache && read_cache->GetCachedMldsaProgram(base + k, program, cached_kind) &&
                                     (cached_kind == param || cached_kind == (m_type == OutputType::DILITHIUM87 ? 87 : 44))};
             std::vector<unsigned char> material;
-            const bool have_material{KdfMaterialForProvider(*m_pubkey_args[k], pos, arg, material)};
+            const bool have_material{KdfMaterialForPolicySlot(*m_pubkey_args[k], pos, arg, material)};
             if (!have_program) {
                 if (!have_material) {
                     out.mldsa_pending.push_back(MldsaProgramRecord{param, pubkey.GetID()});

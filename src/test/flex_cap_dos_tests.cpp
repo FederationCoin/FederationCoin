@@ -358,10 +358,12 @@ BOOST_AUTO_TEST_CASE(header_flex_raises_receive_without_tip_admit)
 {
     RestoreFloorLimit();
     BOOST_CHECK_EQUAL(Consensus::BlockMessageAdmitWeight(), Consensus::MIN_FLEX_BLOCK_WEIGHT);
-    BOOST_CHECK_EQUAL(Consensus::BlockMessageReceiveLimit(), Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    BOOST_CHECK_EQUAL(Consensus::BlockMessageReceiveLimit(),
+                      Consensus::ApplyGrowCapTimes(Consensus::MIN_FLEX_BLOCK_WEIGHT, 1));
     Consensus::NoteHeaderFlexCap(3600000);
     BOOST_CHECK_EQUAL(Consensus::BlockMessageAdmitWeight(), Consensus::MIN_FLEX_BLOCK_WEIGHT);
-    BOOST_CHECK_EQUAL(Consensus::BlockMessageReceiveLimit(), 3600000);
+    BOOST_CHECK_EQUAL(Consensus::BlockMessageReceiveLimit(),
+                      Consensus::ApplyGrowCapTimes(3600000, 1));
     RestoreFloorLimit();
 }
 

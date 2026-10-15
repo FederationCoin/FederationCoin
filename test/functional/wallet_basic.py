@@ -773,10 +773,14 @@ class WalletTest(BitcoinTestFramework):
 
         if self.options.descriptors:
             self.log.info("Testing 'listunspent' outputs the parent descriptor(s) of coins")
-            # Create two multisig descriptors, and send a UTxO each.
-            xpub = self.nodes[0].gethdkeys()[0]["xpub"]
-            multi_a = descsum_create(f"wsh(multi(1,{xpub}/0/*,{xpub}/1/*))")
-            multi_b = descsum_create(f"wsh(multi(1,{xpub}/2/*,{xpub}/3/*))")
+            # Create two policy descriptors, and send a UTXO each.
+            # Policy KDF needs each slot's root xprv (not an xpub).
+            hd = self.nodes[0].gethdkeys(private=True)[0]
+            xprv, xpub = hd["xprv"], hd["xpub"]
+            multi_a = descsum_create(f"mldsapolicy(1,{xprv}/0/*,{xprv}/1/*)")
+            multi_b = descsum_create(f"mldsapolicy(1,{xprv}/2/*,{xprv}/3/*)")
+            multi_a_pub = descsum_create(f"mldsapolicy(1,{xpub}/0/*,{xpub}/1/*)")
+            multi_b_pub = descsum_create(f"mldsapolicy(1,{xpub}/2/*,{xpub}/3/*)")
             addr_a = self.nodes[0].deriveaddresses(multi_a, 0)[0]
             addr_b = self.nodes[0].deriveaddresses(multi_b, 0)[0]
             txid_a = self.nodes[0].sendtoaddress(addr_a, 0.01)
@@ -784,27 +788,27 @@ class WalletTest(BitcoinTestFramework):
             self.generate(self.nodes[0], 1, sync_fun=self.no_op)
             # Prevent race of listunspent with outstanding TxAddedToMempool notifications
             self.nodes[0].syncwithvalidationinterfacequeue()
-            # Now import the descriptors, make sure we can identify on which descriptor each coin was received.
-            self.nodes[0].createwallet(wallet_name="wo", descriptors=True, disable_private_keys=True)
+            # Import into a second wallet that can expand the xprv policy.
+            self.nodes[0].createwallet(wallet_name="wo", descriptors=True)
             wo_wallet = self.nodes[0].get_wallet_rpc("wo")
             wo_wallet.importdescriptors([
                 {
                     "desc": multi_a,
                     "active": False,
-                    "timestamp": "now",
+                    "timestamp": 0,
                 },
                 {
                     "desc": multi_b,
                     "active": False,
-                    "timestamp": "now",
+                    "timestamp": 0,
                 },
             ])
             coins = wo_wallet.listunspent(minconf=0)
             assert_equal(len(coins), 2)
             coin_a = next(c for c in coins if c["txid"] == txid_a)
-            assert_equal(coin_a["parent_descs"][0], multi_a)
+            assert_equal(coin_a["parent_descs"][0], multi_a_pub)
             coin_b = next(c for c in coins if c["txid"] == txid_b)
-            assert_equal(coin_b["parent_descs"][0], multi_b)
+            assert_equal(coin_b["parent_descs"][0], multi_b_pub)
             self.nodes[0].unloadwallet("wo")
 
         self.log.info("Test -spendzeroconfchange")

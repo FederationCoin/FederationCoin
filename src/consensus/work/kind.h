@@ -59,7 +59,7 @@ public:
     /** Zero fields this kind forbids grinding. Called from CreateNewBlock. */
     virtual void PrepareTemplate(CBlockHeader& header) const = 0;
     virtual bool Check(const CBlockHeader& header, unsigned int nBits, const Params& params) const = 0;
-    /** Compact T0[k]/S, floors 1 and powLimitKind[k]. */
+    /** Compact T0/S, floors 1 and powLimitKind. */
     virtual unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const = 0;
 };
 
@@ -77,9 +77,12 @@ uint256 Sha256dBytes(std::span<const unsigned char> bytes);
 /** SHA-256d of the full 164 bytes. Blake2b identity is GetHash() instead. */
 uint256 GetBlockIdentity(const CBlockHeader& header);
 
-/** Compact T0[k]/S with floors. Index is WorkKindTag. */
-unsigned int CompactTargetForScale(size_t kind_index, const uint256& work_scale, const Params& params);
+/** Compact T0/S with floors. Shared T0 for every kind. */
+unsigned int CompactTargetForScale(const uint256& work_scale, const Params& params);
 
+/** v2, declared kind, enable height, TailRule. No digest. */
+bool CheckWorkKindCheap(const CBlockHeader& header, const Params& params);
+/** Cheap then kind->Check (digest). */
 bool CheckWorkKindHeader(const CBlockHeader& header, const Params& params);
 
 /** txcount vs vtx, after parent connected. Header-only path does not call this. */

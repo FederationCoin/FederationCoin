@@ -174,7 +174,7 @@ BOOST_AUTO_TEST_CASE(frozen_single_and_policy_programs)
     std::vector<std::vector<unsigned char>> policy_w44{policy_item44};
     BOOST_CHECK(Consensus::CheckSingleKey44Spend(HashFromHex(s44["program"].get_str()), w44, sighash44));
     BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(1, one44, w44, sighash44));
-    BOOST_CHECK(Consensus::CheckMultisig44Spend(1, one44, policy_w44, sighash44));
+    BOOST_CHECK(Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(1, one44, policy_w44, sighash44));
     BOOST_CHECK(!Consensus::CheckSingleKey44Spend(HashFromHex(s44["program"].get_str()), policy_w44, sighash44));
     BOOST_CHECK(Consensus::ClassifyMlDsa44Witness(w44) == Consensus::MlDsa44WitnessLayout::Single);
     BOOST_CHECK(Consensus::ClassifyMlDsa44Witness(policy_w44) == Consensus::MlDsa44WitnessLayout::Policy);
@@ -264,31 +264,31 @@ BOOST_AUTO_TEST_CASE(policy_slots_44)
     AppendSigned44(two_sig, holders[0], sighash);
     AppendSigned44(two_sig, holders[1], sighash);
     AppendSkipped(two_sig);
-    BOOST_CHECK(Consensus::CheckMultisig44Spend(2, hashes, two_sig, sighash));
+    BOOST_CHECK(Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, two_sig, sighash));
     BOOST_CHECK(Consensus::ClassifyMlDsa44Witness(two_sig) == Consensus::MlDsa44WitnessLayout::Policy);
 
     std::vector<std::vector<unsigned char>> unsorted;
     AppendSigned44(unsorted, holders[1], sighash);
     AppendSigned44(unsorted, holders[0], sighash);
     AppendSkipped(unsorted);
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, unsorted, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, unsorted, sighash));
 
     std::vector<std::vector<unsigned char>> all_skip;
     AppendSkipped(all_skip);
     AppendSkipped(all_skip);
     AppendSkipped(all_skip);
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, all_skip, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, all_skip, sighash));
     BOOST_CHECK(Consensus::ClassifyMlDsa44Witness(all_skip) == Consensus::MlDsa44WitnessLayout::Policy);
 
     std::vector<std::vector<unsigned char>> all_signed;
     AppendSigned44(all_signed, holders[0], sighash);
     AppendSigned44(all_signed, holders[1], sighash);
     AppendSigned44(all_signed, holders[2], sighash);
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, all_signed, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, all_signed, sighash));
 
     std::vector<std::vector<unsigned char>> truncated;
     truncated.emplace_back(holders[0].key.pubkey.begin(), holders[0].key.pubkey.end());
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, truncated, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, truncated, sighash));
     BOOST_CHECK(Consensus::ClassifyMlDsa44Witness(truncated) == Consensus::MlDsa44WitnessLayout::Neither);
 
     std::vector<std::vector<unsigned char>> mid_skip_in_pair;
@@ -297,11 +297,11 @@ BOOST_AUTO_TEST_CASE(policy_slots_44)
     std::array<unsigned char, Consensus::MLDSA44_SIGNATURE_SIZE> sig{};
     BOOST_REQUIRE(Consensus::MlDsa44Sign(holders[0].key, sighash, sig));
     mid_skip_in_pair.emplace_back(sig.begin(), sig.end());
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, mid_skip_in_pair, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, mid_skip_in_pair, sighash));
 
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, {}, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, {}, sighash));
     std::vector<std::vector<unsigned char>> thirteen(13);
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, thirteen, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, thirteen, sighash));
     BOOST_CHECK(Consensus::ClassifyMlDsa44Witness({}) == Consensus::MlDsa44WitnessLayout::Neither);
     BOOST_CHECK(Consensus::ClassifyMlDsa44Witness(thirteen) == Consensus::MlDsa44WitnessLayout::Neither);
 }
@@ -323,7 +323,7 @@ BOOST_AUTO_TEST_CASE(policy_slots_87_and_no_mix)
     AppendSigned87(two_sig, holders[1], sighash);
     AppendSkipped(two_sig);
     BOOST_CHECK(Consensus::CheckMultisig87Spend(2, hashes, two_sig, sighash));
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, two_sig, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, two_sig, sighash));
 
     const Holder44 outsider{MakeHolder44(8)};
     std::vector<std::vector<unsigned char>> mixed;
@@ -331,7 +331,7 @@ BOOST_AUTO_TEST_CASE(policy_slots_87_and_no_mix)
     AppendSigned87(mixed, holders[1], sighash);
     AppendSkipped(mixed);
     BOOST_CHECK(!Consensus::CheckMultisig87Spend(2, hashes, mixed, sighash));
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, mixed, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, mixed, sighash));
 
     const std::array<uint256, 1> one44{outsider.hash};
     const auto program44{Consensus::MlDsa44PolicyProgram(1, one44)};
@@ -370,6 +370,26 @@ BOOST_AUTO_TEST_CASE(merge_87_and_fail_closed_without_sighash)
     BOOST_CHECK(!Consensus::MergeMlDsa87Witnesses({partial_a, other}, sighash));
 }
 
+static std::array<unsigned char, 32> UnifiedSighashFor(const CScript& spk)
+{
+    CMutableTransaction tx;
+    tx.vin.resize(1);
+    tx.vin[0].prevout = COutPoint{Txid::FromUint256(uint256::ONE), 0};
+    tx.vout.resize(1);
+    tx.vout[0].nValue = 1;
+    tx.vout[0].scriptPubKey = CScript() << OP_0 << std::vector<unsigned char>(WITNESS_V0_KEYHASH_SIZE, 0x03);
+    CTxOut spent{1, spk};
+    const CTransaction unsigned_tx{tx};
+    PrecomputedTransactionData txdata;
+    txdata.Init(unsigned_tx, {spent}, /*force=*/true);
+    TransactionSignatureChecker checker(&unsigned_tx, 0, spent.nValue, txdata, MissingDataBehavior::ASSERT_FAIL);
+    uint256 sighash;
+    BOOST_REQUIRE(checker.GetUnifiedSighash(sighash));
+    std::array<unsigned char, 32> msg{};
+    std::copy(sighash.begin(), sighash.end(), msg.begin());
+    return msg;
+}
+
 BOOST_AUTO_TEST_CASE(policy_matrix_44_and_87)
 {
     const UniValue vec{LoadVectors()};
@@ -392,8 +412,6 @@ BOOST_AUTO_TEST_CASE(policy_matrix_44_and_87)
     BOOST_CHECK(Consensus::MlDsa87PolicyProgram(11, twelve_hashes).has_value());
     BOOST_CHECK_LE((*Consensus::MlDsa44PolicyProgram(12, twelve_hashes)).size(), DILITHIUM_POLICY_SCRIPT_MAX);
 
-    const std::array<unsigned char, 32> sighash{7};
-
     std::vector<Holder44> h44;
     h44.reserve(12);
     for (int i{0}; i < 12; ++i) {
@@ -407,10 +425,10 @@ BOOST_AUTO_TEST_CASE(policy_matrix_44_and_87)
         for (int i{0}; i < n; ++i) out.push_back(h44[i].hash);
         return out;
     };
-    auto wit44 = [&](int n, int signed_count) {
+    auto wit44 = [&](int n, int signed_count, std::span<const unsigned char> msg) {
         std::vector<std::vector<unsigned char>> wit;
         for (int i{0}; i < n; ++i) {
-            if (i < signed_count) AppendSigned44(wit, h44[i], sighash);
+            if (i < signed_count) AppendSigned44(wit, h44[i], msg);
             else AppendSkipped(wit);
         }
         return wit;
@@ -439,19 +457,21 @@ BOOST_AUTO_TEST_CASE(policy_matrix_44_and_87)
         const auto hashes{hashes44(row.n)};
         const auto program{Consensus::MlDsa44PolicyProgram(static_cast<uint8_t>(row.t), hashes)};
         BOOST_REQUIRE(program);
-        BOOST_CHECK_EQUAL(Consensus::CheckMultisig44Spend(static_cast<uint8_t>(row.t), hashes, wit44(row.n, row.signed_ok), sighash), row.expect);
+        const auto msg{UnifiedSighashFor(*program)};
+        BOOST_CHECK_EQUAL(!ScriptCheckFails(*program, wit44(row.n, row.signed_ok, msg)), row.expect);
     }
 
     {
         const auto hashes{hashes44(2)};
         const auto program{Consensus::MlDsa44PolicyProgram(1, hashes)};
         BOOST_REQUIRE(program);
-        auto dup = wit44(2, 1);
+        const auto msg{UnifiedSighashFor(*program)};
+        auto dup = wit44(2, 1, msg);
         AppendSkipped(dup);
-        BOOST_CHECK(!Consensus::CheckMultisig44Spend(1, hashes, dup, sighash));
-        auto extra = wit44(2, 2);
+        BOOST_CHECK(ScriptCheckFails(*program, dup));
+        auto extra = wit44(2, 2, msg);
         AppendSkipped(extra);
-        BOOST_CHECK(!Consensus::CheckMultisig44Spend(1, hashes, extra, sighash));
+        BOOST_CHECK(ScriptCheckFails(*program, extra));
     }
 
     std::vector<Holder87> h87;
@@ -467,10 +487,10 @@ BOOST_AUTO_TEST_CASE(policy_matrix_44_and_87)
         for (int i{0}; i < n; ++i) out.push_back(h87[i].hash);
         return out;
     };
-    auto wit87 = [&](int n, int signed_count) {
+    auto wit87 = [&](int n, int signed_count, std::span<const unsigned char> msg) {
         std::vector<std::vector<unsigned char>> wit;
         for (int i{0}; i < n; ++i) {
-            if (i < signed_count) AppendSigned87(wit, h87[i], sighash);
+            if (i < signed_count) AppendSigned87(wit, h87[i], msg);
             else AppendSkipped(wit);
         }
         return wit;
@@ -479,18 +499,20 @@ BOOST_AUTO_TEST_CASE(policy_matrix_44_and_87)
         const auto hashes{hashes87(row.n)};
         const auto program{Consensus::MlDsa87PolicyProgram(static_cast<uint8_t>(row.t), hashes)};
         BOOST_REQUIRE(program);
-        BOOST_CHECK_EQUAL(Consensus::CheckMultisig87Spend(static_cast<uint8_t>(row.t), hashes, wit87(row.n, row.signed_ok), sighash), row.expect);
+        const auto msg{UnifiedSighashFor(*program)};
+        BOOST_CHECK_EQUAL(!ScriptCheckFails(*program, wit87(row.n, row.signed_ok, msg)), row.expect);
     }
     {
         const auto hashes{hashes87(2)};
         const auto program{Consensus::MlDsa87PolicyProgram(1, hashes)};
         BOOST_REQUIRE(program);
-        auto dup = wit87(2, 1);
+        const auto msg{UnifiedSighashFor(*program)};
+        auto dup = wit87(2, 1, msg);
         AppendSkipped(dup);
-        BOOST_CHECK(!Consensus::CheckMultisig87Spend(1, hashes, dup, sighash));
-        auto extra = wit87(2, 2);
+        BOOST_CHECK(ScriptCheckFails(*program, dup));
+        auto extra = wit87(2, 2, msg);
         AppendSkipped(extra);
-        BOOST_CHECK(!Consensus::CheckMultisig87Spend(1, hashes, extra, sighash));
+        BOOST_CHECK(ScriptCheckFails(*program, extra));
     }
 }
 
@@ -529,7 +551,13 @@ BOOST_AUTO_TEST_CASE(p2wsh_and_op_true_rejected)
     commitment[4] = 0xa9;
     commitment[5] = 0xed;
     state = {};
-    BOOST_CHECK(Consensus::CheckOutputSizes(TxWithScript(commitment), state));
+    BOOST_CHECK(!Consensus::CheckOutputSizes(TxWithScript(commitment), state));
+    CMutableTransaction coinbase;
+    coinbase.vin.resize(1);
+    coinbase.vin[0].prevout.SetNull();
+    coinbase.vout.emplace_back(1, commitment);
+    state = {};
+    BOOST_CHECK(Consensus::CheckOutputSizes(CTransaction{coinbase}, state));
     BOOST_CHECK(Consensus::IsWitnessCommitmentScript(commitment));
     BOOST_CHECK(!ScriptCheckFails(op_true, {}));
     BOOST_CHECK(ScriptCheckFails(op_true, {{0x51}}));

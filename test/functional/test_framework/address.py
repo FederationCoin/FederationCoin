@@ -35,8 +35,9 @@ from test_framework.segwit_addr import (
 )
 
 
-ADDRESS_BCRT1_UNSPENDABLE = 'gfcnrt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqk0jtm6'
-ADDRESS_BCRT1_UNSPENDABLE_DESCRIPTOR = 'addr(gfcnrt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqk0jtm6)#70vh8kqv'
+# P2WPKH of 20 zero bytes. Leftover P2WSH (v0/32) is not a product output.
+ADDRESS_BCRT1_UNSPENDABLE = 'gfcnrt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqy0zkrj'
+ADDRESS_BCRT1_UNSPENDABLE_DESCRIPTOR = 'addr(gfcnrt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqy0zkrj)#wkajx6k9'
 # Coins sent to this address can be spent with a witness stack of just OP_TRUE
 ADDRESS_BCRT1_P2WSH_OP_TRUE = 'gfcnrt1qft5p2uhsdcdc3l2ua4ap5qqfg4pjaqlp250x7us7a8qqhrxrxfsqhsn2cu'
 

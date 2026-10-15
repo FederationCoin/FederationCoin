@@ -18,6 +18,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <array>
 #include <optional>
 #include <string>
 #include <vector>
@@ -1206,6 +1207,62 @@ BOOST_AUTO_TEST_CASE(mldsapolicy_expand_and_exact_t)
     std::vector<CScript> cached_scripts;
     BOOST_REQUIRE(parsed[0]->ExpandFromCache(0, cache, cached_scripts, from_cache));
     BOOST_CHECK(scripts == cached_scripts);
+}
+
+BOOST_AUTO_TEST_CASE(mldsapolicy_kdf_per_slot_xprv)
+{
+    std::array<std::byte, 32> seed_a{};
+    std::array<std::byte, 32> seed_b{};
+    seed_a[0] = std::byte{0xa1};
+    seed_b[0] = std::byte{0xb2};
+    CExtKey a;
+    CExtKey b;
+    a.SetSeed(seed_a);
+    b.SetSeed(seed_b);
+    FlatSigningProvider keys;
+    keys.keys[a.key.GetPubKey().GetID()] = a.key;
+    keys.keys[b.key.GetPubKey().GetID()] = b.key;
+    keys.hd_seed.assign(32, 0x42);
+    std::string error;
+    const std::string desc{"mldsapolicy(1," + EncodeExtPubKey(a.Neuter()) + "/0/*," + EncodeExtPubKey(b.Neuter()) + "/0/*)"};
+    auto parsed{Parse(desc, keys, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed.size(), 1U);
+    FlatSigningProvider out;
+    std::vector<CScript> scripts;
+    BOOST_REQUIRE(parsed[0]->Expand(0, keys, scripts, out, nullptr));
+    BOOST_REQUIRE_EQUAL(scripts.size(), 1U);
+    const auto policy{MatchModernPolicy(scripts[0])};
+    BOOST_REQUIRE(policy);
+    BOOST_CHECK_EQUAL(policy->hashes.size(), 2U);
+    BOOST_CHECK(policy->hashes[0] != policy->hashes[1]);
+
+    FlatSigningProvider no_hd{keys};
+    no_hd.hd_seed.clear();
+    FlatSigningProvider out_no_hd;
+    std::vector<CScript> scripts_no_hd;
+    BOOST_REQUIRE(parsed[0]->Expand(0, no_hd, scripts_no_hd, out_no_hd, nullptr));
+    BOOST_CHECK(scripts == scripts_no_hd);
+
+    CExtKey c;
+    CExtKey d;
+    std::array<std::byte, 32> seed_c{};
+    std::array<std::byte, 32> seed_d{};
+    seed_c[0] = std::byte{0xc3};
+    seed_d[0] = std::byte{0xd4};
+    c.SetSeed(seed_c);
+    d.SetSeed(seed_d);
+    FlatSigningProvider other;
+    other.keys[c.key.GetPubKey().GetID()] = c.key;
+    other.keys[d.key.GetPubKey().GetID()] = d.key;
+    other.hd_seed.assign(32, 0x42);
+    const std::string desc_other{"mldsapolicy(1," + EncodeExtPubKey(c.Neuter()) + "/0/*," + EncodeExtPubKey(d.Neuter()) + "/0/*)"};
+    auto parsed_other{Parse(desc_other, other, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed_other.size(), 1U);
+    FlatSigningProvider out_other;
+    std::vector<CScript> scripts_other;
+    BOOST_REQUIRE(parsed_other[0]->Expand(0, other, scripts_other, out_other, nullptr));
+    BOOST_REQUIRE_EQUAL(scripts_other.size(), 1U);
+    BOOST_CHECK(scripts[0] != scripts_other[0]);
 }
 
 BOOST_AUTO_TEST_CASE(mldsa_receive_and_change_diverge)

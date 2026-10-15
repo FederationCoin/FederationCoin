@@ -60,11 +60,11 @@ public:
     }
     bool Check(const CBlockHeader& header, unsigned int nBits, const Params& params) const override
     {
-        return DigestMeetsTarget(WorkDigest(header), nBits, params.powLimitKind[0]);
+        return DigestMeetsTarget(WorkDigest(header), nBits, params.powLimitKind);
     }
     unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const override
     {
-        return CompactTargetForScale(0, work_scale, params);
+        return CompactTargetForScale(work_scale, params);
     }
 };
 
@@ -102,11 +102,11 @@ public:
     }
     bool Check(const CBlockHeader& header, unsigned int nBits, const Params& params) const override
     {
-        return DigestMeetsTarget(WorkDigest(header), nBits, params.powLimitKind[1]);
+        return DigestMeetsTarget(WorkDigest(header), nBits, params.powLimitKind);
     }
     unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const override
     {
-        return CompactTargetForScale(1, work_scale, params);
+        return CompactTargetForScale(work_scale, params);
     }
 };
 
@@ -142,7 +142,7 @@ public:
         bool fOverflow{false};
         arith_uint256 bnTarget;
         bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
-        const arith_uint256 limit{UintToArith256(params.powLimitKind[2])};
+        const arith_uint256 limit{UintToArith256(params.powLimitKind)};
         if (fNegative || bnTarget == 0 || fOverflow || bnTarget > limit) return false;
         const auto digest{Fp8GymDigest(header)};
         if (!digest) return false;
@@ -150,7 +150,7 @@ public:
     }
     unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const override
     {
-        return CompactTargetForScale(2, work_scale, params);
+        return CompactTargetForScale(work_scale, params);
     }
 };
 
@@ -178,11 +178,11 @@ public:
     bool Check(const CBlockHeader& header, unsigned int nBits, const Params& params) const override
     {
         // U512 BE < target256<<256 iff high 256 < target256. Equality invalid.
-        return DigestMeetsTarget(WorkDigest(header), nBits, params.powLimitKind[3]);
+        return DigestMeetsTarget(WorkDigest(header), nBits, params.powLimitKind);
     }
     unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const override
     {
-        return CompactTargetForScale(3, work_scale, params);
+        return CompactTargetForScale(work_scale, params);
     }
 };
 
@@ -250,20 +250,19 @@ uint256 GetBlockIdentity(const CBlockHeader& header)
     return header.GetBlockIdentity();
 }
 
-unsigned int CompactTargetForScale(size_t kind_index, const uint256& work_scale, const Params& params)
+unsigned int CompactTargetForScale(const uint256& work_scale, const Params& params)
 {
-    Assert(kind_index < WORK_KIND_COUNT);
     arith_uint256 s{UintToArith256(work_scale)};
     if (s == 0) s = 1;
-    arith_uint256 t{UintToArith256(params.powT0[kind_index])};
+    arith_uint256 t{UintToArith256(params.powT0)};
     t /= s;
     if (t == 0) t = 1;
-    const arith_uint256 limit{UintToArith256(params.powLimitKind[kind_index])};
+    const arith_uint256 limit{UintToArith256(params.powLimitKind)};
     if (t > limit) t = limit;
     return t.GetCompact();
 }
 
-bool CheckWorkKindHeader(const CBlockHeader& header, const Params& params)
+bool CheckWorkKindCheap(const CBlockHeader& header, [[maybe_unused]] const Params& params)
 {
     if (!header.m_header_v2) return false;
     const auto tag{DecodeWorkKindTag(header.GetCompleteVersion())};
@@ -271,7 +270,16 @@ bool CheckWorkKindHeader(const CBlockHeader& header, const Params& params)
     const WorkKind* kind{LookupWorkKind(*tag)};
     if (!kind) return false;
     if (!kind->EnabledAt(header.m_height)) return false;
-    if (!kind->TailRule(header)) return false;
+    return kind->TailRule(header);
+}
+
+bool CheckWorkKindHeader(const CBlockHeader& header, const Params& params)
+{
+    if (!CheckWorkKindCheap(header, params)) return false;
+    const auto tag{DecodeWorkKindTag(header.GetCompleteVersion())};
+    if (!tag) return false;
+    const WorkKind* kind{LookupWorkKind(*tag)};
+    if (!kind) return false;
     return kind->Check(header, header.nBits, params);
 }
 

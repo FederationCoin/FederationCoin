@@ -49,7 +49,7 @@ FUZZ_TARGET(mldsa_spend)
     (void)Consensus::ClassifyMlDsa44Witness(witness);
     (void)Consensus::ClassifyMlDsa87Witness(witness);
     (void)Consensus::CheckSingleKey44Spend(program, witness, sighash);
-    (void)Consensus::CheckMultisig44Spend(threshold, hashes, witness, sighash);
+    (void)Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(threshold, hashes, witness, sighash);
     (void)Consensus::CheckSingleKey87Spend(program, witness, sighash);
     (void)Consensus::CheckMultisig87Spend(threshold, hashes, witness, sighash);
     (void)Consensus::MergeMlDsa44Witnesses({witness}, sighash);

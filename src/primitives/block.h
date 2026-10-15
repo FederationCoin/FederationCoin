@@ -166,7 +166,10 @@ public:
     }
 
     uint256 GetHash() const;
-    /** Chain link / P2P identity. Blake2b (tag 00) is GetHash(); other kinds are SHA-256d of the 164-byte header. */
+    /** Chain link / P2P identity. Blake2b (tag 00) is GetHash(); SHA-256d
+     *  (tag 01) is SHA-256d of the first 80 serialized bytes (the work
+     *  digest) so a tail grind cannot mint a new index key. Other kinds
+     *  are SHA-256d of the 164-byte header. */
     uint256 GetBlockIdentity() const;
 };
 

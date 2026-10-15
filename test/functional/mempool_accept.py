@@ -322,7 +322,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         tx = tx_from_hex(raw_tx_reference)
         tx.vout[0].scriptPubKey = CScript([OP_0])  # Some non-standard script
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'bad-txns-vout-script'}],
             rawtxs=[tx.serialize().hex()],
         )
         tx = tx_from_hex(raw_tx_reference)
@@ -345,25 +345,24 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
             rawtxs=[tx.serialize().hex()],
         )
         tx = tx_from_hex(raw_tx_reference)
-        output_p2sh_burn = CTxOut(nValue=540, scriptPubKey=script_to_p2sh_script(b'burn'))
-        num_scripts = 100000 // len(output_p2sh_burn.serialize())  # Use enough outputs to make the tx too large for our policy
-        tx.vout = [output_p2sh_burn] * num_scripts
+        output_pad = CTxOut(nValue=330, scriptPubKey=CScript([OP_0, bytes(20)]))
+        num_scripts = 100000 // len(output_pad.serialize())
+        tx.vout = [output_pad] * num_scripts
         self.check_mempool_result(
             result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'tx-size'}],
             rawtxs=[tx.serialize().hex()],
         )
         tx = tx_from_hex(raw_tx_reference)
-        tx.vout[0] = output_p2sh_burn
-        tx.vout[0].nValue = 1  # Dust at DUST_RELAY_TX_FEE (consensus kvB floor times 3)
+        tx.vout[0] = CTxOut(nValue=1, scriptPubKey=script_to_p2sh_script(b'burn'))
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'bad-txns-vout-script'}],
             rawtxs=[tx.serialize().hex()],
         )
         tx = tx_from_hex(raw_tx_reference)
         tx.vout[0].scriptPubKey = CScript([OP_RETURN, b'\xff'])
         tx.vout = [tx.vout[0]] * 2
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'multi-op-return'}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'bad-txns-vout-script'}],
             rawtxs=[tx.serialize().hex()],
         )
 
@@ -399,7 +398,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         assert_greater_than(len(tx.serialize()), 64)
 
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'bad-txns-vout-script'}],
             rawtxs=[tx.serialize().hex()],
             maxfeerate=0,
         )
@@ -409,7 +408,7 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         self.wallet.sign_tx(tx)
         assert_equal(len(tx.serialize_without_witness()), MIN_STANDARD_TX_NONWITNESS_SIZE)
         self.check_mempool_result(
-            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
+            result_expected=[{'txid': tx.rehash(), 'allowed': False, 'reject-reason': 'bad-txns-vout-script'}],
             rawtxs=[tx.serialize().hex()],
             maxfeerate=0,
         )
@@ -427,16 +426,15 @@ class MempoolAcceptanceTest(BitcoinTestFramework):
         nested_anchor_tx.rehash()
         nested_hex = nested_anchor_tx.serialize().hex()
         self.check_mempool_result(
-            result_expected=[{'txid': nested_anchor_tx.rehash(), 'allowed': False, 'reject-reason': 'scriptpubkey'}],
+            result_expected=[{'txid': nested_anchor_tx.rehash(), 'allowed': False, 'reject-reason': 'bad-txns-vout-script'}],
             rawtxs=[nested_hex],
             maxfeerate=0,
         )
-        self.generateblock(node, self.wallet.get_address(), [nested_hex])
 
-        self.log.info('Bare P2PKH and P2SH are nonstandard; 1-of-1 CHECKMULTISIG exceeds the script cap')
+        self.log.info('Bare P2PKH and P2SH are not product outputs; 1-of-1 CHECKMULTISIG exceeds the script cap')
         for script, reason in (
-            (CScript([OP_DUP, OP_HASH160, bytes(20), OP_EQUALVERIFY, OP_CHECKSIG]), 'scriptpubkey'),
-            (CScript([OP_HASH160, bytes(20), OP_EQUAL]), 'scriptpubkey'),
+            (CScript([OP_DUP, OP_HASH160, bytes(20), OP_EQUALVERIFY, OP_CHECKSIG]), 'bad-txns-vout-script'),
+            (CScript([OP_HASH160, bytes(20), OP_EQUAL]), 'bad-txns-vout-script'),
             (CScript([OP_1, bytes.fromhex('02' + '11' * 32), OP_1, OP_CHECKMULTISIG]), 'bad-txns-vout-script'),
         ):
             tx = tx_from_hex(raw_tx_reference)

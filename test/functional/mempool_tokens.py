@@ -51,9 +51,8 @@ class RejectTokensTest(BitcoinTestFramework):
 
         tx_hex = tx.serialize().hex()
 
-        # Policy catches a keyed Counterparty payload first. A user OP_RETURN
-        # still fails consensus (datacarrier) when tokens are not rejected.
-        reason = "bad-txns-datacarrier" if success else "tokens-counterparty"
+        # CheckOutputSizes rejects a user OP_RETURN before overlay-token policy.
+        reason = "bad-txns-vout-script"
         assert_raises_rpc_error(-26, reason,
                                 self.wallet.sendrawtransaction, from_node=node, tx_hex=tx_hex)
 

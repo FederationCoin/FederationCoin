@@ -117,10 +117,10 @@ struct Params {
     BIP9Deployment vDeployments[MAX_VERSION_BITS_DEPLOYMENTS];
     /** Proof of work parameters */
     uint256 powLimit;
-    /** Genesis target T0[k] and per-kind cap / testnet floor. Index is WorkKindTag. */
-    uint256 powT0[4];
-    uint256 powLimitKind[4];
-    uint256 powFloor0[4];
+    /** Shared genesis target T0, kind cap, and testnet floor. All kinds use one T0. */
+    uint256 powT0;
+    uint256 powLimitKind;
+    uint256 powFloor0;
     bool fPowAllowMinDifficultyBlocks;
     /**
      * If non-zero, testnet min-difficulty blocks use this compact target

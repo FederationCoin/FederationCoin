@@ -109,7 +109,7 @@ class DataCarrierTest(BitcoinTestFramework):
         tx = self.wallet.create_self_transfer(utxo_to_spend=utxo)["tx"]
         tx.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b"pay"])))
         tx.rehash()
-        assert_equal(self.submit_block_with(self.nodes[0], tx), "bad-txns-datacarrier")
+        assert_equal(self.submit_block_with(self.nodes[0], tx), "bad-txns-vout-script")
         wide = self.wallet.create_self_transfer(utxo_to_spend=utxo)["tx"]
         wide.vout.append(CTxOut(nValue=0, scriptPubKey=CScript([OP_RETURN, b"x" * 81])))
         wide.rehash()

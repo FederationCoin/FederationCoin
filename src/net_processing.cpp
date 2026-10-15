@@ -34,6 +34,7 @@
 #include <policy/fees.h>
 #include <policy/policy.h>
 #include <policy/settings.h>
+#include <pow.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <random.h>
@@ -2531,8 +2532,7 @@ bool PeerManagerImpl::CheckHeadersPoW(const std::vector<CBlockHeader>& headers, 
             Misbehaving(peer, "bad-work-kind");
             return false;
         }
-        const Consensus::WorkKind* kind{Consensus::LookupWorkKind(*tag)};
-        if (!kind || !kind->TailRule(header)) {
+        if (!Consensus::CheckWorkKindCheap(header, consensusParams)) {
             Misbehaving(peer, "bad-work-tail");
             return false;
         }
@@ -2547,9 +2547,20 @@ bool PeerManagerImpl::CheckHeadersPoW(const std::vector<CBlockHeader>& headers, 
         return false;
     }
 
-    if (!HasValidProofOfWork(headers, consensusParams)) {
-        Misbehaving(peer, "header with invalid proof of work");
-        return false;
+    // Digest only when the parent is already indexed and nBits matches that
+    // parent. Unconnecting headers skip the gym; AcceptBlockHeader pays later.
+    LOCK(::cs_main);
+    for (const CBlockHeader& header : headers) {
+        const CBlockIndex* pprev{m_chainman.m_blockman.LookupBlockIndex(header.hashPrevBlock)};
+        if (!pprev) continue;
+        if (header.nBits != GetNextWorkRequired(pprev, &header, consensusParams)) {
+            Misbehaving(peer, "bad-diffbits");
+            return false;
+        }
+        if (!CheckProofOfWork(header, consensusParams)) {
+            Misbehaving(peer, "header with invalid proof of work");
+            return false;
+        }
     }
     return true;
 }

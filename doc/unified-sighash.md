@@ -510,30 +510,13 @@ anything accepted by policy is valid under consensus therefore does not hold,
 so the argument that anything accepted by policy is valid under consensus does
 not hold here.
 
-The mempool answers it without reference to the height: the flag is on wherever
-the fork is scheduled. A node whose blocks lag would otherwise refuse to relay a
-transaction the rest of the network already accepts, and an entry that never
-changes meaning needs no reconciliation when the chain crosses the height in
-either direction.
+UNIFIED is genesis. Mempool and consensus both set
+`SCRIPT_VERIFY_UNIFIED_SIGHASH`. There is no height schedule and no
+legacy-wallet sign path.
 
-### Relationship to the proof-of-work change
-
-This is built on that change rather than beside it, so `DEPLOYMENT_BLAKE2B` and
-`Blake2bHeight` are declared there and used here. Both sets of rules activate at
-that one deployment, so the fork takes effect at a single block and there is no
-window where one applies without the other.
-
-Two things follow for anyone reading the tests. A block at or after the
-activation height must carry the v2 header, which states its own height and
-transaction count, and a node refuses one that does not: first
-`bad-version-blake2b`, then `bad-txnlist-size` once the version is right. Blocks
-the framework solves for itself therefore go through the two helpers at the top
-of `feature_unified_sighash.py` rather than calling `create_block` directly.
-Asking the node for a block template also requires naming the `blake2b` rule.
-
-Signing opts in wherever the deployment is scheduled, so on a network that has no
-height for it the wallet signs legacy throughout and nothing here applies until
-one is set.
+Header v2 and Blake2b work are also genesis. Tests that build blocks
+use header-v2 helpers because that is the only legal header, not
+because a deployment is pending.
 
 ## Interaction with PSBT
 

@@ -74,9 +74,10 @@ class MiningWorkMenuTest(BitcoinTestFramework):
             tag = (hdr.get_complete_version() >> 8) & 3
             assert_equal(tag, KINDS.index(kind))
             assert_equal(kind_hashes[kind], block_identity(hdr)[::-1].hex())
-            assert powhash(hdr)[::-1].hex() != block_identity(hdr)[::-1].hex()
             if kind == "sha256d":
-                assert work_digest(hdr) != block_identity(hdr)
+                assert_equal(work_digest(hdr), block_identity(hdr))
+            else:
+                assert powhash(hdr)[::-1].hex() != block_identity(hdr)[::-1].hex()
 
         self.log.info("Invalid: retag after grind, SHA-256d xor, Poseidon2 time-offset flag")
         sha_hex = node.getblock(kind_hashes["sha256d"], 0)

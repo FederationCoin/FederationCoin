@@ -19,7 +19,7 @@ from test_framework.util import assert_equal
 
 MIN_CAP = 2400000
 GROWN_CAP = 3600000
-FILLER = CScript([OP_0, b"\x11" * 32])
+FILLER = CScript([OP_0, b"\x11" * 20])
 OVER_WEIGHT = MIN_CAP + 10000
 FIT_AFTER_GROW = 3_000_000
 OVER_GROWN = GROWN_CAP + 10000
@@ -98,11 +98,33 @@ class FlexWeightTest(BitcoinTestFramework):
         assert node.getblockcount() == 2 * REGTEST_HALVING_INTERVAL - 1
         assert self.flexcap() == MIN_CAP, "cap changes on the first block of the next epoch"
 
-        result, weight = self.submit_weighted(FIT_AFTER_GROW)
-        assert result is None, f"block that fits the grown cap rejected: {result} weight={weight}"
+        # Two forks at the subsidy boundary. Tip sits on the small sibling;
+        # a peer sends the grown sibling. Receive is one GrowCap of slack, so
+        # the grown block is getdata'd and stored. Equal work does not reorg.
+        self.log.info("Receive a grown sibling while the tip is the small child of the same parent")
+        parent_hash = node.getbestblockhash()
+        parent_height = node.getblockcount()
+        small_sib = self.make_weighted(MIN_CAP, tip=parent_hash, height=parent_height + 1)
+        grown_sib = self.make_weighted(
+            FIT_AFTER_GROW,
+            tip=parent_hash,
+            height=parent_height + 1,
+            ntime=node.getblockheader(parent_hash)["time"] + 2,
+        )
+        assert node.submitblock(small_sib.serialize().hex()) is None, "small sibling rejected"
         assert node.getblockcount() == 2 * REGTEST_HALVING_INTERVAL
         assert self.flexcap() == GROWN_CAP
-        grown_hash = node.getblockhash(2 * REGTEST_HALVING_INTERVAL)
+        sib_peer = node.add_p2p_connection(P2PDataStore())
+        sib_peer.send_blocks_and_test([grown_sib], node, success=False)
+        node.getblock(grown_sib.hash, False)
+        node.disconnect_p2ps()
+        # Heavier work on the grown sibling so later historical-serve uses it.
+        assert node.submitblock(grown_sib.serialize().hex()) in (None, "duplicate")
+        grown_hash = grown_sib.hash
+        if node.getbestblockhash() != grown_hash:
+            node.invalidateblock(small_sib.hash)
+            assert node.submitblock(grown_sib.serialize().hex()) in (None, "duplicate")
+        assert_equal(node.getbestblockhash(), grown_hash)
 
         # Header-only parent: a grown child must not be marked permanently invalid.
         parent = self.make_weighted(FIT_AFTER_GROW)

@@ -272,26 +272,21 @@ class MiniWallet:
         return tx_info
 
     def _bulk_tx(self, tx, target_vsize):
-        """Grow one transaction to target_vsize with payment outputs.
+        """Grow one transaction to target_vsize with P2WPKH pad outputs.
 
-        A data script is not a size knob. Tests that need a heavier block add
-        transactions instead of calling this.
+        Leftover v0/32 is not a payment. Each pad is OP_0 <20> (8+1+22 ≈ 31 vB)
+        funded from vout[0] at 330 tokens so it is above dust.
         """
         if target_vsize <= tx.get_vsize():
             return
-
-        def pay():
-            return CTxOut(nValue=0, scriptPubKey=CScript([OP_0, bytes(32)]))
-
-        # Each v0/32 dummy output is 8+1+34 bytes (~43 vB). Do not exceed target.
-        need = target_vsize - tx.get_vsize()
-        if need > 50:
-            n = min(need // 43, 20000)
-            tx.vout.extend(pay() for _ in range(n))
-            while tx.get_vsize() > target_vsize and tx.vout:
-                tx.vout.pop()
-        while tx.get_vsize() + 43 <= target_vsize:
-            tx.vout.append(pay())
+        pad_spk = CScript([OP_0, bytes(20)])
+        pad_value = 330
+        pad_vb = 31
+        while tx.get_vsize() + pad_vb <= target_vsize:
+            if tx.vout[0].nValue < pad_value * 2:
+                break
+            tx.vout[0].nValue -= pad_value
+            tx.vout.append(CTxOut(nValue=pad_value, scriptPubKey=pad_spk))
         assert tx.get_vsize() <= target_vsize
 
     def get_balance(self):

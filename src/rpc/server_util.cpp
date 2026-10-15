@@ -6,6 +6,7 @@
 
 #include <chain.h>
 #include <common/args.h>
+#include <consensus/work/kind.h>
 #include <net_processing.h>
 #include <node/context.h>
 #include <node/miner.h>
@@ -136,8 +137,12 @@ AddrMan& EnsureAnyAddrman(const std::any& context)
 
 void NextEmptyBlockIndex(CBlockIndex& tip, const Consensus::Params& consensusParams, CBlockIndex& next_index)
 {
-    CBlockHeader next_header{};
-    next_header.hashPrevBlock  = tip.GetBlockHash();
+    CBlockHeader next_header{tip.GetBlockHeader()};
+    next_header.hashPrevBlock = tip.GetBlockHash();
+    next_header.m_height = tip.nHeight + 1;
+    if (!next_header.m_header_v2) {
+        Consensus::ApplyWorkKindTag(next_header, Consensus::WorkKindTag::BLAKE2B);
+    }
     UpdateTime(&next_header, consensusParams, &tip);
     next_header.nBits = GetNextWorkRequired(&tip, &next_header, consensusParams);
     next_header.nNonce = 0;

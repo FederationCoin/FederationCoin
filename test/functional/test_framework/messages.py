@@ -196,7 +196,7 @@ def powhash(header):
 
 
 def block_identity(header):
-    """Chain-link / P2P hash. Blake2b GetHash for kind 00; else SHA-256d of 164."""
+    """Chain-link / P2P hash. Blake2b GetHash for kind 00; SHA-256d of 80 for kind 01."""
     ser = CBlockHeader.serialize(header)
     if not header.m_header_v2:
         return hash256(ser)
@@ -204,6 +204,8 @@ def block_identity(header):
     kind = (version >> 8) & 3
     if kind == 0:
         return powhash(header)
+    if kind == 1:
+        return hash256(ser[:80])
     return hash256(ser)
 
 

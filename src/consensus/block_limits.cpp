@@ -91,7 +91,10 @@ void SetHeaderMaxFlex(uint64_t cap)
 
 uint64_t BlockMessageReceiveWeight()
 {
-    return std::max(g_admit_weight.load(), g_header_max_flex.load());
+    // One GrowCap of slack so a sibling that grew at a subsidy boundary
+    // behind our tip is still receivable. Connect still checks the live cap.
+    const uint64_t base{std::max(g_admit_weight.load(), g_header_max_flex.load())};
+    return ApplyGrowCapTimes(base, 1);
 }
 
 uint64_t BlockMessageReceiveLimit()

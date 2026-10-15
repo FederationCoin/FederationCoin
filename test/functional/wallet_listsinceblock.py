@@ -421,21 +421,25 @@ class ListSinceBlockTest(BitcoinTestFramework):
         """Make sure we can track coins by descriptor."""
         self.log.info("Test descriptor lookup by scriptPubKey.")
 
-        # Create a watchonly wallet tracking two multisig descriptors.
-        multi_a = descsum_create("wsh(multi(1,trB6nMbsSD2SBxuhQ8a4ZyxW7eLnRpcfmFxpLMGUrGb66X7FfSnbLJvrRvwnykvKthaDmsFstwijd9Yy5pxC3UwTCgFV3HYMA4tyhAUMzyEEivg/*,trB6nMbsSD2SBxuhQEpYMXyx5GEitCHMRg4Q9hDXALj9EbAqinMqsVHiScWzGZzqrjonFrgTfK6muRDoGbfyLmWrWGqBJJDe27LjNkjgHvsapHh/*))")
-        multi_b = descsum_create("wsh(multi(1,trB6nMbsSD2SBxuhQEpYMXyx5GEitCHMRg4Q9hDXALj9EbAqinMqsVHiScWzGZzqrjonFrgTfK6muRDoGbfyLmWrWGqBJJDe27LjNkjgHvsapHh/*,trB6nMbsSD2SBxuhPycfp64QB6UZRVsDbPZYwzxx9g2f2kyeAxTpd4jytyM4CYdvHAknEMUeDdWKcjnXY7pZJi8y1BJ3cYpPvKoo1ivwTb7BSC1/*))")
-        self.nodes[0].createwallet(wallet_name="wo", descriptors=True, disable_private_keys=True)
+        # Policy KDF needs each slot's root xprv. A watch-only xpub cannot expand it.
+        hd = self.nodes[0].gethdkeys(private=True)[0]
+        xprv, xpub = hd["xprv"], hd["xpub"]
+        multi_a = descsum_create(f"mldsapolicy(1,{xprv}/0/*,{xprv}/1/*)")
+        multi_b = descsum_create(f"mldsapolicy(1,{xprv}/2/*,{xprv}/3/*)")
+        multi_a_pub = descsum_create(f"mldsapolicy(1,{xpub}/0/*,{xpub}/1/*)")
+        multi_b_pub = descsum_create(f"mldsapolicy(1,{xpub}/2/*,{xpub}/3/*)")
+        self.nodes[0].createwallet(wallet_name="wo", descriptors=True)
         wo_wallet = self.nodes[0].get_wallet_rpc("wo")
         wo_wallet.importdescriptors([
             {
                 "desc": multi_a,
                 "active": False,
-                "timestamp": "now",
+                "timestamp": 0,
             },
             {
                 "desc": multi_b,
                 "active": False,
-                "timestamp": "now",
+                "timestamp": 0,
             },
         ])
 
@@ -451,9 +455,9 @@ class ListSinceBlockTest(BitcoinTestFramework):
         coins = wo_wallet.listsinceblock()["transactions"]
         assert_equal(len(coins), 2)
         coin_a = next(c for c in coins if c["amount"] == 1)
-        assert_equal(coin_a["parent_descs"][0], multi_a)
+        assert_equal(coin_a["parent_descs"][0], multi_a_pub)
         coin_b = next(c for c in coins if c["amount"] == 2)
-        assert_equal(coin_b["parent_descs"][0], multi_b)
+        assert_equal(coin_b["parent_descs"][0], multi_b_pub)
 
     def test_send_to_self(self):
         """We can make listsinceblock output our change outputs."""
@@ -481,7 +485,7 @@ class ListSinceBlockTest(BitcoinTestFramework):
         raw_tx = self.nodes[2].createrawtransaction([], [{'data': 'aa'}])
         funded_tx = self.nodes[2].fundrawtransaction(raw_tx)
         signed_tx = self.nodes[2].signrawtransactionwithwallet(funded_tx['hex'])
-        assert_raises_rpc_error(-26, "bad-txns-datacarrier", self.nodes[2].sendrawtransaction, signed_tx['hex'])
+        assert_raises_rpc_error(-26, "bad-txns-vout-script", self.nodes[2].sendrawtransaction, signed_tx['hex'])
 
     def test_label(self):
         self.log.info('Test passing "label" argument fetches incoming transactions having the specified label')

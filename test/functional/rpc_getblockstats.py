@@ -63,7 +63,7 @@ class GetblockstatsTest(BitcoinTestFramework):
         sent = wallet.send(outputs={"data": "21"})
         rejected = self.nodes[0].testmempoolaccept([wallet.gettransaction(sent["txid"])["hex"]])[0]
         assert_equal(rejected["allowed"], False)
-        assert_equal(rejected["reject-reason"], "bad-txns-datacarrier")
+        assert_equal(rejected["reject-reason"], "bad-txns-vout-script")
         self.sync_all()
         self.generate(self.nodes[0], 1)
 

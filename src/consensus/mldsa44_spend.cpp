@@ -70,11 +70,6 @@ bool CheckSingleKey44Spend(const uint256& program, const std::vector<std::vector
     return CheckSingleKeySpendOf<MlDsa44Kind>(program, witness, sighash);
 }
 
-bool CheckMultisig44Spend(uint8_t threshold, std::span<const uint256> hashes, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash)
-{
-    return CheckPolicySpendOf<MlDsa44Kind>(threshold, hashes, witness, sighash);
-}
-
 MlDsa44WitnessLayout ClassifyMlDsa44Witness(const std::vector<std::vector<unsigned char>>& witness)
 {
     return ClassifyMlDsaWitness<MlDsa44Kind>(witness);

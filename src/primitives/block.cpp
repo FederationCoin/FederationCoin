@@ -14,9 +14,20 @@ uint256 CBlockHeader::GetBlockIdentity() const
 {
     if (!m_header_v2) return GetHash();
     const uint32_t v{GetCompleteVersion()};
+    const unsigned kind{(v >> 8) & 3u};
     // Kind 00 is Blake2b GetHash (nVersion, including BIP9 bits, is in that digest).
-    if (((v >> 8) & 3u) == 0) {
+    if (kind == 0) {
         return GetHash();
+    }
+    // Kind 01: identity is the 80-byte SHA-256d work digest. m_txcount and
+    // m_height sit in the tail; hashing 164 bytes would mint 2^16 (and
+    // 2^32) index keys per solved prefix.
+    if (kind == 1) {
+        DataStream ss;
+        ss << *this;
+        Assert(ss.size() == BLOCK_HEADER_V2_SERIALIZED_SIZE);
+        return Hash(std::span<const unsigned char>{
+            reinterpret_cast<const unsigned char*>(ss.data()), 80});
     }
     return (HashWriter{} << *this).GetHash();
 }

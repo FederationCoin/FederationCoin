@@ -139,11 +139,11 @@ BOOST_AUTO_TEST_CASE(merge_two_of_two_slots)
 
     const auto merged{Consensus::MergeMlDsa44Witnesses({partial_a, partial_b}, sighash)};
     BOOST_REQUIRE(merged);
-    BOOST_CHECK(Consensus::CheckMultisig44Spend(2, hashes, *merged, sighash));
+    BOOST_CHECK(Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, *merged, sighash));
 
     const auto same_side{Consensus::MergeMlDsa44Witnesses({partial_a, partial_a}, sighash)};
     BOOST_REQUIRE(same_side);
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, hashes, *same_side, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, *same_side, sighash));
 
     std::vector<std::vector<unsigned char>> other = partial_b;
     BOOST_REQUIRE(!other[1].empty());

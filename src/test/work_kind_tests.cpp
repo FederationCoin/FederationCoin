@@ -118,11 +118,15 @@ BOOST_AUTO_TEST_CASE(sha256d_80_ignores_tail_bytes)
     BOOST_CHECK(!sha->TailRule(header));
     header.m_nonce2 = 0;
     BOOST_CHECK(sha->TailRule(header));
+    BOOST_CHECK_EQUAL(header.GetBlockIdentity(), d0);
     header.m_txcount = 1;
     BOOST_CHECK(sha->TailRule(header));
-    const uint256 id0{header.GetBlockIdentity()};
+    BOOST_CHECK_EQUAL(header.GetBlockIdentity(), d0);
+    header.m_height = 7;
+    BOOST_CHECK_EQUAL(header.GetBlockIdentity(), d0);
     header.m_nonce2 = 1;
-    BOOST_CHECK(header.GetBlockIdentity() != id0);
+    BOOST_CHECK_EQUAL(header.GetBlockIdentity(), d0);
+    BOOST_CHECK(!sha->TailRule(header));
 }
 
 BOOST_AUTO_TEST_CASE(v1_header_does_not_decode_fp8)
@@ -155,6 +159,7 @@ BOOST_AUTO_TEST_CASE(sniff_wrong_tag_rejected)
     BOOST_CHECK_EQUAL(blake->WorkDigest(header), header.GetHash());
     BOOST_CHECK(sha->WorkDigest(header) != header.GetHash());
     header.nBits = 0;
+    BOOST_CHECK(Consensus::CheckWorkKindCheap(header, params));
     BOOST_CHECK(!sha->Check(header, header.nBits, params));
     BOOST_CHECK(!Consensus::CheckWorkKindHeader(header, params));
 }

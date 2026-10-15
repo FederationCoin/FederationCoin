@@ -98,7 +98,7 @@ BOOST_AUTO_TEST_CASE(mixed_44_87_policy_rejected)
         witness.push_back(std::move(item44));
     }
     BOOST_CHECK(!Consensus::CheckMultisig87Spend(2, mixed, witness, sighash));
-    BOOST_CHECK(!Consensus::CheckMultisig44Spend(2, mixed, witness, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, mixed, witness, sighash));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

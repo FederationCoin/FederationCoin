@@ -121,12 +121,13 @@ exported account xpub must not yield Dilithium seeds.
 
 Tagged KDF, Blake2b-256 with no key:
 
-`Blake2b-256(tag || hd_seed || kind_id || le32(index))`
+`Blake2b-256(tag || seed_material || kind_id || le32(index))`
 
 | Field | Bytes |
 | --- | --- |
 | tag | ASCII `FederationCoin/ml-dsa-seed/v1` (no NUL) |
-| hd_seed | wallet HD seed, or the 32-byte root xprv secret |
+| seed_material (single-key) | wallet HD seed, or that descriptor's 32-byte root xprv secret |
+| seed_material (policy) | that slot's 32-byte root xprv secret (never the wallet-wide HD seed) |
 | kind_id | 1 = Dilithium 44, 2 = Dilithium 87, 3 = policy 44, 4 = policy 87 |
 | index | little-endian uint32. Bits 0–30 are the wallet index (policy keys: `wallet_index * 12 + slot`). Bit 31 is set for the change chain so receive and change at the same index do not share a seed. |
 
@@ -136,6 +137,10 @@ derived 32-byte seed with context `FederationCoin`.
 Pinned vector (`mldsa_seed_tests.cpp`; same bytes in drongo): 32-byte
 seed of `0x42`, kind Dilithium 87, index 7 →
 `8d3755b302d8a066e6ae846b00e329cfd597043e812dc509b240876c171e8f68`.
+
+Policy slots: two root xprv secrets (32× `0xa1` and 32× `0xb2`), kind
+policy 44, receive indexes `0*12+0` and `0*12+1` → scriptPubKey
+`51202b84379230309a0492bcb24fd24d52b1b81f89cfc4f821890770fd0e7cf335d920bf4fc5ead1b5876b86d9083d563608f8446e6f2b8288be542c2c99e213b66017525151bc`.
 
 ## Single-key spend
 

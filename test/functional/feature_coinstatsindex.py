@@ -164,7 +164,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
         tx2_val = '20.99'
         tx2.vout = [CTxOut(int(Decimal(tx2_val) * COIN), CScript([OP_RETURN] + [OP_FALSE] * 30))]
         tx2_hex = tx2.serialize().hex()
-        assert_raises_rpc_error(-26, "bad-txns-datacarrier", self.nodes[0].sendrawtransaction, tx2_hex, 0, tx2_val)
+        assert_raises_rpc_error(-26, "bad-txns-vout-script", self.nodes[0].sendrawtransaction, tx2_hex, 0, tx2_val)
 
         # Include both txs in a block
         self.generate(self.nodes[0], 1)

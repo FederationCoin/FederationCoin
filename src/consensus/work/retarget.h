@@ -36,8 +36,8 @@ uint256 ScaleAfterWindow(const uint256& prev_scale, int64_t expected, int64_t sp
 /** Work added by one block at this scale. Input S==0 is assert, not clamp. */
 arith_uint256 WorkFromScale(const uint256& work_scale);
 
-/** S recovered from compact nBits: T0[k] / target, floor toward zero.
- *  Invalid compact or target above powLimitKind[k] is nullopt. */
+/** S recovered from compact nBits: T0 / target, floor toward zero.
+ *  Invalid compact or target above powLimitKind is nullopt. */
 std::optional<uint256> ScaleFromNBits(unsigned int nBits, size_t kind_index, const Params& params);
 
 /** Anti-DoS claimed work for a header: WorkFromScale(S_met). 0 if the

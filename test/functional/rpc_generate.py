@@ -58,11 +58,9 @@ class RPCGenerateTest(BitcoinTestFramework):
         assert_equal(len(block['tx']), 1)
         assert_equal(block['tx'][0]['vout'][0]['scriptPubKey']['address'], combo_address)
 
-        self.log.info('Uncompressed combo is P2PKH; CheckOutputSizes admits 25 bytes')
+        self.log.info('Uncompressed combo is P2PKH; CheckOutputSizes rejects 25 bytes')
         combo_key = '0408ef68c46d20596cc3f6ddf7c8794f71913add807f1dc55949fa805d764d191c0b7ce6894c126fce0babc6663042f3dde9b0cf76467ea315514e5a6731149c67'
-        combo_hash = self.generateblock(node, 'combo(' + combo_key + ')', [])['hash']
-        combo_spk = node.getblock(combo_hash, 2)['tx'][0]['vout'][0]['scriptPubKey']
-        assert_equal(combo_spk['type'], 'pubkeyhash')
+        assert_raises_rpc_error(-1, "bad-txns-vout-script", self.generateblock, node, 'combo(' + combo_key + ')', [])
 
         # Generate some extra mempool transactions to verify they don't get mined
         for _ in range(10):

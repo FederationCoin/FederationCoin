@@ -329,4 +329,16 @@ BOOST_AUTO_TEST_CASE(worst_case_cap_at_height)
     BOOST_CHECK(grown_cap <= Consensus::MAX_FLEX_BLOCK_WEIGHT);
 }
 
+BOOST_AUTO_TEST_CASE(receive_weight_one_grow_of_slack)
+{
+    Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    BOOST_CHECK_EQUAL(Consensus::BlockMessageReceiveWeight(),
+                      Consensus::ApplyGrowCapTimes(Consensus::MIN_FLEX_BLOCK_WEIGHT, 1));
+    Consensus::SetHeaderMaxFlex(3600000);
+    BOOST_CHECK_EQUAL(Consensus::BlockMessageReceiveWeight(),
+                      Consensus::ApplyGrowCapTimes(3600000, 1));
+    Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

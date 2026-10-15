@@ -192,34 +192,17 @@ class SignRawTransactionWithWalletTest(BitcoinTestFramework):
         # Make sure CSV is active
         assert self.nodes[0].getdeploymentinfo()['deployments']['csv']['active']
 
-        # Create a P2WSH script with CSV
-        script = CScript([1, OP_CHECKSEQUENCEVERIFY, OP_DROP])
-        address = script_to_p2wsh(script)
-
-        # Fund that address and make the spend
-        utxo1 = self.create_outpoints(self.nodes[0], outputs=[{address: 1}])[0]
+        # CSV is nSequence on a legal payment. Leftover P2WSH is not fundable.
+        utxos = self.create_outpoints(self.nodes[0], outputs=[{self.nodes[0].getnewaddress(): 1}, {self.nodes[0].getnewaddress(): 1}])
         self.generate(self.nodes[0], 1)
-        utxo2 = self.nodes[0].listunspent()[0]
-        amt = Decimal(1) + utxo2["amount"] - Decimal(0.00001)
+        amt = Decimal(2) - Decimal(0.00001)
         tx = self.nodes[0].createrawtransaction(
-            [{**utxo1, "sequence": 1},{"txid": utxo2["txid"], "vout": utxo2["vout"]}],
+            [{**utxos[0], "sequence": 1}, utxos[1]],
             [{self.nodes[0].getnewaddress(): amt}],
             self.nodes[0].getblockcount()
         )
-
-        # Set the witness script
-        ctx = tx_from_hex(tx)
-        ctx.wit.vtxinwit.append(CTxInWitness())
-        ctx.wit.vtxinwit[0].scriptWitness.stack = [CScript([OP_TRUE]), script]
-        tx = ctx.serialize_with_witness().hex()
-
-        # Wallet may sign its Dilithium input; P2WSH CSV is not a payment.
         signed = self.nodes[0].signrawtransactionwithwallet(tx)
-        if signed.get("complete"):
-            result = self.nodes[0].testmempoolaccept([signed["hex"]])[0]
-            assert_equal(result["allowed"], False)
-        else:
-            assert not signed["complete"]
+        assert signed["complete"]
 
     def test_signing_with_cltv(self):
         self.log.info("Test signing a transaction containing a fully signed CLTV input")
@@ -229,34 +212,17 @@ class SignRawTransactionWithWalletTest(BitcoinTestFramework):
         # Make sure CLTV is active
         assert self.nodes[0].getdeploymentinfo()['deployments']['bip65']['active']
 
-        # Create a P2WSH script with CLTV
-        script = CScript([100, OP_CHECKLOCKTIMEVERIFY, OP_DROP])
-        address = script_to_p2wsh(script)
-
-        # Fund that address and make the spend
-        utxo1 = self.create_outpoints(self.nodes[0], outputs=[{address: 1}])[0]
+        # CLTV is nLockTime on a legal payment. Leftover P2WSH is not fundable.
+        utxos = self.create_outpoints(self.nodes[0], outputs=[{self.nodes[0].getnewaddress(): 1}, {self.nodes[0].getnewaddress(): 1}])
         self.generate(self.nodes[0], 1)
-        utxo2 = self.nodes[0].listunspent()[0]
-        amt = Decimal(1) + utxo2["amount"] - Decimal(0.00001)
+        amt = Decimal(2) - Decimal(0.00001)
         tx = self.nodes[0].createrawtransaction(
-            [utxo1, {"txid": utxo2["txid"], "vout": utxo2["vout"]}],
+            utxos,
             [{self.nodes[0].getnewaddress(): amt}],
-            self.nodes[0].getblockcount()
+            100,
         )
-
-        # Set the witness script
-        ctx = tx_from_hex(tx)
-        ctx.wit.vtxinwit.append(CTxInWitness())
-        ctx.wit.vtxinwit[0].scriptWitness.stack = [CScript([OP_TRUE]), script]
-        tx = ctx.serialize_with_witness().hex()
-
-        # Wallet may sign its Dilithium input; P2WSH CLTV is not a payment.
         signed = self.nodes[0].signrawtransactionwithwallet(tx)
-        if signed.get("complete"):
-            result = self.nodes[0].testmempoolaccept([signed["hex"]])[0]
-            assert_equal(result["allowed"], False)
-        else:
-            assert not signed["complete"]
+        assert signed["complete"]
 
     def test_signing_with_missing_prevtx_info(self):
         txid = "1d1d4e24ed99057e84c3f80fd8fbec79ed9e1acee37da269356ecea000000000"

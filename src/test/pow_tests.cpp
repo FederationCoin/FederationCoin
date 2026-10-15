@@ -88,7 +88,7 @@ BOOST_AUTO_TEST_CASE(retarget_fast_window_multiplies_s)
     const unsigned nbits_s4{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(s, params)};
     BOOST_CHECK_NE(nbits_s1, nbits_s4);
     for (size_t k{0}; k < Consensus::WORK_KIND_COUNT; ++k) {
-        BOOST_CHECK_EQUAL(Consensus::WorkKindAt(k)->ExpectedNBits(s, params), Consensus::CompactTargetForScale(k, s, params));
+        BOOST_CHECK_EQUAL(Consensus::WorkKindAt(k)->ExpectedNBits(s, params), Consensus::CompactTargetForScale(s, params));
     }
 }
 
@@ -114,7 +114,7 @@ BOOST_AUTO_TEST_CASE(mixed_kind_window_one_s)
     auto blocks = MakeIndexChain(120, 1'000'000, 1, Consensus::WorkScaleOne());
     const uint256 s{Consensus::NextWorkScale(&blocks[119], params)};
     BOOST_CHECK_EQUAL(UintToArith256(s), 4);
-    // Placeholders share T0 until pow-calibrate, so compact may match; S is shared.
+    // One T0 for every kind, so compact matches; S is shared.
     const unsigned b{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(s, params)};
     const unsigned sha{Consensus::LookupWorkKind(Consensus::WorkKindTag::SHA256D)->ExpectedNBits(s, params)};
     const unsigned fp8{Consensus::LookupWorkKind(Consensus::WorkKindTag::FP8_GYM)->ExpectedNBits(s, params)};
@@ -166,7 +166,7 @@ BOOST_AUTO_TEST_CASE(main_interval_and_halving_bounds)
     for (int h : {209999, 210000, 210001}) {
         for (size_t k{0}; k < Consensus::WORK_KIND_COUNT; ++k) {
             BOOST_CHECK(Consensus::WorkKindAt(k)->EnabledAt(h));
-            (void)Consensus::CompactTargetForScale(k, s, params);
+            (void)Consensus::CompactTargetForScale(s, params);
         }
     }
 }

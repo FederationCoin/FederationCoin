@@ -74,8 +74,8 @@ std::optional<uint256> ScaleFromNBits(unsigned int nBits, size_t kind_index, con
     arith_uint256 target;
     target.SetCompact(nBits, &f_negative, &f_overflow);
     if (f_negative || target == 0 || f_overflow) return std::nullopt;
-    if (target > UintToArith256(params.powLimitKind[kind_index])) return std::nullopt;
-    arith_uint256 t0{UintToArith256(params.powT0[kind_index])};
+    if (target > UintToArith256(params.powLimitKind)) return std::nullopt;
+    arith_uint256 t0{UintToArith256(params.powT0)};
     if (t0 == 0) return std::nullopt;
     arith_uint256 s{t0 / target};
     if (s == 0) s = 1;

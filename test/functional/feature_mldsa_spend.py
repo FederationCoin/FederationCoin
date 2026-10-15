@@ -98,11 +98,15 @@ class MldsaSpendTest(BitcoinTestFramework):
     def reject_p2wsh(self, node, wallet, dest):
         redeem = CScript([OP_TRUE])
         script_pubkey = CScript([OP_0, sha256(redeem)])
-        txid, vout, value = self.fund(node, wallet, script_pubkey)
-        spend = self.spend(txid, vout, value, dest)
-        spend.wit.vtxinwit[0].scriptWitness.stack = [redeem]
-        spend.rehash()
-        self.assert_script_reject(node, spend)
+        tx = wallet.create_self_transfer()['tx']
+        tx.vout[0].scriptPubKey = script_pubkey
+        assert wallet.resign(tx)
+        tx.rehash()
+        try:
+            node.sendrawtransaction(tx.serialize().hex(), 0)
+            assert False, "leftover P2WSH output must be consensus-invalid"
+        except JSONRPCException as exc:
+            assert "bad-txns-vout-script" in exc.error["message"], exc.error
 
     def reject_scriptsig_and_legacy(self, node, wallet, dest):
         # scriptSig is still empty. A P2PKH script is not a spend here.
@@ -120,9 +124,10 @@ class MldsaSpendTest(BitcoinTestFramework):
         tx.rehash()
         try:
             node.sendrawtransaction(tx.serialize().hex(), 0)
-            assert False, "P2PKH output must be nonstandard"
+            assert False, "P2PKH output must be consensus-invalid"
         except JSONRPCException as exc:
-            assert "scriptpubkey" in exc.error["message"], exc.error
+            msg = exc.error["message"]
+            assert "bad-txns-vout-script" in msg or "scriptpubkey" in msg, exc.error
 
     def accept_secp(self, node, wallet, dest):
         key = ECKey()
@@ -299,9 +304,9 @@ class MldsaSpendTest(BitcoinTestFramework):
         tx.rehash()
 
     def burn(self, node, wallet, dest):
-        # Paying a hash that is not a key or policy is accepted. No witness can spend it.
+        # Paying a Dilithium fingerprint we do not hold. No witness can spend it.
         burn = blake2b(b"not a key")
-        script_pubkey = CScript([OP_0, burn])
+        script_pubkey = fingerprint_to_modern_single_script(burn, 1)
         txid, vout, value = self.fund(node, wallet, script_pubkey)
         spend = self.spend(txid, vout, value, dest)
         key = keygen(node.binary, "aa" * 32)

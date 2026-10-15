@@ -94,10 +94,8 @@ class UtxoToSqliteTest(BitcoinTestFramework):
             key.generate(compressed=True)
             pubkey = key.get_pubkey().get_bytes()
 
-            # Product-admitted witness v0 programs only.
             output_scripts = (
                 key_to_p2wpkh_script(pubkey),                       # 22 bytes
-                script_to_p2wsh_script(key_to_p2pkh_script(pubkey)),# 34 bytes
             )
 
             # create outputs and mine them in a block

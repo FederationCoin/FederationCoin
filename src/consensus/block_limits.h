@@ -58,7 +58,8 @@ void SetBlockMessageAdmitWeight(uint64_t weight);
 void NoteHeaderFlexCap(uint64_t cap);
 /** Tests restore this after a case that raised the indexed-header floor. */
 void SetHeaderMaxFlex(uint64_t cap);
-/** max(tip admit, highest indexed nFlexCap). Receive and compact slots use this. */
+/** One GrowCap of max(tip admit, highest indexed nFlexCap). Slack so a
+ *  sibling that grew at a subsidy boundary behind the tip is receivable. */
 uint64_t BlockMessageReceiveWeight();
 
 /** Serialized-size ceiling for block / cmpctblock / blocktxn. Derived from

@@ -2547,20 +2547,20 @@ bool PeerManagerImpl::CheckHeadersPoW(const std::vector<CBlockHeader>& headers, 
         return false;
     }
 
-    // Digest only when the parent is already indexed and nBits matches that
-    // parent. Unconnecting headers skip the gym; AcceptBlockHeader pays later.
-    LOCK(::cs_main);
-    for (const CBlockHeader& header : headers) {
-        const CBlockIndex* pprev{m_chainman.m_blockman.LookupBlockIndex(header.hashPrevBlock)};
-        if (!pprev) continue;
-        if (header.nBits != GetNextWorkRequired(pprev, &header, consensusParams)) {
+    // Cheap nBits along the in-message chain, then digests off cs_main.
+    // Unconnecting batches skip both; HandleUnconnectingHeaders does not gym.
+    {
+        LOCK(::cs_main);
+        const CBlockIndex* pprev{m_chainman.m_blockman.LookupBlockIndex(headers[0].hashPrevBlock)};
+        if (!pprev) return true;
+        if (!HeadersMatchExpectedNBits(headers, pprev, consensusParams)) {
             Misbehaving(peer, "bad-diffbits");
             return false;
         }
-        if (!CheckProofOfWork(header, consensusParams)) {
-            Misbehaving(peer, "header with invalid proof of work");
-            return false;
-        }
+    }
+    if (!CheckProofOfWorkBatch(headers, consensusParams)) {
+        Misbehaving(peer, "header with invalid proof of work");
+        return false;
     }
     return true;
 }
@@ -3021,7 +3021,7 @@ void PeerManagerImpl::ProcessHeadersMessage(CNode& pfrom, Peer& peer,
 
     // Now process all the headers.
     BlockValidationState state;
-    if (!m_chainman.ProcessNewBlockHeaders(headers, /*min_pow_checked=*/true, state, &pindexLast)) {
+    if (!m_chainman.ProcessNewBlockHeaders(headers, /*min_pow_checked=*/true, state, &pindexLast, /*check_pow=*/false)) {
         if (state.IsInvalid()) {
             MaybePunishNodeForBlock(pfrom.GetId(), state, via_compact_block, "invalid header received");
             return;

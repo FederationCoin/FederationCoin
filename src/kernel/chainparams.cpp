@@ -66,7 +66,11 @@ static constexpr uint32_t kDummyMainBits = 0x1e00ffff;
 static constexpr uint32_t kSignetGenesisBits = 0x1e0377ae;
 static constexpr uint32_t kRegtestBits = 0x207fffff;
 
-/** One T0 from genesis compact. All kinds share it. Does not change genesis bytes. */
+/** One T0 from genesis compact for every work kind, forever. Compact nBits
+ *  is the same function of (T0, S) for Blake2b, SHA-256d, FP8, and Poseidon2,
+ *  so PermittedDifficultyTransition can compare nBits on mixed-kind chains.
+ *  Per-kind T0 would make equal scale look like a 4x jump and abort presync.
+ *  Does not change genesis bytes, magic, ports, or nBits. */
 static void FillWorkMenu(Consensus::Params& c, uint32_t genesis_compact)
 {
     arith_uint256 t0;

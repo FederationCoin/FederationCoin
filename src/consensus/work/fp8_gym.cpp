@@ -2,6 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+// Kind-2 consensus: this translation unit is the gym. Keep contraction off
+// so acc = acc + (av * bv) stays two operations on every compiler we ship.
 #if defined(_MSC_VER)
 #pragma float_control(precise, on)
 #else

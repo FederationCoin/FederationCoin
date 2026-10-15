@@ -3,8 +3,10 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <consensus/work/fp8_gym.h>
+#include <consensus/work/kind.h>
 #include <primitives/block.h>
 #include <test/util/setup_common.h>
+#include <uint256.h>
 
 #include <cmath>
 #include <limits>
@@ -101,6 +103,23 @@ BOOST_AUTO_TEST_CASE(tile_order_change_fails)
     std::swap(naive[0], naive[1]);
     bool same{c_spec == naive};
     BOOST_CHECK(!same);
+}
+
+BOOST_AUTO_TEST_CASE(golden_digest_frozen_header)
+{
+    // Pins the current binary32 gym. CI on each shipped ISA must match.
+    CBlockHeader header;
+    header.m_header_v2 = true;
+    header.nVersion = 4;
+    Consensus::ApplyWorkKindTag(header, Consensus::WorkKindTag::FP8_GYM);
+    header.nTime = 1;
+    header.nBits = 0x207fffff;
+    header.nNonce = 1;
+    const auto digest{Consensus::Fp8GymDigest(header)};
+    BOOST_REQUIRE(digest);
+    BOOST_CHECK_EQUAL(
+        digest->ToString(),
+        "e47583df498148ac2312dc5b4f145d495dd8eb7ad3a803c1bcdb294990e41862");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

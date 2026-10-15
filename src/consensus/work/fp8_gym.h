@@ -16,6 +16,10 @@ class uint256;
 
 namespace Consensus {
 
+/** Kind-2 wire spec. This tiled E4M3FN binary32 MMA is the digest. Gym
+ *  dimension, tile order, and rounding do not change in a later release.
+ *  A SIMD port that changes rounding is a consensus change. Compile with
+ *  FMA contraction off (see fp8_gym.cpp). Golden digest in fp8_gym_tests. */
 static constexpr int FP8_DIM{256};
 static constexpr int FP8_TILE_M{16};
 static constexpr int FP8_TILE_N{8};
@@ -25,16 +29,20 @@ static constexpr int FP8_NT{32};
 static constexpr int FP8_KT{8};
 static constexpr int FP8_MATRIX_BYTES{FP8_DIM * FP8_DIM};
 
-/** Decode one E4M3FN byte to binary32. Nullopt on NaN (e==15). */
+/** Decode one E4M3FN byte to binary32. Nullopt on NaN (e==15, m==7). */
 std::optional<float> DecodeE4M3FN(uint8_t b);
-/** Quantize binary32 to E4M3FN. Nullopt on Inf/NaN. Ties to even mantissa. */
+/** Quantize binary32 to E4M3FN. Nullopt on Inf/NaN. Nearest finite code;
+ *  ties to even mantissa, then lower code. Clamp mag > 448 to 0x7E/0xFE. */
 std::optional<uint8_t> QuantizeE4M3FN(float x);
 
-/** Expand A then B (65536 each) from the 164-byte header. Remaps 0x7F/0xFF. */
+/** Expand A then B (65536 each) from the 164-byte header. Remaps 0x7F/0xFF
+ *  to max finite 0x7E/0xFE. Seed is Blake2b of domain || header. */
 void Fp8ExpandAB(const CBlockHeader& header, std::vector<uint8_t>& a, std::vector<uint8_t>& b);
 
 /**
  * Tiled MMA. C is row-major FP8_DIM*FP8_DIM binary32.
+ * Each cell: acc = acc + prod in binary32, no fused multiply-add.
+ * Tile loops (kt, mt, nt, i, j, kk) are the accumulation order.
  * False if any mul/add produces Inf or NaN, or a/b has a NaN encoding
  * that survived remap (should not).
  */

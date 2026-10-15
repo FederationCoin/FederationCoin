@@ -986,12 +986,14 @@ private:
      * Caller must set min_pow_checked=true in order to add a new header to the
      * block index (permanent memory storage), indicating that the header is
      * known to be part of a sufficiently high-work chain (anti-dos check).
+     * check_pow=false skips the digest when the caller already ran CheckProofOfWorkBatch.
      */
     bool AcceptBlockHeader(
         const CBlockHeader& block,
         BlockValidationState& state,
         CBlockIndex** ppindex,
-        bool min_pow_checked) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+        bool min_pow_checked,
+        bool check_pow = true) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     friend Chainstate;
 
     /** Most recent headers presync progress update, for rate-limiting. */
@@ -1302,8 +1304,9 @@ public:
      * @param[in]  min_pow_checked  True if proof-of-work anti-DoS checks have been done by caller for headers chain
      * @param[out] state This may be set to an Error state if any error occurred processing them
      * @param[out] ppindex If set, the pointer will be set to point to the last new block index object for the given headers
+     * @param[in]  check_pow When false, CheckBlockHeader skips the digest (caller already ran CheckProofOfWorkBatch).
      */
-    bool ProcessNewBlockHeaders(std::span<const CBlockHeader> headers, bool min_pow_checked, BlockValidationState& state, const CBlockIndex** ppindex = nullptr) LOCKS_EXCLUDED(cs_main);
+    bool ProcessNewBlockHeaders(std::span<const CBlockHeader> headers, bool min_pow_checked, BlockValidationState& state, const CBlockIndex** ppindex = nullptr, bool check_pow = true) LOCKS_EXCLUDED(cs_main);
 
     /**
      * Sufficiently validate a block for disk storage (and store on disk).

@@ -317,4 +317,36 @@ BOOST_AUTO_TEST_CASE(permitted_difficulty_transition_gate)
     BOOST_CHECK(!PermittedDifficultyTransition(params, interval, 0x1e00ffff, 0x1c00ffff));
 }
 
+BOOST_AUTO_TEST_CASE(headers_match_expected_nbits)
+{
+    const auto chainParams = CreateChainParams(*m_node.args, ChainType::REGTEST);
+    const auto& params = chainParams->GetConsensus();
+    CBlockIndex genesis;
+    genesis.nHeight = 0;
+    genesis.nTime = 1'000'000;
+    genesis.nWorkScale = Consensus::WorkScaleOne();
+    genesis.nBits = 0x207fffff;
+
+    CBlockHeader header{HeaderForKind(Consensus::WorkKindTag::BLAKE2B)};
+    header.nBits = GetNextWorkRequired(&genesis, &header, params);
+    BOOST_CHECK(HeadersMatchExpectedNBits({&header, 1}, &genesis, params));
+    header.nBits = 0x1d00ffff;
+    BOOST_CHECK(!HeadersMatchExpectedNBits({&header, 1}, &genesis, params));
+}
+
+BOOST_AUTO_TEST_CASE(check_proof_of_work_batch_fail_fast)
+{
+    const auto chainParams = CreateChainParams(*m_node.args, ChainType::REGTEST);
+    const auto& params = chainParams->GetConsensus();
+    CBlockHeader ok{HeaderForKind(Consensus::WorkKindTag::BLAKE2B)};
+    ok.nBits = 0x207fffff;
+    BOOST_REQUIRE(GrindProofOfWork(ok, params));
+    CBlockHeader bad{ok};
+    bad.m_header_v2 = false;
+    std::vector<CBlockHeader> headers{ok, bad};
+    BOOST_CHECK(CheckProofOfWorkBatch({}, params));
+    BOOST_CHECK(CheckProofOfWorkBatch({&ok, 1}, params));
+    BOOST_CHECK(!CheckProofOfWorkBatch(headers, params));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

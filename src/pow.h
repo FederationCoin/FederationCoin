@@ -9,6 +9,7 @@
 #include <attributes.h>
 #include <consensus/params.h>
 
+#include <span>
 #include <stdint.h>
 
 class CBlockHeader;
@@ -34,6 +35,11 @@ bool CheckProofOfWork(uint256 hash, unsigned int nBits, const Consensus::Params&
 bool CheckProofOfWorkImpl(uint256 hash, unsigned int nBits, const Consensus::Params&);
 /** Header-v2 work menu: tag, tail, digest vs nBits. Header-only (no vtx). */
 bool CheckProofOfWork(const CBlockHeader& header, const Consensus::Params& params);
+/** Each header independently. Fail-fast across workers. Does not take cs_main. */
+bool CheckProofOfWorkBatch(std::span<const CBlockHeader> headers, const Consensus::Params& params);
+/** pindex_prev is the indexed parent of headers[0]. Walk expected nBits along
+ *  the in-message chain (retarget / min-diff). No digest. */
+bool HeadersMatchExpectedNBits(std::span<const CBlockHeader> headers, const CBlockIndex* pindex_prev, const Consensus::Params& params) ARG_NONNULL(2);
 /** Increment nNonce until CheckProofOfWork(header) succeeds. */
 bool GrindProofOfWork(CBlockHeader& header, const Consensus::Params& params);
 

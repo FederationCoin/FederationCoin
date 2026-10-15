@@ -13,7 +13,11 @@
 #include <uint256.h>
 #include <util/check.h>
 
+#include <atomic>
 #include <limits>
+#include <list>
+#include <thread>
+#include <vector>
 
 /** Do not ease past nMinDifficultyBits (smaller target = harder). */
 static unsigned int ApplyMinDifficultyFloor(unsigned int nBits, const Consensus::Params& params)
@@ -56,8 +60,9 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     return ApplyMinDifficultyFloor(nBits, params);
 }
 
-// Check that on difficulty adjustments, the new difficulty does not increase
-// or decrease beyond the permitted limits.
+// Compact nBits is comparable across kinds only because every kind shares
+// one T0 (FillWorkMenu). A later per-kind T0 would abort mixed-kind presync
+// here: equal scale would look like an illegal compact jump. Do not split T0.
 bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height, uint32_t old_nbits, uint32_t new_nbits)
 {
     if (params.fPowAllowMinDifficultyBlocks) return true;
@@ -123,6 +128,60 @@ bool CheckProofOfWork(const CBlockHeader& header, const Consensus::Params& param
 {
     if constexpr (G_FUZZING) return CheckProofOfWork(header.GetHash(), header.nBits, params);
     return Consensus::CheckWorkKindHeader(header, params);
+}
+
+bool CheckProofOfWorkBatch(std::span<const CBlockHeader> headers, const Consensus::Params& params)
+{
+    if (headers.empty()) return true;
+    if (headers.size() == 1) return CheckProofOfWork(headers[0], params);
+
+    std::atomic<bool> failed{false};
+    std::atomic<size_t> next{0};
+    unsigned workers{std::thread::hardware_concurrency()};
+    if (workers == 0) workers = 1;
+    if (workers > headers.size()) workers = static_cast<unsigned>(headers.size());
+
+    std::vector<std::thread> pool;
+    pool.reserve(workers);
+    for (unsigned t{0}; t < workers; ++t) {
+        pool.emplace_back([&] {
+            while (!failed.load(std::memory_order_relaxed)) {
+                const size_t i{next.fetch_add(1, std::memory_order_relaxed)};
+                if (i >= headers.size()) break;
+                if (!CheckProofOfWork(headers[i], params)) {
+                    failed.store(true, std::memory_order_relaxed);
+                    break;
+                }
+            }
+        });
+    }
+    for (std::thread& th : pool) th.join();
+    return !failed.load(std::memory_order_relaxed);
+}
+
+bool HeadersMatchExpectedNBits(std::span<const CBlockHeader> headers, const CBlockIndex* pindex_prev, const Consensus::Params& params)
+{
+    if (headers.empty()) return true;
+
+    std::list<CBlockIndex> dummy;
+    const CBlockIndex* prev{pindex_prev};
+    for (const CBlockHeader& header : headers) {
+        if (header.nBits != GetNextWorkRequired(prev, &header, params)) return false;
+        dummy.emplace_back(header);
+        CBlockIndex& idx{dummy.back()};
+        idx.pprev = const_cast<CBlockIndex*>(prev);
+        idx.nHeight = prev->nHeight + 1;
+        idx.nWorkScale = Consensus::NextWorkScale(prev, params);
+        if (params.fPowAllowMinDifficultyBlocks) {
+            const auto tag{Consensus::DecodeWorkKindTag(header.GetCompleteVersion())};
+            if (tag) {
+                const auto met{Consensus::ScaleFromNBits(header.nBits, static_cast<size_t>(*tag), params)};
+                if (met) idx.nWorkScale = *met;
+            }
+        }
+        prev = &idx;
+    }
+    return true;
 }
 
 bool GrindProofOfWork(CBlockHeader& header, const Consensus::Params& params)

@@ -56,10 +56,10 @@ bool CountMeetsFourFifths(uint64_t count, int interval)
 
 GrowCapResult GrowCap(uint64_t cap)
 {
-    constexpr uint64_t times_three_max{std::numeric_limits<uint64_t>::max() / 3};
-    if (cap > times_three_max) return MultiplyWouldOverflow{};
-    // Floor toward zero. The * 3 is in range because of the check above.
-    const uint64_t grown{(cap * 3) / 2};
+    constexpr uint64_t times_num_max{std::numeric_limits<uint64_t>::max() / GROW_CAP_NUM};
+    if (cap > times_num_max) return MultiplyWouldOverflow{};
+    // Floor toward zero. The * GROW_CAP_NUM is in range because of the check above.
+    const uint64_t grown{(cap * GROW_CAP_NUM) / GROW_CAP_DEN};
     if (grown > MAX_FLEX_BLOCK_WEIGHT) return AtCeiling{cap};
     return Grew{grown};
 }

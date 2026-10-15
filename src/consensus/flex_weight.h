@@ -22,12 +22,17 @@ static constexpr uint64_t FULL_FIT_BUFFER_WEIGHT{64};
 static constexpr int FLEX_CEILING_INTERVAL{210000};
 
 /** Largest cap such that cap * FLEX_CEILING_INTERVAL still fits in uint64_t.
- *  Origin bound only. GrowCap checks cap * 3 itself and does not read this
- *  as permission to skip that check. */
+ *  Origin bound only. GrowCap checks cap * GROW_CAP_NUM itself and does not
+ *  read this as permission to skip that check. */
 static constexpr uint64_t MAX_FLEX_BLOCK_WEIGHT{87841638446235ULL};
 
 /** Floor of the live max block weight. The cap does not cut below this. */
 static constexpr uint64_t MIN_FLEX_BLOCK_WEIGHT{2400000};
+
+/** GrowCap numerator and denominator: +12 percent. Floor toward zero.
+ *  GrowCap's own bound is cap <= uint64_max / GROW_CAP_NUM. */
+static constexpr uint64_t GROW_CAP_NUM{28};
+static constexpr uint64_t GROW_CAP_DEN{25};
 
 /** 64x64 -> 128. hi is the top 64 bits, lo the bottom 64. Four 32x32
  *  multiplies. The mid sum is masked to 32 bits before it is shifted.
@@ -59,10 +64,11 @@ bool Slack(uint64_t block_weight, uint64_t cap);
  *  count and the slack-block count both use this compare. */
 bool CountMeetsFourFifths(uint64_t count, int interval);
 
-/** floor((cap * 3) / 2) when that product fits in uint64_t and does not
- *  pass MAX_FLEX_BLOCK_WEIGHT. Floor toward zero (odd cap 5 yields 7).
- *  This function's own bound is cap <= uint64_max / 3. It does not assume
- *  the caller passed a cap under MAX_FLEX_BLOCK_WEIGHT. */
+/** floor((cap * GROW_CAP_NUM) / GROW_CAP_DEN) when that product fits in
+ *  uint64_t and does not pass MAX_FLEX_BLOCK_WEIGHT. Floor toward zero
+ *  (cap 26 yields 29). This function's own bound is
+ *  cap <= uint64_max / GROW_CAP_NUM. It does not assume the caller passed
+ *  a cap under MAX_FLEX_BLOCK_WEIGHT. */
 struct Grew { uint64_t cap; };
 struct AtCeiling { uint64_t cap; };
 struct MultiplyWouldOverflow {};
@@ -80,7 +86,7 @@ uint64_t DecideNextCap(uint64_t cap, uint64_t pegged_blocks, uint64_t slack_bloc
 
 /** Apply GrowCap `times` times. Floor toward zero is GrowCap's. Stops
  *  on AtCeiling or MultiplyWouldOverflow so a large `times` does not
- *  spin (from MIN_FLEX, AtCeiling is fewer than 100 steps). Does not
+ *  spin (from MIN_FLEX, AtCeiling is about 154 steps). Does not
  *  assume the caller passed a cap under MAX_FLEX_BLOCK_WEIGHT. */
 uint64_t ApplyGrowCapTimes(uint64_t cap, uint64_t times);
 

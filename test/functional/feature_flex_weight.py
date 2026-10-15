@@ -18,10 +18,10 @@ from test_framework.util import assert_equal
 
 
 MIN_CAP = 2400000
-GROWN_CAP = 3600000
+GROWN_CAP = 2688000
 FILLER = CScript([OP_0, b"\x11" * 20])
 OVER_WEIGHT = MIN_CAP + 10000
-FIT_AFTER_GROW = 3_000_000
+FIT_AFTER_GROW = 2_500_000
 OVER_GROWN = GROWN_CAP + 10000
 # Remaining room under 503 is pegged. Aim at the cap; the builder trims
 # an overshoot of one payment, which stays inside that hole.

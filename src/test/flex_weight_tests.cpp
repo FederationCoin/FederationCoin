@@ -37,6 +37,8 @@ BOOST_AUTO_TEST_CASE(named_bounds)
     BOOST_CHECK_EQUAL(Consensus::MAX_FLEX_BLOCK_WEIGHT, 87841638446235ULL);
     BOOST_CHECK_EQUAL(Consensus::MAX_FLEX_BLOCK_WEIGHT, std::numeric_limits<uint64_t>::max() / 210000);
     BOOST_CHECK_EQUAL(Consensus::FULL_FIT_BUFFER_WEIGHT, 64ULL);
+    BOOST_CHECK_EQUAL(Consensus::GROW_CAP_NUM, 28ULL);
+    BOOST_CHECK_EQUAL(Consensus::GROW_CAP_DEN, 25ULL);
 }
 
 BOOST_AUTO_TEST_CASE(simple_payment_weights)
@@ -100,23 +102,28 @@ BOOST_AUTO_TEST_CASE(grow_and_shrink)
     const Consensus::GrowCapResult even{Consensus::GrowCap(2400000)};
     const Consensus::Grew* even_grew{std::get_if<Consensus::Grew>(&even)};
     BOOST_REQUIRE(even_grew);
-    BOOST_CHECK_EQUAL(even_grew->cap, 3600000ULL);
+    BOOST_CHECK_EQUAL(even_grew->cap, 2688000ULL);
 
-    const Consensus::GrowCapResult next{Consensus::GrowCap(3600000)};
+    const Consensus::GrowCapResult next{Consensus::GrowCap(2688000)};
     const Consensus::Grew* next_grew{std::get_if<Consensus::Grew>(&next)};
     BOOST_REQUIRE(next_grew);
-    BOOST_CHECK_EQUAL(next_grew->cap, 5400000ULL);
+    BOOST_CHECK_EQUAL(next_grew->cap, 3010560ULL);
 
-    const Consensus::GrowCapResult odd{Consensus::GrowCap(5)};
-    const Consensus::Grew* odd_grew{std::get_if<Consensus::Grew>(&odd)};
-    BOOST_REQUIRE(odd_grew);
-    BOOST_CHECK_EQUAL(odd_grew->cap, 7ULL);
+    const Consensus::GrowCapResult remainder{Consensus::GrowCap(26)};
+    const Consensus::Grew* remainder_grew{std::get_if<Consensus::Grew>(&remainder)};
+    BOOST_REQUIRE(remainder_grew);
+    BOOST_CHECK_EQUAL(remainder_grew->cap, 29ULL);
+
+    const Consensus::GrowCapResult third{Consensus::GrowCap(3010560)};
+    const Consensus::Grew* third_grew{std::get_if<Consensus::Grew>(&third)};
+    BOOST_REQUIRE(third_grew);
+    BOOST_CHECK_EQUAL(third_grew->cap, 3371827ULL);
 
     const Consensus::GrowCapResult ceiling{Consensus::GrowCap(Consensus::MAX_FLEX_BLOCK_WEIGHT)};
     BOOST_CHECK(std::holds_alternative<Consensus::AtCeiling>(ceiling));
     BOOST_CHECK_EQUAL(std::get<Consensus::AtCeiling>(ceiling).cap, Consensus::MAX_FLEX_BLOCK_WEIGHT);
 
-    BOOST_CHECK_EQUAL(Consensus::ShrinkCap(3600000), 2400000ULL);
+    BOOST_CHECK_EQUAL(Consensus::ShrinkCap(2688000), 2400000ULL);
     BOOST_CHECK_EQUAL(Consensus::ShrinkCap(5400000), 2700000ULL);
     BOOST_CHECK_EQUAL(Consensus::ShrinkCap(5400001), 2700000ULL);
     BOOST_CHECK_EQUAL(Consensus::ShrinkCap(2400000), 2400000ULL);
@@ -125,7 +132,7 @@ BOOST_AUTO_TEST_CASE(grow_and_shrink)
 
 BOOST_AUTO_TEST_CASE(grow_does_not_wrap)
 {
-    const uint64_t too_wide{std::numeric_limits<uint64_t>::max() / 3 + 1};
+    const uint64_t too_wide{std::numeric_limits<uint64_t>::max() / Consensus::GROW_CAP_NUM + 1};
     const Consensus::GrowCapResult overflow{Consensus::GrowCap(too_wide)};
     BOOST_CHECK(std::holds_alternative<Consensus::MultiplyWouldOverflow>(overflow));
     BOOST_CHECK_EQUAL(Consensus::DecideNextCap(too_wide, /*pegged_blocks=*/210000, /*slack_blocks=*/0, /*interval=*/210000), too_wide);
@@ -158,11 +165,11 @@ BOOST_AUTO_TEST_CASE(four_fifths_counts)
 
 BOOST_AUTO_TEST_CASE(unchanged_load_does_not_cycle)
 {
-    const uint64_t cap{5400000};
-    const uint64_t weight{1079999};
+    const uint64_t cap{3010560};
+    const uint64_t weight{500000};
     BOOST_CHECK(Consensus::Slack(weight, cap));
     const uint64_t cut{Consensus::ShrinkCap(cap)};
-    BOOST_CHECK_EQUAL(cut, 2700000ULL);
+    BOOST_CHECK_EQUAL(cut, 2400000ULL);
     BOOST_CHECK(!Consensus::Slack(weight, cut));
     BOOST_CHECK(!Consensus::Pegged(weight, cut, 0));
 
@@ -193,8 +200,8 @@ BOOST_AUTO_TEST_CASE(watermark_epoch_boundary)
     }
     BOOST_CHECK_EQUAL(mark.pegged_blocks, 120U);
     BOOST_CHECK_EQUAL(mark.slack_blocks, 0U);
-    BOOST_CHECK_EQUAL(mark.CapAfter(cap, interval), 3600000ULL);
-    BOOST_CHECK_EQUAL(Consensus::CapForBlock(cap, mark, 150, interval), 3600000ULL);
+    BOOST_CHECK_EQUAL(mark.CapAfter(cap, interval), 2688000ULL);
+    BOOST_CHECK_EQUAL(Consensus::CapForBlock(cap, mark, 150, interval), 2688000ULL);
     BOOST_CHECK_EQUAL(Consensus::CapForBlock(cap, mark, 149, interval), cap);
 
     Consensus::EpochWatermark shy;
@@ -205,10 +212,10 @@ BOOST_AUTO_TEST_CASE(watermark_epoch_boundary)
 
     Consensus::EpochWatermark quiet;
     for (int h{0}; h < 150; ++h) {
-        quiet.AddBlock(1000, 3600000, h);
+        quiet.AddBlock(1000, 2688000, h);
     }
     BOOST_CHECK_EQUAL(quiet.slack_blocks, 150U);
-    BOOST_CHECK_EQUAL(quiet.CapAfter(3600000, interval), 2400000ULL);
+    BOOST_CHECK_EQUAL(quiet.CapAfter(2688000, interval), 2400000ULL);
     BOOST_CHECK_EQUAL(quiet.CapAfter(cap, interval), cap);
 }
 
@@ -240,23 +247,23 @@ BOOST_AUTO_TEST_CASE(admit_weight_for_window)
     // MAIN / testnet: a 1024 window from genesis never reaches 210000.
     BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 0, 210000, 1024), floor);
     // One remaining MAIN boundary in the window is one GrowCap.
-    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 209000, 210000, 1024), 3600000ULL);
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 209000, 210000, 1024), 2688000ULL);
     BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 209999, 210000, 1024), floor);
 
     Consensus::EpochWatermark pegged;
     for (int h{0}; h < 168000; ++h) {
         pegged.AddBlock(floor - 502, floor, h);
     }
-    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, pegged, 209999, 210000, 1024), 3600000ULL);
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, pegged, 209999, 210000, 1024), 2688000ULL);
 
     // Regtest interval 160: the next block may already grow, then five more
     // boundaries sit in a 1024 window. Admit is not "next cap only".
-    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 0, 160, 160), 3600000ULL);
-    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 0, 160, 1024), 27337500ULL);
-    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 159, 160, 1024), 27337500ULL);
-    BOOST_CHECK_GT(Consensus::LimitsForCap(27337500ULL).compact_tx_count,
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 0, 160, 160), 2688000ULL);
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 0, 160, 1024), 4737173ULL);
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 159, 160, 1024), 4737173ULL);
+    BOOST_CHECK_GT(Consensus::LimitsForCap(4737173ULL).compact_tx_count,
                    Consensus::LimitsForCap(floor).compact_tx_count);
-    BOOST_CHECK_GT(Consensus::LimitsForCap(27337500ULL).max_transactions,
+    BOOST_CHECK_GT(Consensus::LimitsForCap(4737173ULL).max_transactions,
                    Consensus::LimitsForCap(floor).max_transactions);
 }
 
@@ -304,17 +311,17 @@ BOOST_AUTO_TEST_CASE(checked_arith_bounds)
 BOOST_AUTO_TEST_CASE(worst_case_cap_at_height)
 {
     BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(2400000, 0), 2400000ULL);
-    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(2400000, 1), 3600000ULL);
-    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(2400000, 2), 5400000ULL);
-    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(5, 1), 7ULL);
+    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(2400000, 1), 2688000ULL);
+    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(2400000, 2), 3010560ULL);
+    BOOST_CHECK_EQUAL(Consensus::ApplyGrowCapTimes(26, 1), 29ULL);
     BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(0, 210000), 2400000ULL);
     BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(-1, 210000), 2400000ULL);
     BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(1, 0), 2400000ULL);
     // 209999 / 210000 is 0 epochs (floor toward zero), so still MIN_FLEX.
     BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(209999, 210000), 2400000ULL);
-    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(210000, 210000), 3600000ULL);
-    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(210001, 210000), 3600000ULL);
-    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(420000, 210000), 5400000ULL);
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(210000, 210000), 2688000ULL);
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(210001, 210000), 2688000ULL);
+    BOOST_CHECK_EQUAL(Consensus::WorstCaseCapAtHeight(420000, 210000), 3010560ULL);
     uint64_t grown_cap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
     for (;;) {
         const Consensus::GrowCapResult grown{Consensus::GrowCap(grown_cap)};
@@ -335,9 +342,9 @@ BOOST_AUTO_TEST_CASE(receive_weight_one_grow_of_slack)
     Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
     BOOST_CHECK_EQUAL(Consensus::BlockMessageReceiveWeight(),
                       Consensus::ApplyGrowCapTimes(Consensus::MIN_FLEX_BLOCK_WEIGHT, 1));
-    Consensus::SetHeaderMaxFlex(3600000);
+    Consensus::SetHeaderMaxFlex(2688000);
     BOOST_CHECK_EQUAL(Consensus::BlockMessageReceiveWeight(),
-                      Consensus::ApplyGrowCapTimes(3600000, 1));
+                      Consensus::ApplyGrowCapTimes(2688000, 1));
     Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
 }
 

@@ -237,5 +237,31 @@ endfunction()
 
 add_all_test_targets()
 
+# Manual 5070 Ti harness, not ctest. Needs nvcc that supports sm_120
+# (CUDA 12.8+), e.g. -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.2/bin/nvcc
+option(ENABLE_FP8_BLACKWELL_KAT "Build manual RTX 50-series FP8 gym KAT (not ctest)" OFF)
+if(ENABLE_FP8_BLACKWELL_KAT)
+  enable_language(CUDA)
+  find_package(CUDAToolkit REQUIRED)
+  add_executable(fp8_blackwell_kat
+    manual/fp8_blackwell_kat.cpp
+    manual/fp8_blackwell_kat.cu
+  )
+  set_target_properties(fp8_blackwell_kat PROPERTIES
+    CUDA_ARCHITECTURES 120
+    CUDA_STANDARD 17
+    CUDA_STANDARD_REQUIRED ON
+    CXX_STANDARD 20
+  )
+  target_link_libraries(fp8_blackwell_kat
+    PRIVATE
+      core_interface
+      bitcoin_consensus
+      bitcoin_crypto
+      bitcoin_util
+      CUDA::cudart
+  )
+endif()
+
 make_libbitcoinconsensus_dll_available(test_bitcoin)
 install_binary_component(test_bitcoin)

@@ -153,7 +153,6 @@ target_link_libraries(bitcoin_consensus
     mldsa87
     mldsa44
 )
-set_source_files_properties(consensus/work/fp8_gym.cpp PROPERTIES COMPILE_OPTIONS "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-ffp-contract=off>")
 
 if(WITH_ZMQ)
   add_subdirectory(zmq)

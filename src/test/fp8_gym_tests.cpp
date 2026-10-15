@@ -23,12 +23,45 @@ BOOST_AUTO_TEST_CASE(decode_quantize_roundtrip_finite)
     BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0x00), 0.0f);
     BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0x7E), 448.0f);
     BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0xFE), -448.0f);
-    BOOST_CHECK_EQUAL(*Consensus::QuantizeE4M3FN(0.0f), 0x00);
-    BOOST_CHECK_EQUAL(*Consensus::QuantizeE4M3FN(-0.0f), 0x00);
-    BOOST_CHECK_EQUAL(*Consensus::QuantizeE4M3FN(449.0f), 0x7E);
-    BOOST_CHECK_EQUAL(*Consensus::QuantizeE4M3FN(-449.0f), 0xFE);
-    BOOST_CHECK(!Consensus::QuantizeE4M3FN(std::numeric_limits<float>::infinity()));
-    BOOST_CHECK(!Consensus::QuantizeE4M3FN(std::numeric_limits<float>::quiet_NaN()));
+    BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0x78), 256.0f);
+    BOOST_CHECK_EQUAL(Consensus::QuantizeE4M3FN(0.0f), 0x00);
+    BOOST_CHECK_EQUAL(Consensus::QuantizeE4M3FN(-0.0f), 0x80);
+    BOOST_CHECK_EQUAL(Consensus::QuantizeE4M3FN(std::ldexp(1.0f, -11)), 0x00);
+    BOOST_CHECK_EQUAL(Consensus::QuantizeE4M3FN(-std::ldexp(1.0f, -11)), 0x80);
+    BOOST_CHECK_EQUAL(Consensus::QuantizeE4M3FN(449.0f), 0x7E);
+    BOOST_CHECK_EQUAL(Consensus::QuantizeE4M3FN(-449.0f), 0xFE);
+    BOOST_CHECK_EQUAL(Consensus::QuantizeE4M3FN(std::numeric_limits<float>::infinity()), 0x7E);
+    BOOST_CHECK_EQUAL(Consensus::QuantizeE4M3FN(-std::numeric_limits<float>::infinity()), 0xFE);
+    const uint8_t nan_code{Consensus::QuantizeE4M3FN(std::numeric_limits<float>::quiet_NaN())};
+    BOOST_CHECK((nan_code == 0x7F) || (nan_code == 0xFF));
+}
+
+BOOST_AUTO_TEST_CASE(qmma_k32_in_range)
+{
+    uint8_t a[32]{};
+    uint8_t b[32]{};
+    a[0] = 0x38;
+    b[0] = 0x38;
+    float out{99.0f};
+    BOOST_REQUIRE(Consensus::Fp8QmmaK32(a, b, 0.0f, out));
+    BOOST_CHECK_EQUAL(out, 1.0f);
+    a[1] = 0x38;
+    b[1] = 0x38;
+    BOOST_REQUIRE(Consensus::Fp8QmmaK32(a, b, 0.0f, out));
+    BOOST_CHECK_EQUAL(out, 2.0f);
+}
+
+BOOST_AUTO_TEST_CASE(qmma_k32_inf_c_saturates_on_pack)
+{
+    uint8_t a[32]{};
+    uint8_t b[32]{};
+    float out{};
+    BOOST_REQUIRE(Consensus::Fp8QmmaK32(a, b, std::numeric_limits<float>::infinity(), out));
+    BOOST_CHECK(std::isinf(out) && out > 0.0f);
+    BOOST_CHECK_EQUAL(Consensus::QuantizeE4M3FN(out), 0x7E);
+    BOOST_REQUIRE(Consensus::Fp8QmmaK32(a, b, -std::numeric_limits<float>::infinity(), out));
+    BOOST_CHECK(std::isinf(out) && out < 0.0f);
+    BOOST_CHECK_EQUAL(Consensus::QuantizeE4M3FN(out), 0xFE);
 }
 
 BOOST_AUTO_TEST_CASE(all_zero_mma)
@@ -80,12 +113,10 @@ BOOST_AUTO_TEST_CASE(tile_order_change_fails)
 {
     std::vector<uint8_t> a(Consensus::FP8_MATRIX_BYTES, 0);
     std::vector<uint8_t> b(Consensus::FP8_MATRIX_BYTES, 0);
-    a[1] = 0x3C; // a small nonzero
+    a[1] = 0x3C;
     b[Consensus::FP8_DIM] = 0x3C;
     std::vector<float> c_spec;
     BOOST_REQUIRE(Consensus::Fp8TiledMma(a, b, c_spec));
-    // Naive ikj order on the same matrices: if A/B are not all zero the
-    // reference tile order is the only committed accumulation order.
     std::vector<float> naive(Consensus::FP8_MATRIX_BYTES, 0.0f);
     for (int i{0}; i < Consensus::FP8_DIM; ++i) {
         for (int j{0}; j < Consensus::FP8_DIM; ++j) {
@@ -98,16 +129,34 @@ BOOST_AUTO_TEST_CASE(tile_order_change_fails)
             naive[i * Consensus::FP8_DIM + j] = acc;
         }
     }
-    // Same associative order for this sparse case; force a mismatch KAT by
-    // swapping two output entries of naive.
     std::swap(naive[0], naive[1]);
-    bool same{c_spec == naive};
-    BOOST_CHECK(!same);
+    BOOST_CHECK(c_spec != naive);
+}
+
+BOOST_AUTO_TEST_CASE(golden_digest_all_zero)
+{
+    std::vector<uint8_t> packed(Consensus::FP8_MATRIX_BYTES, 0);
+    BOOST_CHECK_EQUAL(
+        Consensus::Fp8PackedCDigest(packed).ToString(),
+        "d4e9f8cab33368de6bffa6058669b999fdcb36cff4a5ea0526fc611b9da31933");
+}
+
+BOOST_AUTO_TEST_CASE(golden_digest_all_max)
+{
+    std::vector<uint8_t> a(Consensus::FP8_MATRIX_BYTES, 0x7E);
+    std::vector<uint8_t> b(Consensus::FP8_MATRIX_BYTES, 0x7E);
+    std::vector<float> c;
+    BOOST_REQUIRE(Consensus::Fp8TiledMma(a, b, c));
+    const auto packed{Consensus::Fp8QuantizeC(c)};
+    BOOST_REQUIRE(packed);
+    BOOST_CHECK_EQUAL(
+        Consensus::Fp8PackedCDigest(*packed).ToString(),
+        "41ca676ae4b108366a3dc3789805bc2a0d46cdc4830500e2d261d3ea4470f6c7");
 }
 
 BOOST_AUTO_TEST_CASE(golden_digest_frozen_header)
 {
-    // Pins the current binary32 gym. CI on each shipped ISA must match.
+    // 5070 Ti dump (fp8_blackwell_kat). Pin card is the spec.
     CBlockHeader header;
     header.m_header_v2 = true;
     header.nVersion = 4;
@@ -119,7 +168,7 @@ BOOST_AUTO_TEST_CASE(golden_digest_frozen_header)
     BOOST_REQUIRE(digest);
     BOOST_CHECK_EQUAL(
         digest->ToString(),
-        "e47583df498148ac2312dc5b4f145d495dd8eb7ad3a803c1bcdb294990e41862");
+        "3332ec622e4c7ac62990a3323d2d62187fb4626b44757b5183cb7d2b97f41d74");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

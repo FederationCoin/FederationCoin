@@ -2807,7 +2807,7 @@ static void CommitFlexWatermark(CBlockIndex& index, const FlexWatermarkComputed&
 }
 
 /** Gossip admit bound from the active tip only. Background assumeutxo must not publish. */
-static void PublishActiveBlockAdmitLimit(const Chainstate& chainstate)
+static void PublishActiveBlockAdmitLimit(const Chainstate& chainstate) EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
 {
     AssertLockHeld(::cs_main);
     if (chainstate.GetRole() == ChainstateRole::BACKGROUND) return;
@@ -4677,15 +4677,18 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
                                  strprintf("Transaction check failed (tx hash %s) %s", tx->GetHash().ToString(), tx_state.GetDebugMessage()));
         }
     }
-    unsigned int nSigOps = 0;
-    for (const auto& tx : block.vtx)
-    {
+    uint64_t nSigOps{0};
+    for (const auto& tx : block.vtx) {
         nSigOps += GetLegacySigOpCount(*tx);
     }
     const int64_t sanity_sigops{limits.sigops_cost};
-    if (nSigOps > std::numeric_limits<uint64_t>::max() / WITNESS_SCALE_FACTOR ||
-        static_cast<int64_t>(nSigOps) * WITNESS_SCALE_FACTOR > sanity_sigops)
+    // Widen before the cap multiply. unsigned int vs uint64_max/4 is always false
+    // on every host; clang -Wtautological-constant-out-of-range-compare -Werror.
+    if (sanity_sigops < 0 ||
+        nSigOps > std::numeric_limits<uint64_t>::max() / WITNESS_SCALE_FACTOR ||
+        nSigOps * WITNESS_SCALE_FACTOR > static_cast<uint64_t>(sanity_sigops)) {
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "out-of-bounds SigOpCount");
+    }
 
     if (fCheckPOW && fCheckMerkleRoot)
         block.fChecked = true;
@@ -4914,6 +4917,7 @@ static bool ContextualCheckBlockHeaderVolatile(const CBlockHeader& block, BlockV
  *  Note that -reindex-chainstate skips the validation that happens here!
  */
 static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& state, const ChainstateManager& chainman, const CBlockIndex* pindexPrev)
+    EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
 {
     const int nHeight = pindexPrev == nullptr ? 0 : pindexPrev->nHeight + 1;
 
@@ -4977,12 +4981,13 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
         if (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > limits.serialized_size) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
         }
-        unsigned int legacy_sigops{0};
+        uint64_t legacy_sigops{0};
         for (const auto& tx : block.vtx) {
             legacy_sigops += GetLegacySigOpCount(*tx);
         }
-        if (legacy_sigops > std::numeric_limits<uint64_t>::max() / WITNESS_SCALE_FACTOR ||
-            static_cast<uint64_t>(legacy_sigops) * WITNESS_SCALE_FACTOR > static_cast<uint64_t>(limits.sigops_cost)) {
+        if (limits.sigops_cost < 0 ||
+            legacy_sigops > std::numeric_limits<uint64_t>::max() / WITNESS_SCALE_FACTOR ||
+            legacy_sigops * WITNESS_SCALE_FACTOR > static_cast<uint64_t>(limits.sigops_cost)) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "out-of-bounds SigOpCount");
         }
         if (block_weight < 0 || static_cast<uint64_t>(block_weight) > flex_cap) {

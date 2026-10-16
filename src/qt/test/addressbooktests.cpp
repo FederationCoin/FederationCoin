@@ -16,6 +16,7 @@
 #include <qt/qvalidatedlineedit.h>
 #include <qt/walletmodel.h>
 
+#include <addresstype.h>
 #include <key.h>
 #include <key_io.h>
 #include <wallet/wallet.h>
@@ -84,11 +85,12 @@ void TestAddAddressesToSendBook(interfaces::Node& node)
         wallet->SetupDescriptorScriptPubKeyMans();
     }
 
-    auto build_address = [&wallet]() {
+    auto build_address = []() {
+        // Default wallet type is Dilithium 87. GetDestinationForKey on a secp
+        // pubkey returns CNoDestination for that type, so EncodeDestination is empty.
+        // This test is address-book labels, not spend kind.
         CKey key = GenerateRandomKey();
-        CTxDestination dest(GetDestinationForKey(
-            key.GetPubKey(), wallet->m_default_address_type));
-
+        CTxDestination dest{WitnessV0KeyHash(key.GetPubKey())};
         return std::make_pair(dest, QString::fromStdString(EncodeDestination(dest)));
     };
 

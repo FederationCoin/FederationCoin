@@ -184,6 +184,9 @@ def get_feerate_into_mempool(node, kB):
 class EstimateFeeTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 3
+        # HTTP timeout is rpc_timeout/2. ML-DSA-44 batch sendtx can exceed
+        # 30s when --ci -j 4 shares the machine.
+        self.rpc_timeout = 240
         # whitelist peers to speed up tx relay / mempool sync
         self.noban_tx_relay = True
         self.extra_args = [

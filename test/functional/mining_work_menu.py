@@ -24,6 +24,9 @@ class MiningWorkMenuTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 1
         self.extra_args = [["-con_noretarg=0"]]
+        # HTTP timeout is rpc_timeout/2. Kind-2 gym generate can exceed 30s
+        # when --ci -j 4 shares the machine.
+        self.rpc_timeout = 240
 
     def gbt(self, kind="blake2b"):
         return self.nodes[0].getblocktemplate({

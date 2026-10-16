@@ -1,9 +1,7 @@
 # Federation spend (Dilithium outputs)
 
 This is the **wire**: output script bytes, witness stack, sizes, and
-what the node accepts. [Epic 43](../../docs/epics/43-dilithium-script-declared.md)
-is the Script-declared design. [Epic 21](../../docs/epics/21-quantum-flexibility.md)
-is the product story. Draft labels until named. Dummy MAIN unlaunched.
+what the node accepts.
 
 Dilithium outputs are **Bitcoin Script** in `scriptPubKey`. Kind is
 `(algorithm, param)` looked up next to `OP_CHECKMODERNSIG` or
@@ -11,8 +9,8 @@ Dilithium outputs are **Bitcoin Script** in `scriptPubKey`. Kind is
 Native SegWit (BIP 141 P2WPKH, v0/20, secp256k1) stays a witness
 program. Do not call Dilithium “SegWit.” P2WSH stays rejected.
 
-C we call for 44/87, and CC0/public-domain terms:
-[mldsa-libraries.md](../../docs/mldsa-libraries.md). Not this layout.
+C for 44/87 is the in-tree gitlinks `src/crypto/mldsa44` and
+`src/crypto/mldsa87`. Not this layout.
 
 Hex in this file and in the vector JSON is **stored-byte order**
 (byte 0 first), the same as `HexStr`. It is **not** `uint256::GetHex()`,

@@ -24,6 +24,15 @@
 using node::BlockAssembler;
 using node::NodeContext;
 
+CScript FuzzPayableCoinbaseScript(uint8_t tag)
+{
+    Consensus::MlDsa44Keypair coinbase_key;
+    std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> coinbase_seed{};
+    coinbase_seed[31] = tag == 0 ? 1 : tag;
+    assert(Consensus::MlDsa44Keygen(coinbase_seed, coinbase_key));
+    return BuildModernSingle(Consensus::MlDsa44SingleKeyProgram(coinbase_key.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_44);
+}
+
 COutPoint generatetoaddress(const NodeContext& node, const std::string& address)
 {
     const auto dest = DecodeDestination(address);

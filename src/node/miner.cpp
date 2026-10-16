@@ -26,6 +26,7 @@
 #include <policy/policy.h>
 #include <pow.h>
 #include <primitives/transaction.h>
+#include <util/check.h>
 #include <util/moneystr.h>
 #include <util/time.h>
 #include <validation.h>
@@ -98,7 +99,11 @@ BlockCreateOptions BlockCreateOptions::Clamped() const
     CHECK_NONFATAL(static_cast<uint64_t>(options.block_reserved_size) <= size_ceiling);
     CHECK_NONFATAL(static_cast<uint64_t>(options.block_reserved_weight) <= weight_ceiling);
     CHECK_NONFATAL(options.block_reserved_weight >= MINIMUM_BLOCK_RESERVED_WEIGHT);
-    CHECK_NONFATAL(options.coinbase_output_max_additional_sigops <= Consensus::LimitsForCap(weight_ceiling).sigops_cost);
+    // LimitsForCap::sigops_cost is int64_t (cap/50 fits; see SIGOPS_WEIGHT_DIVISOR).
+    // coinbase_output_max_additional_sigops is size_t. Compare unsigned after the cap is >= 0.
+    const int64_t sigops_cap{Consensus::LimitsForCap(weight_ceiling).sigops_cost};
+    CHECK_NONFATAL(sigops_cap >= 0);
+    CHECK_NONFATAL(static_cast<uint64_t>(options.coinbase_output_max_additional_sigops) <= static_cast<uint64_t>(sigops_cap));
     if (options.nBlockMaxSize < options.block_reserved_size) {
         options.nBlockMaxSize = options.block_reserved_size;
     }
@@ -281,7 +286,12 @@ bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost
     if (nBlockWeight + WITNESS_SCALE_FACTOR * packageSize >= m_effective_max_weight) {
         return false;
     }
-    if (nBlockSigOpsCost + packageSigOpsCost >= Consensus::LimitsForCap(m_effective_max_weight).sigops_cost) {
+    const int64_t sigops_cap{Consensus::LimitsForCap(m_effective_max_weight).sigops_cost};
+    Assert(sigops_cap >= 0);
+    Assert(packageSigOpsCost >= 0);
+    Assert(nBlockSigOpsCost <= std::numeric_limits<uint64_t>::max() - static_cast<uint64_t>(packageSigOpsCost));
+    const uint64_t used{nBlockSigOpsCost + static_cast<uint64_t>(packageSigOpsCost)};
+    if (used >= static_cast<uint64_t>(sigops_cap)) {
         return false;
     }
     return true;

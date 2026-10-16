@@ -30,9 +30,9 @@ struct E4Term {
 
 bool ParseE4M3FN(uint8_t b, E4Term& t)
 {
-    const unsigned s{(b >> 7) & 1};
-    const unsigned e{(b >> 3) & 15};
-    const unsigned m{b & 7};
+    const unsigned s{static_cast<unsigned>((b >> 7) & 1)};
+    const unsigned e{static_cast<unsigned>((b >> 3) & 15)};
+    const unsigned m{static_cast<unsigned>(b & 7)};
     if (e == 15 && m == 7) return false;
     t.neg = s != 0;
     if (e == 0 && m == 0) {

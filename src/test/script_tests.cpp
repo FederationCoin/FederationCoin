@@ -520,6 +520,7 @@ public:
         return *this;
     }
 
+#ifdef UPDATE_JSON_TESTS
     UniValue GetJSON()
     {
         DoPush();
@@ -539,11 +540,7 @@ public:
         array.push_back(comment);
         return array;
     }
-
-    std::string GetComment() const
-    {
-        return comment;
-    }
+#endif
 };
 
 #ifdef UPDATE_JSON_TESTS

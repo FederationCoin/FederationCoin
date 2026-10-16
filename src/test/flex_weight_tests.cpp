@@ -79,6 +79,22 @@ BOOST_AUTO_TEST_CASE(mul128_table)
     ExpectProduct(Consensus::MAX_FLEX_BLOCK_WEIGHT, 210000, 0, 18446744073709350000ULL);
 }
 
+BOOST_AUTO_TEST_CASE(wrapping_u64)
+{
+    const uint64_t max64{std::numeric_limits<uint64_t>::max()};
+    BOOST_CHECK_EQUAL(Consensus::WrappingAddU64(0, 0), 0);
+    BOOST_CHECK_EQUAL(Consensus::WrappingAddU64(1, 2), 3);
+    BOOST_CHECK_EQUAL(Consensus::WrappingAddU64(max64, 0), max64);
+    BOOST_CHECK_EQUAL(Consensus::WrappingAddU64(max64, 1), 0);
+    BOOST_CHECK_EQUAL(Consensus::WrappingAddU64(max64, 2), 1);
+    BOOST_CHECK_EQUAL(Consensus::WrappingAddU64(15403900885539315214ULL, 10288079424817030725ULL),
+                      7245236236646794323ULL);
+    BOOST_CHECK_EQUAL(Consensus::WrappingSubU64(5, 3), 2);
+    BOOST_CHECK_EQUAL(Consensus::WrappingSubU64(0, 0), 0);
+    BOOST_CHECK_EQUAL(Consensus::WrappingSubU64(0, 1), max64);
+    BOOST_CHECK_EQUAL(Consensus::WrappingSubU64(1, 2), max64);
+}
+
 BOOST_AUTO_TEST_CASE(mulge_sides)
 {
     const uint64_t max64{std::numeric_limits<uint64_t>::max()};

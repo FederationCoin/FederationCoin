@@ -18,6 +18,23 @@ inline constexpr bool CheckedAdd(uint64_t a, uint64_t b, uint64_t& sum)
     return true;
 }
 
+/** Low 64 bits of a + b. Modular 2^64. Goldilocks reduction uses wrap, not fail.
+ *  Does not evaluate a overflowing uint64_t add (UBSan unsigned-integer-overflow). */
+inline constexpr uint64_t WrappingAddU64(uint64_t a, uint64_t b)
+{
+    constexpr uint64_t max{std::numeric_limits<uint64_t>::max()};
+    if (b > max - a) return b - (max - a) - 1;
+    return a + b;
+}
+
+/** Low 64 bits of a - b. Modular 2^64. Same UBSan constraint as WrappingAddU64. */
+inline constexpr uint64_t WrappingSubU64(uint64_t a, uint64_t b)
+{
+    constexpr uint64_t max{std::numeric_limits<uint64_t>::max()};
+    if (b > a) return max - (b - a) + 1;
+    return a - b;
+}
+
 /** True when a * b fits in uint64_t. On failure, product is unchanged.
  *  This is not the 128-bit multiply. Use Mul128 when the product is only compared. */
 inline bool CheckedMul(uint64_t a, uint64_t b, uint64_t& product)

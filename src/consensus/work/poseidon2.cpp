@@ -4,6 +4,7 @@
 
 #include <consensus/work/poseidon2.h>
 
+#include <consensus/checked_arith.h>
 #include <consensus/flex_weight.h>
 #include <crypto/blake2b.h>
 #include <crypto/common.h>
@@ -33,9 +34,9 @@ struct Goldilocks {
 
 Goldilocks operator+(Goldilocks a, Goldilocks b)
 {
-    const uint64_t sum{a.v + b.v};
+    const uint64_t sum{WrappingAddU64(a.v, b.v)};
     const bool over{sum < a.v};
-    return Goldilocks::from_raw(over ? sum + EPSILON : sum);
+    return Goldilocks::from_raw(over ? WrappingAddU64(sum, EPSILON) : sum);
 }
 
 Goldilocks operator*(Goldilocks a, Goldilocks b)
@@ -46,14 +47,14 @@ Goldilocks operator*(Goldilocks a, Goldilocks b)
     const uint64_t x_hi_hi{x_hi >> 32};
     const uint64_t x_hi_lo{x_hi & EPSILON};
     const bool borrow{x_lo < x_hi_hi};
-    uint64_t t0{x_lo - x_hi_hi};
+    uint64_t t0{WrappingSubU64(x_lo, x_hi_hi)};
     if (borrow) {
-        t0 -= EPSILON;
+        t0 = WrappingSubU64(t0, EPSILON);
     }
     const uint64_t t1{x_hi_lo * EPSILON};
-    const uint64_t t2{t0 + t1};
+    const uint64_t t2{WrappingAddU64(t0, t1)};
     const bool carry{t2 < t0};
-    return Goldilocks::from_raw(carry ? t2 + EPSILON : t2);
+    return Goldilocks::from_raw(carry ? WrappingAddU64(t2, EPSILON) : t2);
 }
 
 Goldilocks Double(Goldilocks x) { return x + x; }

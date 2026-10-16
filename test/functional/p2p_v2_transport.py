@@ -28,13 +28,13 @@ class V2TransportTest(BitcoinTestFramework):
         self.disconnect_nodes(2, 3)
         self.disconnect_nodes(3, 4)
 
-        # Encrypted P2P advertises V3 from genesis. The V2 bit drops when a
-        # v2 packet cannot name a block (regtest window admit).
+        # Encrypted P2P advertises V3 from genesis. V2 stays on while a v2
+        # packet can still name a block (regtest MIN_FLEX fits BIP324).
         for i in range(2):
             network_info = self.nodes[i].getnetworkinfo()
-            assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V2, 0)
+            assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V2, NODE_P2P_V2)
             assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V3, NODE_P2P_V3)
-            assert "P2P_V2" not in network_info["localservicesnames"]
+            assert "P2P_V2" in network_info["localservicesnames"]
             assert "P2P_V3" in network_info["localservicesnames"]
         for i in range(2, self.num_nodes):
             network_info = self.nodes[i].getnetworkinfo()

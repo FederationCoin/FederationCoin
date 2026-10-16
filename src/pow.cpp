@@ -80,10 +80,13 @@ bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t heig
     if (f_negative || new_target == 0 || f_overflow) return false;
 
     if (height % interval == 0) {
-        // ScaleAfterWindow clamps span to [expected/4, expected*4], so S
-        // (and therefore the compact target at fixed T0) moves by at most 4x.
-        if (new_target > old_target * 4) return false;
-        if (old_target > new_target * 4) return false;
+        // ScaleAfterWindow clamps span to [expected/k, expected*k], so S
+        // (and therefore the compact target at fixed T0) moves by at most k.
+        static constexpr uint32_t kRetargetFactor{4};
+        Assert(old_target.bits() <= 256 - 2);
+        Assert(new_target.bits() <= 256 - 2);
+        if (new_target > old_target * kRetargetFactor) return false;
+        if (old_target > new_target * kRetargetFactor) return false;
         return true;
     }
     return old_nbits == new_nbits;

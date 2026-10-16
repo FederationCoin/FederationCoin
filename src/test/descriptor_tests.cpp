@@ -1151,16 +1151,19 @@ BOOST_AUTO_TEST_CASE(mldsa_expand_is_public_and_cached)
     BOOST_REQUIRE(parsed[0]->Expand(0, keys, scripts, out, &cache));
     BOOST_REQUIRE_EQUAL(scripts.size(), 1U);
     BOOST_CHECK(out.keys.empty());
+    BOOST_CHECK(out.mldsa_seeds.empty());
 
     FlatSigningProvider priv;
     parsed[0]->ExpandPrivate(0, keys, priv);
     BOOST_CHECK_EQUAL(priv.keys.size(), 1U);
+    BOOST_REQUIRE_EQUAL(priv.mldsa_seeds.size(), 1U);
 
     FlatSigningProvider from_cache;
     std::vector<CScript> cached_scripts;
     BOOST_REQUIRE(parsed[0]->ExpandFromCache(0, cache, cached_scripts, from_cache));
     BOOST_CHECK(scripts == cached_scripts);
     BOOST_CHECK(from_cache.keys.empty());
+    BOOST_CHECK(from_cache.mldsa_seeds.empty());
 
     const std::string desc44{"mldsa(" + EncodeSecret(key) + ")"};
     FlatSigningProvider keys44;
@@ -1196,12 +1199,16 @@ BOOST_AUTO_TEST_CASE(mldsapolicy_expand_and_exact_t)
     DescriptorCache cache;
     BOOST_REQUIRE(parsed[0]->Expand(0, keys, scripts, out, &cache));
     BOOST_REQUIRE_EQUAL(scripts.size(), 1U);
+    BOOST_CHECK(out.mldsa_seeds.empty());
     const auto policy{MatchModernPolicy(scripts[0])};
     BOOST_REQUIRE(policy);
     BOOST_REQUIRE(policy->kind);
     BOOST_CHECK_EQUAL(policy->threshold, 2);
     BOOST_CHECK_EQUAL(policy->hashes.size(), 3U);
     BOOST_CHECK(IsKnownModernSigTemplate(scripts[0]));
+    FlatSigningProvider priv;
+    parsed[0]->ExpandPrivate(0, keys, priv);
+    BOOST_CHECK_EQUAL(priv.mldsa_seeds.size(), 3U);
 
     FlatSigningProvider from_cache;
     std::vector<CScript> cached_scripts;

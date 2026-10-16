@@ -264,7 +264,11 @@ bool IsKnownModernSigTemplate(const CScript& script)
 {
     const auto parsed{ParseModernSig(script)};
     if (!parsed) return false;
-    return std::visit([](const auto& p) { return p.kind != nullptr; }, *parsed);
+    return std::visit([](const auto& p) {
+        if (!p.kind) return false;
+        if (p.algorithm != ALGO_DILITHIUM) return false;
+        return p.param == PARAM_DILITHIUM_44 || p.param == PARAM_DILITHIUM_87;
+    }, *parsed);
 }
 
 CScript BuildModernSingle(const uint256& fingerprint, int32_t algorithm, int32_t param)

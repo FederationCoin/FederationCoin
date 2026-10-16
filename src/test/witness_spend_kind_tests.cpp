@@ -6,6 +6,8 @@
 #include <consensus/mldsa44_spend.h>
 #include <consensus/mldsa87_spend.h>
 #include <consensus/secp_spend.h>
+#include <hash.h>
+#include <key.h>
 #include <policy/policy.h>
 #include <policy/witness_spend_kind.h>
 #include <primitives/transaction.h>
@@ -137,10 +139,16 @@ BOOST_AUTO_TEST_CASE(iswitnessstandard_accepts_legal_87_layout)
 
 BOOST_AUTO_TEST_CASE(p2wpkh_skips_p2wsh_caps)
 {
+    CKey key;
+    key.MakeNewKey(/*fCompressed=*/true);
+    const CPubKey pub{key.GetPubKey()};
+    const uint256 sighash{uint256::ONE};
+    std::vector<unsigned char> signature;
+    BOOST_REQUIRE(key.Sign(sighash, signature));
+    signature.push_back(SIGHASH_ALL | SIGHASH_UNIFIED);
     CTxIn txin;
-    txin.scriptWitness.stack.push_back(Bytes(Consensus::BIP66_DER_SIGHASH_SIZE_MAX, 0x30));
-    txin.scriptWitness.stack.back().back() = SIGHASH_ALL | SIGHASH_UNIFIED;
-    txin.scriptWitness.stack.push_back(Bytes(CPubKey::COMPRESSED_SIZE, 0x03));
+    txin.scriptWitness.stack.push_back(signature);
+    txin.scriptWitness.stack.emplace_back(pub.begin(), pub.end());
     std::string reason;
     BOOST_CHECK(ApplyPolicyWitnessKind(PolicyWitnessKind::P2WPKH, txin, false, "", reason, empty_ignore_rejects));
 }

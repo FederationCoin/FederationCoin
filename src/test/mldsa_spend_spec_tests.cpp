@@ -212,6 +212,27 @@ BOOST_AUTO_TEST_CASE(frozen_single_and_policy_programs)
         hashes87.push_back(HashFromHex(hashes87_json[i].get_str()));
     }
     BOOST_CHECK_EQUAL(HexStr(*Consensus::MlDsa87PolicyProgram(2, hashes87)), p87["scriptPubKey"].get_str());
+
+    const UniValue& matrix{vec["policy_matrix"]};
+    std::vector<uint256> twelve;
+    twelve.reserve(12);
+    const UniValue& hashes12{matrix["hashes_12"].get_array()};
+    BOOST_REQUIRE_EQUAL(hashes12.size(), 12U);
+    for (size_t i{0}; i < hashes12.size(); ++i) {
+        twelve.push_back(HashFromHex(hashes12[i].get_str()));
+    }
+    auto slice = [&](int n) {
+        return std::vector<uint256>(twelve.begin(), twelve.begin() + n);
+    };
+    BOOST_CHECK_EQUAL(HexStr(*Consensus::MlDsa44PolicyProgram(1, slice(2))), matrix["1of2_meet"].get_str());
+    BOOST_CHECK_EQUAL(HexStr(*Consensus::MlDsa44PolicyProgram(2, slice(2))), matrix["1of2_miss"].get_str());
+    BOOST_CHECK_EQUAL(HexStr(*Consensus::MlDsa44PolicyProgram(3, slice(5))), matrix["3of5_meet"].get_str());
+    BOOST_CHECK_EQUAL(HexStr(*Consensus::MlDsa44PolicyProgram(2, slice(5))), matrix["3of5_miss"].get_str());
+    BOOST_CHECK_EQUAL(HexStr(*Consensus::MlDsa44PolicyProgram(11, slice(12))), matrix["11of12_meet"].get_str());
+    BOOST_CHECK_EQUAL(HexStr(*Consensus::MlDsa44PolicyProgram(12, slice(12))), matrix["11of12_miss"].get_str());
+    BOOST_CHECK_EQUAL(HexStr(*Consensus::MlDsa44PolicyProgram(12, slice(12))), matrix["12of12_meet"].get_str());
+    BOOST_CHECK_EQUAL(HexStr(*Consensus::MlDsa44PolicyProgram(11, slice(12))), matrix["12of12_miss"].get_str());
+    BOOST_CHECK_EQUAL(matrix["11of12_meet"].get_str().size() / 2, DILITHIUM_POLICY_SCRIPT_MAX);
 }
 
 BOOST_AUTO_TEST_CASE(policy_bounds_and_sort)

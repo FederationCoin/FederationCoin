@@ -57,14 +57,25 @@ std::optional<PolicyWitnessKind> MatchPolicyWitnessKind(const CScript& scriptPub
 }
 
 bool ApplyPolicyWitnessKind(PolicyWitnessKind kind,
-                            const CTxIn&,
+                            const CTxIn& txin,
                             bool,
                             const std::string& reason_prefix,
                             std::string& out_reason,
                             const ignore_rejects_type& ignore_rejects)
 {
     switch (kind) {
-    case PolicyWitnessKind::P2WPKH:
+    case PolicyWitnessKind::P2WPKH: {
+        const auto& stack = txin.scriptWitness.stack;
+        if (stack.empty() ||
+            !CheckSignatureEncoding(stack[0],
+                                    SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC | SCRIPT_VERIFY_UNIFIED_SIGHASH,
+                                    nullptr)) {
+            if (RejectIfNotIgnored(out_reason, "low_s", reason_prefix, ignore_rejects)) {
+                return false;
+            }
+        }
+        return true;
+    }
     case PolicyWitnessKind::MlDsa44:
     case PolicyWitnessKind::MlDsa87:
         return true;

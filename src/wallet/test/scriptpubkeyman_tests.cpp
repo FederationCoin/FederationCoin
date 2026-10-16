@@ -5,6 +5,7 @@
 #include <key.h>
 #include <key_io.h>
 #include <outputtype.h>
+#include <script/modern_sig.h>
 #include <test/util/setup_common.h>
 #include <script/solver.h>
 #include <wallet/crypter.h>
@@ -244,16 +245,41 @@ BOOST_FIXTURE_TEST_CASE(dilithium_locked_providers_have_no_keys, TestingSetup)
     const CTxDestination dest87{ProductReceiveDest(*wallet, OutputType::DILITHIUM87)};
     const CTxDestination dest44{ProductReceiveDest(*wallet, OutputType::DILITHIUM44)};
     wallet->Lock();
-    LOCK(wallet->cs_wallet);
     for (const auto& dest : {dest87, dest44}) {
         const CScript script{GetScriptForDestination(dest)};
+        const auto parsed{MatchModernSingle(script)};
+        BOOST_REQUIRE(parsed);
+        std::vector<unsigned char> seed;
+        {
+            LOCK(wallet->cs_wallet);
+            const auto mans{wallet->GetScriptPubKeyMans(script)};
+            BOOST_REQUIRE_EQUAL(mans.size(), 1U);
+            auto* spkm{dynamic_cast<DescriptorScriptPubKeyMan*>(*mans.begin())};
+            BOOST_REQUIRE(spkm);
+            auto pub{spkm->GetSigningProviderForScript(script, /*include_private=*/false)};
+            BOOST_REQUIRE(pub);
+            BOOST_CHECK(pub->keys.empty());
+            BOOST_CHECK(!pub->GetMldsaSeed(parsed->fingerprint, seed));
+            auto priv_locked{spkm->GetSigningProviderForScript(script, /*include_private=*/true)};
+            BOOST_REQUIRE(priv_locked);
+            BOOST_CHECK(!priv_locked->GetMldsaSeed(parsed->fingerprint, seed));
+        }
+    }
+    BOOST_REQUIRE(wallet->Unlock(pass));
+    for (const auto& dest : {dest87, dest44}) {
+        const CScript script{GetScriptForDestination(dest)};
+        const auto parsed{MatchModernSingle(script)};
+        BOOST_REQUIRE(parsed);
+        LOCK(wallet->cs_wallet);
         const auto mans{wallet->GetScriptPubKeyMans(script)};
         BOOST_REQUIRE_EQUAL(mans.size(), 1U);
         auto* spkm{dynamic_cast<DescriptorScriptPubKeyMan*>(*mans.begin())};
         BOOST_REQUIRE(spkm);
-        auto prov{spkm->GetSigningProviderForScript(script, /*include_private=*/false)};
-        BOOST_REQUIRE(prov);
-        BOOST_CHECK(prov->keys.empty());
+        auto priv{spkm->GetSigningProviderForScript(script, /*include_private=*/true)};
+        BOOST_REQUIRE(priv);
+        std::vector<unsigned char> seed;
+        BOOST_CHECK(priv->GetMldsaSeed(parsed->fingerprint, seed));
+        BOOST_CHECK_EQUAL(seed.size(), 32U);
     }
 }
 

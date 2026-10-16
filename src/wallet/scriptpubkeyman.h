@@ -228,6 +228,9 @@ public:
     virtual bool HavePrivateKeys() const { return false; }
     virtual bool HaveCryptedKeys() const { return false; }
 
+    /** Drop cached Dilithium seeds. CWallet::Lock() calls this after clearing the master key. */
+    virtual void Lock() {}
+
     //! The action to do when the DB needs rewrite
     virtual void RewriteDB() {}
 
@@ -673,6 +676,7 @@ public:
     bool SetupDescriptorGeneration(WalletBatch& batch, const CExtKey& master_key, OutputType addr_type, bool internal);
 
     bool HavePrivateKeys() const override;
+    void Lock() override;
     bool HasPrivKey(const CKeyID& keyid) const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
     //! Retrieve the particular key if it is available. Returns nullopt if the key is not in the wallet, or if the wallet is locked.
     std::optional<CKey> GetKey(const CKeyID& keyid) const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);

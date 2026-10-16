@@ -2039,37 +2039,6 @@ BOOST_AUTO_TEST_CASE(local_services_swap_v3_at_crossing)
     Consensus::SetBlockMessageAdmitWeight(saved);
 }
 
-BOOST_AUTO_TEST_CASE(disconnect_v2_when_admit_exceeds)
-{
-    const uint64_t saved{Consensus::BlockMessageAdmitWeight()};
-    Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
-    ConnmanTestMsg connman{0x1337, 0x1337, *m_node.addrman, *m_node.netgroupman, Params()};
-    in_addr ipv4Addr;
-    ipv4Addr.s_addr = 0xa0b0c001;
-    const CAddress addr{CService(ipv4Addr, 7777), NODE_NETWORK};
-    CNodeOptions v2opts;
-    v2opts.use_v2transport = true;
-    auto* detecting = new CNode(/*id=*/0, /*sock=*/nullptr, addr, 0, 0, CAddress(), "",
-                                ConnectionType::OUTBOUND_FULL_RELAY, false, 0, std::move(v2opts));
-    CNodeOptions v1opts;
-    v1opts.use_v2transport = false;
-    auto* v1 = new CNode(/*id=*/1, /*sock=*/nullptr, addr, 0, 0, CAddress(), "",
-                         ConnectionType::OUTBOUND_FULL_RELAY, false, 0, std::move(v1opts));
-    connman.AddTestNode(*detecting);
-    connman.AddTestNode(*v1);
-    BOOST_CHECK(detecting->m_transport->GetInfo().transport_type == TransportProtocolType::DETECTING);
-    BOOST_CHECK(v1->m_transport->GetInfo().transport_type == TransportProtocolType::V1);
-    connman.DisconnectV2WhenAdmitExceeds();
-    BOOST_CHECK(!detecting->fDisconnect);
-    BOOST_CHECK(!v1->fDisconnect);
-    Consensus::SetBlockMessageAdmitWeight(BIP324Cipher::MAX_CONTENTS_LEN);
-    connman.DisconnectV2WhenAdmitExceeds();
-    BOOST_CHECK(!detecting->fDisconnect);
-    BOOST_CHECK(!v1->fDisconnect);
-    connman.ClearTestNodes();
-    Consensus::SetBlockMessageAdmitWeight(saved);
-}
-
 BOOST_AUTO_TEST_CASE(v3_handshake_from_genesis)
 {
     Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);

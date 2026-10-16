@@ -1354,9 +1354,6 @@ public:
     //! that peer during `net_processing.cpp:PushNodeVersion()`.
     ServiceFlags GetLocalServices() const;
 
-    /** Kept for tests. Does not disconnect; v3 is offered from genesis. */
-    void DisconnectV2WhenAdmitExceeds();
-
     //! Updates the local services that this node advertises to other peers
     //! during connection handshake.
     void AddLocalServices(ServiceFlags services) { m_local_services = ServiceFlags(m_local_services | services); };

@@ -29,7 +29,7 @@ bool CheckSecpSingleKeySpend(const uint160& program, const std::vector<std::vect
     if (!pubkey.IsFullyValid() || !pubkey.IsCompressed()) return false;
     if (Hash160(pubkey) != program) return false;
     if (!CheckSignatureEncoding(witness[0],
-                                SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC | SCRIPT_VERIFY_UNIFIED_SIGHASH,
+                                SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_STRICTENC | SCRIPT_VERIFY_UNIFIED_SIGHASH,
                                 nullptr)) {
         return false;
     }

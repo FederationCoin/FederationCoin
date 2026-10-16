@@ -3747,6 +3747,9 @@ bool CWallet::Lock()
             memory_cleanse(vMasterKey.data(), vMasterKey.size() * sizeof(decltype(vMasterKey)::value_type));
             vMasterKey.clear();
         }
+        for (const auto& spk_man_pair : m_spk_managers) {
+            spk_man_pair.second->Lock();
+        }
     }
 
     NotifyStatusChanged(this);

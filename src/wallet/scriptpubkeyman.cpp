@@ -5,6 +5,7 @@
 #include <hash.h>
 #include <key_io.h>
 #include <logging.h>
+#include <support/cleanse.h>
 #include <node/types.h>
 #include <outputtype.h>
 #include <script/descriptor.h>
@@ -2624,6 +2625,17 @@ bool DescriptorScriptPubKeyMan::HavePrivateKeys() const
     return m_map_keys.size() > 0 || m_map_crypted_keys.size() > 0;
 }
 
+void DescriptorScriptPubKeyMan::Lock()
+{
+    LOCK(cs_desc_man);
+    for (auto& entry : m_map_signing_providers) {
+        for (auto& seed_pair : entry.second.mldsa_seeds) {
+            memory_cleanse(seed_pair.second.data(), seed_pair.second.size());
+        }
+        entry.second.mldsa_seeds.clear();
+    }
+}
+
 bool DescriptorScriptPubKeyMan::HaveCryptedKeys() const
 {
     LOCK(cs_desc_man);
@@ -2711,11 +2723,6 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
         FlatSigningProvider master_provider;
         FillSigningMaterial(master_provider);
         m_wallet_descriptor.descriptor->ExpandPrivate(index, master_provider, *out_keys);
-        std::vector<CScript> scripts_tmp;
-        FlatSigningProvider derived;
-        if (m_wallet_descriptor.descriptor->Expand(index, master_provider, scripts_tmp, derived)) {
-            out_keys->Merge(std::move(derived));
-        }
     }
 
     return out_keys;

@@ -4221,11 +4221,6 @@ bool V2CanCarryAdmitCap() noexcept
            BIP324Cipher::MAX_CONTENTS_LEN - admit >= overhead;
 }
 
-void CConnman::DisconnectV2WhenAdmitExceeds()
-{
-    // v3 is offered from genesis. Do not drop the network at a predictable height.
-}
-
 static std::unique_ptr<Transport> MakeTransport(NodeId id, bool use_v2transport, bool inbound) noexcept
 {
     // Encrypted handshake is BIP324. Version 0x03 selects v3 application

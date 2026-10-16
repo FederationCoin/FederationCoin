@@ -6,6 +6,9 @@
 #include <crypto/sha256.h>
 #include <hash.h>
 #include <key.h>
+#include <policy/policy.h>
+#include <policy/witness_spend_kind.h>
+#include <primitives/transaction.h>
 #include <script/interpreter.h>
 #include <script/script.h>
 #include <script/sign.h>
@@ -147,7 +150,7 @@ static std::vector<unsigned char> NegateS(const std::vector<unsigned char>& sig_
     return out;
 }
 
-BOOST_AUTO_TEST_CASE(high_s_rejected)
+BOOST_AUTO_TEST_CASE(high_s_consensus_ok)
 {
     const CKey key{MakeKey()};
     const CPubKey pub{key.GetPubKey()};
@@ -160,7 +163,12 @@ BOOST_AUTO_TEST_CASE(high_s_rejected)
     std::vector<std::vector<unsigned char>> high;
     high.push_back(NegateS(signature));
     high.emplace_back(pub.begin(), pub.end());
-    BOOST_CHECK(!Consensus::CheckSecpSingleKeySpend(program, high, {sighash.begin(), sighash.size()}));
+    BOOST_CHECK(Consensus::CheckSecpSingleKeySpend(program, high, {sighash.begin(), sighash.size()}));
+    CTxIn txin;
+    txin.scriptWitness.stack = high;
+    std::string reason;
+    BOOST_CHECK(!ApplyPolicyWitnessKind(PolicyWitnessKind::P2WPKH, txin, false, "", reason, empty_ignore_rejects));
+    BOOST_CHECK_EQUAL(reason, "low_s");
 }
 
 BOOST_AUTO_TEST_CASE(unified_off_does_not_accept_p2wsh)

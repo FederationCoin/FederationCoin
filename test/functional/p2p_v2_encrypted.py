@@ -26,7 +26,9 @@ class P2PEncrypted(BitcoinTestFramework):
         node0, node1 = self.nodes[0], self.nodes[1]
         for node in (node0, node1):
             network_info = node.getnetworkinfo()
-            assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V2, 0)
+            # MIN_FLEX receive still fits in a BIP324 v2 packet, so V2 stays
+            # advertised until admit crosses MAX_CONTENTS_LEN. V3 is on from genesis.
+            assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V2, NODE_P2P_V2)
             assert_equal(int(network_info["localservices"], 16) & NODE_P2P_V3, NODE_P2P_V3)
             assert "P2P_V3" in network_info["localservicesnames"]
 

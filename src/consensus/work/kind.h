@@ -74,7 +74,9 @@ void ApplyWorkKindTag(CBlockHeader& header, WorkKindTag tag);
 std::vector<unsigned char> SerializeHeaderV2(const CBlockHeader& header);
 uint256 Sha256dBytes(std::span<const unsigned char> bytes);
 
-/** SHA-256d of the full 164 bytes. Blake2b identity is GetHash() instead. */
+/** Chain identity. Blake2b is GetHash(); SHA-256d (kind 1) is SHA-256d of
+ *  the first 80 serialized bytes, not the full 164. Other kinds are SHA-256d
+ *  of the 164-byte header. */
 uint256 GetBlockIdentity(const CBlockHeader& header);
 
 /** Compact T0/S with floors. Shared T0 for every kind. */

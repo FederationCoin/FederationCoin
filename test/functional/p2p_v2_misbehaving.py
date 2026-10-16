@@ -17,7 +17,7 @@ class EncryptedP2PMisbehaving(BitcoinTestFramework):
 
     def run_test(self):
         network_info = self.nodes[0].getnetworkinfo()
-        assert (int(network_info["localservices"], 16) & NODE_P2P_V2) == 0
+        assert (int(network_info["localservices"], 16) & NODE_P2P_V2) == NODE_P2P_V2
         assert (int(network_info["localservices"], 16) & NODE_P2P_V3) == NODE_P2P_V3
         assert "P2P_V3" in network_info["localservicesnames"]
         self.log.info("NODE_P2P_V3 is on; handshake misbehavior is a unit test")

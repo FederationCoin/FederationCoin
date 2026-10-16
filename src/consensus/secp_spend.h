@@ -37,9 +37,9 @@ bool IsSecpSingleWitness(const std::vector<std::vector<unsigned char>>& witness)
  *  compressed pubkey) with this witness and this 32-byte unified message.
  *  Sequence: IsSecpSingleWitness, sighash size UNIFIED_SIGHASH_SIZE, pubkey
  *  IsFullyValid and compressed, Hash160 matches program, BIP66 DER with
- *  low-S and STRICTENC, ECDSA verify of the DER against the message. A
- *  passing shape with a wrong Hash160, a high-S DER, or a bad ECDSA is
- *  still a fail. */
+ *  STRICTENC, ECDSA verify of the DER against the message. High-S is
+ *  consensus-valid; relay policy rejects it in ApplyPolicyWitnessKind. A
+ *  passing shape with a wrong Hash160 or a bad ECDSA is still a fail. */
 bool CheckSecpSingleKeySpend(const uint160& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
 
 } // namespace Consensus

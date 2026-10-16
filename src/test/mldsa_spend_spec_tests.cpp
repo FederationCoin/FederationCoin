@@ -593,7 +593,7 @@ BOOST_AUTO_TEST_CASE(p2wsh_and_op_true_rejected)
     p2wsh.push_back({OP_TRUE});
     BOOST_CHECK(ScriptCheckFails(v0_32, p2wsh));
     std::vector<std::vector<unsigned char>> p2wsh_dump;
-    p2wsh_dump.push_back(std::vector<unsigned char>(80, 0xaa));
+    p2wsh_dump.emplace_back(80, 0xaa);
     p2wsh_dump.push_back({OP_TRUE});
     BOOST_CHECK(ScriptCheckFails(v0_32, p2wsh_dump));
     BOOST_CHECK(Consensus::ClassifyMlDsa44Witness(p2wsh_dump) == Consensus::MlDsa44WitnessLayout::Neither);

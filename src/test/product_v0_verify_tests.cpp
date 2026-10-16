@@ -242,8 +242,8 @@ BOOST_AUTO_TEST_CASE(count_witness_sigops_dilithium_is_kind_cost)
     CScript spk;
     spk << OP_0 << std::vector<unsigned char>(WITNESS_V0_SCRIPTHASH_SIZE, 0x11);
     CScriptWitness wit;
-    wit.stack.push_back(std::vector<unsigned char>(Consensus::MLDSA87_PUBLIC_KEY_SIZE, 0x02));
-    wit.stack.push_back(std::vector<unsigned char>(Consensus::MLDSA87_SIGNATURE_SIZE, OP_CHECKSIG));
+    wit.stack.emplace_back(Consensus::MLDSA87_PUBLIC_KEY_SIZE, 0x02);
+    wit.stack.emplace_back(Consensus::MLDSA87_SIGNATURE_SIZE, OP_CHECKSIG);
     BOOST_CHECK_EQUAL(CountWitnessSigOps(CScript(), spk, &wit, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS), 0U);
 }
 

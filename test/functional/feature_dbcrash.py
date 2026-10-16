@@ -30,6 +30,7 @@ import http.client
 import random
 import time
 
+from test_framework.authproxy import JSONRPCException
 from test_framework.blocktools import COINBASE_MATURITY
 from test_framework.messages import (
     COIN,
@@ -78,22 +79,56 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
     def restart_node(self, node_index, expected_tip):
         """Start up a given node id, wait for the tip to reach the given block hash, and calculate the utxo hash.
 
-        Exceptions on startup should indicate node crash (due to -dbcrashratio), in which case we try again. Give up
-        after 60 seconds. Returns the utxo hash of the given node."""
+        Exceptions on startup should indicate node crash (due to -dbcrashratio), in which case we try again.
+        Returns the utxo hash of the given node."""
 
         time_start = time.time()
-        while time.time() - time_start < 120 * self.options.timeout_factor:
+        recovery_budget = max(600, 120 * self.options.timeout_factor)
+        while time.time() - time_start < recovery_budget:
             try:
-                # Any of these RPC calls could throw due to node crash
-                self.start_node(node_index)
-                self.nodes[node_index].waitforblock(expected_tip)
-                utxo_hash = self.nodes[node_index].gettxoutsetinfo()['hash_serialized_3']
-                return utxo_hash
+                if self.nodes[node_index].process is None or self.nodes[node_index].process.poll() is not None:
+                    self.start_node(node_index)
             except Exception:
-                # An exception here should mean the node is about to crash.
-                # If bitcoind exits, then try again.  wait_for_node_exit()
-                # should raise an exception if bitcoind doesn't exit.
+                try:
+                    self.wait_for_node_exit(node_index, timeout=10)
+                except Exception:
+                    pass
+                self.crashed_on_restart += 1
+                time.sleep(1)
+                continue
+
+            http_conn = self.nodes[node_index].rpc._AuthServiceProxy__conn
+            saved_timeout = http_conn.timeout
+            # Recovery holds cs_main. waitforblock's HTTP wait (9600s on Win64)
+            # is not a crash; wait_for_node_exit then fails because the process
+            # is still connecting.
+            http_conn.timeout = min(30, saved_timeout)
+            try:
+                while time.time() - time_start < recovery_budget:
+                    if self.nodes[node_index].process.poll() is not None:
+                        break
+                    try:
+                        if self.nodes[node_index].getbestblockhash() == expected_tip:
+                            http_conn.timeout = saved_timeout
+                            return self.nodes[node_index].gettxoutsetinfo()['hash_serialized_3']
+                    except JSONRPCException as e:
+                        self.log.debug(f"node {node_index} recovery probe: {e}")
+                        self.nodes[node_index].rpc._set_conn()
+                        self.nodes[node_index].rpc._AuthServiceProxy__conn.timeout = min(30, saved_timeout)
+                    time.sleep(1)
+            finally:
+                try:
+                    self.nodes[node_index].rpc._AuthServiceProxy__conn.timeout = saved_timeout
+                except Exception:
+                    pass
+
+            if self.nodes[node_index].process.poll() is None:
+                time.sleep(1)
+                continue
+            try:
                 self.wait_for_node_exit(node_index, timeout=10)
+            except Exception:
+                pass
             self.crashed_on_restart += 1
             time.sleep(1)
 

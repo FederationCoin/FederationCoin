@@ -49,7 +49,8 @@ def _rdts_pad_outputs():
     cached = getattr(_rdts_pad_outputs, "vout", None)
     if cached is not None:
         return cached
-    one = CTxOut(0, CScript([OP_0, b"\x11" * 32]))
+    # v0/20. Leftover v0/32 is bad-txns-vout-script (not a Dilithium template).
+    one = CTxOut(0, CScript([OP_0, b"\x11" * 20]))
     lo, hi = 0, 4000
     best = 0
     while lo <= hi:

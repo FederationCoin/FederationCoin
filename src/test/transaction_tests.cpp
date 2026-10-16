@@ -884,7 +884,7 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
         BOOST_CHECK_EQUAL(reason_in, reason);
     };
     const auto DustOf = [](const CScript& script, const CFeeRate& rate = CFeeRate{DUST_RELAY_TX_FEE}) {
-        return GetDustThreshold(CTxOut{/*nValue=*/0, script}, rate);
+        return GetDustThreshold(CTxOut{/*nValueIn=*/0, script}, rate);
     };
 
     CheckIsStandard(t);

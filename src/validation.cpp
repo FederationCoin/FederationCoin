@@ -4793,7 +4793,12 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
     assert(pindexPrev != nullptr);
     const int nHeight = pindexPrev->nHeight + 1;
 
-    // Check proof of work
+    // Expected compact for this height. Kind-2 gym can be expensive, but
+    // claimed-nBits digest already ran in CheckBlockHeader (and on
+    // submitblock, in ProcessNewBlock's CheckBlock before AcceptBlock).
+    // Moving the gym after this compare is not practical and will not be
+    // done unless it can keep consensus and every other accept path, and
+    // actually help a common case.
     const Consensus::Params& consensusParams = chainman.GetConsensus();
     if (block.nBits != GetNextWorkRequired(pindexPrev, &block, consensusParams))
         return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-diffbits", "incorrect proof of work");

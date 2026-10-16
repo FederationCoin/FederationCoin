@@ -11,6 +11,7 @@
 #include <test/fuzz/util.h>
 #include <test/util/setup_common.h>
 #include <txdb.h>
+#include <util/overflow.h>
 #include <validation.h>
 
 namespace {
@@ -47,7 +48,7 @@ CBlockHeader ConsumeBlockHeader(FuzzedDataProvider& provider)
     // can assert the round-trip.
     const auto& params = Params().GetConsensus();
     for (int i = 0; i < 256 && !CheckProofOfWork(header, params); ++i) {
-        header.nNonce += 1;
+        header.nNonce = WrappingAdd(header.nNonce, uint32_t{1});
     }
     return header;
 }

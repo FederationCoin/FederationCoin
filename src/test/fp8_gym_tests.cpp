@@ -111,26 +111,15 @@ BOOST_AUTO_TEST_CASE(expand_remaps_nan_encodings)
 
 BOOST_AUTO_TEST_CASE(tile_order_change_fails)
 {
+    // a[0,1] and b[1,0] feed cell (0,0) only. Do not run a 256³ naive matmul.
     std::vector<uint8_t> a(Consensus::FP8_MATRIX_BYTES, 0);
     std::vector<uint8_t> b(Consensus::FP8_MATRIX_BYTES, 0);
     a[1] = 0x3C;
     b[Consensus::FP8_DIM] = 0x3C;
     std::vector<float> c_spec;
     BOOST_REQUIRE(Consensus::Fp8TiledMma(a, b, c_spec));
-    std::vector<float> naive(Consensus::FP8_MATRIX_BYTES, 0.0f);
-    for (int i{0}; i < Consensus::FP8_DIM; ++i) {
-        for (int j{0}; j < Consensus::FP8_DIM; ++j) {
-            float acc{0.0f};
-            for (int k{0}; k < Consensus::FP8_DIM; ++k) {
-                const auto av{Consensus::DecodeE4M3FN(a[i * Consensus::FP8_DIM + k])};
-                const auto bv{Consensus::DecodeE4M3FN(b[k * Consensus::FP8_DIM + j])};
-                acc = acc + (*av * *bv);
-            }
-            naive[i * Consensus::FP8_DIM + j] = acc;
-        }
-    }
-    std::swap(naive[0], naive[1]);
-    BOOST_CHECK(c_spec != naive);
+    BOOST_CHECK_NE(c_spec[0], 0.0f);
+    BOOST_CHECK_EQUAL(c_spec[1], 0.0f);
 }
 
 BOOST_AUTO_TEST_CASE(golden_digest_all_zero)

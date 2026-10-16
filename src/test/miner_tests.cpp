@@ -189,7 +189,16 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_all_work_kinds)
         BOOST_REQUIRE(tag);
         BOOST_CHECK_EQUAL(static_cast<int>(*tag), static_cast<int>(k));
         block.hashMerkleRoot = BlockMerkleRoot(block);
-        BOOST_REQUIRE(GrindProofOfWork(block, params));
+        // Gym is a 256×256 MMA per try. Easy nBits should hit immediately.
+        bool pow_ok{false};
+        for (uint32_t tries{0}; tries < 8; ++tries) {
+            if (CheckProofOfWork(block, params)) {
+                pow_ok = true;
+                break;
+            }
+            ++block.nNonce;
+        }
+        BOOST_REQUIRE(pow_ok);
         std::shared_ptr<const CBlock> shared{std::make_shared<const CBlock>(std::move(block))};
         BOOST_REQUIRE(Assert(m_node.chainman)->ProcessNewBlock(shared, /*force_processing=*/true, /*min_pow_checked=*/true, nullptr));
         LOCK(cs_main);

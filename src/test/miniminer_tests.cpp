@@ -1,6 +1,7 @@
 // Copyright (c) 2021 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
+#include <consensus/settlement_fee.h>
 #include <node/mini_miner.h>
 #include <random.h>
 #include <txmempool.h>
@@ -707,6 +708,39 @@ BOOST_FIXTURE_TEST_CASE(manual_ctor, TestChain100Setup)
         // Child at the end
         BOOST_CHECK_EQUAL(sequences.at(child->GetHash()), 3);
     }
+}
+
+BOOST_FIXTURE_TEST_CASE(miniminer_consensus_minimum_fee, TestChain100Setup)
+{
+    CTxMemPool& pool = *Assert(m_node.mempool);
+    LOCK2(::cs_main, pool.cs);
+    TestMemPoolEntryHelper entry;
+
+    const auto tx_zero = make_tx({COutPoint{m_coinbase_txns[0]->GetHash(), 0}}, /*num_outputs=*/1);
+    AddToMempool(pool, entry.Fee(0).FromTx(tx_zero));
+    const int64_t vsize{Assert(pool.GetEntry(tx_zero->GetHash()))->GetTxSize()};
+    const CAmount floor_fee{MinimumFee(vsize)};
+    BOOST_REQUIRE(floor_fee > 0);
+
+    const auto tx_floor = make_tx({COutPoint{m_coinbase_txns[1]->GetHash(), 0}}, /*num_outputs=*/1);
+    AddToMempool(pool, entry.Fee(floor_fee).FromTx(tx_floor));
+
+    const COutPoint zero_out{tx_zero->GetHash(), 0};
+    const COutPoint floor_out{tx_floor->GetHash(), 0};
+    const CFeeRate feerate_zero{0};
+
+    node::MiniMiner mini_template(pool, {zero_out, floor_out});
+    BOOST_CHECK(mini_template.IsReadyToCalculate());
+    mini_template.BuildMockTemplate(feerate_zero);
+    const auto template_txids{mini_template.GetMockTemplateTxids()};
+    BOOST_CHECK(!template_txids.count(tx_zero->GetHash().ToUint256()));
+    BOOST_CHECK(template_txids.count(tx_floor->GetHash().ToUint256()) > 0);
+
+    node::MiniMiner mini_bump(pool, {zero_out, floor_out});
+    BOOST_CHECK(mini_bump.IsReadyToCalculate());
+    const auto bump_fees{mini_bump.CalculateBumpFees(feerate_zero)};
+    BOOST_CHECK_EQUAL(Find(bump_fees, zero_out), floor_fee);
+    BOOST_CHECK_EQUAL(Find(bump_fees, floor_out), 0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

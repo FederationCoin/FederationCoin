@@ -76,12 +76,45 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
         self.start_nodes()
         # Leave them unconnected, we'll use submitblock directly in this test
 
-    def restart_node(self, node_index, expected_tip):
-        """Start up a given node id, wait for the tip to reach the given block hash, and calculate the utxo hash.
+    def _note_restart_crash(self, node_index):
+        try:
+            self.wait_for_node_exit(node_index, timeout=10)
+        except Exception as e:
+            self.log.debug(f"node {node_index} still running after expected crash: {e}")
+        self.crashed_on_restart += 1
+        time.sleep(1)
 
-        Exceptions on startup should indicate node crash (due to -dbcrashratio), in which case we try again.
-        Returns the utxo hash of the given node."""
+    def _probe_bestblockhash(self, node_index):
+        """Best-block hash, or None if RPC is not ready.
 
+        Recovery holds cs_main. A short HTTP wait is not a -dbcrashratio exit.
+        """
+        http_conn = self.nodes[node_index].rpc._AuthServiceProxy__conn
+        saved_timeout = http_conn.timeout
+        http_conn.timeout = min(30, saved_timeout)
+        try:
+            return self.nodes[node_index].getbestblockhash()
+        except (JSONRPCException, OSError, http.client.CannotSendRequest, http.client.RemoteDisconnected) as e:
+            self.log.debug(f"node {node_index} recovery probe: {e}")
+            try:
+                self.nodes[node_index].rpc._set_conn()
+                self.nodes[node_index].rpc._AuthServiceProxy__conn.timeout = min(30, saved_timeout)
+            except Exception as e:
+                self.log.debug(f"node {node_index} recovery probe reconnect: {e}")
+            return None
+        finally:
+            try:
+                self.nodes[node_index].rpc._AuthServiceProxy__conn.timeout = saved_timeout
+            except Exception as e:
+                self.log.debug(f"node {node_index} recovery probe restore timeout: {e}")
+
+    def _recover_utxo_hash(self, node_index, expected_tip, bring_to_tip):
+        """Start the node and return its utxo hash once expected_tip is the tip.
+
+        bring_to_tip runs when ReplayBlocks stopped on a parent. Return True if
+        the node is still up (caller retries the tip check). Return False if it
+        crashed.
+        """
         time_start = time.time()
         recovery_budget = max(600, 120 * self.options.timeout_factor)
         while time.time() - time_start < recovery_budget:
@@ -89,48 +122,29 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
                 if self.nodes[node_index].process is None or self.nodes[node_index].process.poll() is not None:
                     self.start_node(node_index)
             except Exception:
-                try:
-                    self.wait_for_node_exit(node_index, timeout=10)
-                except Exception:
-                    pass
-                self.crashed_on_restart += 1
-                time.sleep(1)
+                self._note_restart_crash(node_index)
                 continue
 
-            http_conn = self.nodes[node_index].rpc._AuthServiceProxy__conn
-            saved_timeout = http_conn.timeout
-            # Recovery holds cs_main. waitforblock's HTTP wait (9600s on Win64)
-            # is not a crash; wait_for_node_exit then fails because the process
-            # is still connecting.
-            http_conn.timeout = min(30, saved_timeout)
-            try:
-                while time.time() - time_start < recovery_budget:
-                    if self.nodes[node_index].process.poll() is not None:
-                        break
-                    try:
-                        if self.nodes[node_index].getbestblockhash() == expected_tip:
-                            http_conn.timeout = saved_timeout
-                            return self.nodes[node_index].gettxoutsetinfo()['hash_serialized_3']
-                    except JSONRPCException as e:
-                        self.log.debug(f"node {node_index} recovery probe: {e}")
-                        self.nodes[node_index].rpc._set_conn()
-                        self.nodes[node_index].rpc._AuthServiceProxy__conn.timeout = min(30, saved_timeout)
+            tip = self._probe_bestblockhash(node_index)
+            if tip is None:
+                if self.nodes[node_index].process.poll() is not None:
+                    self._note_restart_crash(node_index)
+                else:
                     time.sleep(1)
-            finally:
-                try:
-                    self.nodes[node_index].rpc._AuthServiceProxy__conn.timeout = saved_timeout
-                except Exception:
-                    pass
-
-            if self.nodes[node_index].process.poll() is None:
-                time.sleep(1)
                 continue
+
+            if tip != expected_tip:
+                if not bring_to_tip():
+                    self._note_restart_crash(node_index)
+                else:
+                    time.sleep(0.1)
+                continue
+
             try:
-                self.wait_for_node_exit(node_index, timeout=10)
-            except Exception:
-                pass
-            self.crashed_on_restart += 1
-            time.sleep(1)
+                return self.nodes[node_index].gettxoutsetinfo()['hash_serialized_3']
+            except (OSError, JSONRPCException, http.client.CannotSendRequest, http.client.RemoteDisconnected):
+                self._note_restart_crash(node_index)
+                continue
 
         # If we got here, bitcoind isn't coming back up on restart.  Could be a
         # bug in bitcoind, or we've gotten unlucky with our dbcrash ratio --
@@ -138,6 +152,32 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
         # TODO: If this happens a lot, we should try to restart without -dbcrashratio
         # and make sure that recovery happens.
         raise AssertionError(f"Unable to successfully restart node {node_index} in allotted time")
+
+    def restart_node(self, node_index, expected_tip):
+        """Start up a given node id, wait for the tip to reach the given block hash, and calculate the utxo hash.
+
+        Exceptions on startup should indicate node crash (due to -dbcrashratio), in which case we try again.
+        Returns the utxo hash of the given node. Used after gettxoutsetinfo itself crashes; the block is already on disk."""
+
+        def require_recovered_tip():
+            raise AssertionError(
+                f"node {node_index} recovered without expected tip {expected_tip}"
+            )
+
+        return self._recover_utxo_hash(node_index, expected_tip, require_recovered_tip)
+
+    def restart_node_with_block(self, node_index, expected_tip, block_hex):
+        """Like restart_node, then submit block_hex if ReplayBlocks stopped on the parent.
+
+        A coins-db crash can beat the block-index write. Polling getbestblockhash
+        for expected_tip then waits out the budget on a tip that will never
+        arrive. Submit the in-flight block instead."""
+
+        def submit_in_flight():
+            self.log.debug(f"node {node_index} recovered behind {expected_tip}; submitting in-flight block")
+            return self.submit_block_catch_error(node_index, block_hex)
+
+        return self._recover_utxo_hash(node_index, expected_tip, submit_in_flight)
 
     def submit_block_catch_error(self, node_index, block):
         """Try submitting a block to the given node.
@@ -186,7 +226,7 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
                     # (change the exit code perhaps, and check that here?)
                     self.wait_for_node_exit(i, timeout=30)
                     self.log.debug(f"Restarting node {i} after block hash {block_hash}")
-                    nodei_utxo_hash = self.restart_node(i, block_hash)
+                    nodei_utxo_hash = self.restart_node_with_block(i, block_hash, block)
                     assert nodei_utxo_hash is not None
                     self.restart_counts[i] += 1
                 else:

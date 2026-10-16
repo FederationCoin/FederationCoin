@@ -819,8 +819,8 @@ CAmount GenerateChangeTarget(const CAmount payment_value, const CAmount change_f
 
 void SelectionResult::SetBumpFeeDiscount(const CAmount discount)
 {
-    // Overlapping ancestry can only lower the fees, not increase them
-    assert (discount >= 0);
+    // Positive: overlapping ancestry, combined bump is smaller than the sum.
+    // Negative: consensus MinimumFee remainders, combined bump is larger.
     bump_fee_group_discount = discount;
 }
 

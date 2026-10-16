@@ -859,6 +859,8 @@ util::Result<SelectionResult> ChooseSelectionResult(interfaces::Chain& chain, co
         if (!combined_bump_fee.has_value()) {
             return util::Error{_("Failed to calculate bump fees, because unconfirmed UTXOs depend on an enormous cluster of unconfirmed transactions.")};
         }
+        // Positive when overlap lowered the combined bump; negative when
+        // MinimumFee remainders raised it. Wallet bump is sum minus this.
         CAmount bump_fee_overestimate = summed_bump_fees - combined_bump_fee.value();
         if (bump_fee_overestimate) {
             result.SetBumpFeeDiscount(bump_fee_overestimate);

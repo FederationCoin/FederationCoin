@@ -390,11 +390,9 @@ std::map<COutPoint, CAmount> MiniMiner::CalculateBumpFees(const CFeeRate& target
         if (it != m_entries_by_txid.end()) {
             const CAmount needed_anc{SelectionMinFee(target_feerate, it->second.GetSizeWithAncestors())};
             const CAmount needed_self{SelectionMinFee(target_feerate, it->second.GetTxSize())};
-            Assume(std::min(it->second.GetModifiedFee(), it->second.GetModFeesWithAncestors()) < needed_anc);
-            CAmount bump_fee_with_ancestors = needed_anc - it->second.GetModFeesWithAncestors();
-            CAmount bump_fee_individual = needed_self - it->second.GetModifiedFee();
-            const CAmount bump_fee{std::max(bump_fee_with_ancestors, bump_fee_individual)};
-            Assume(bump_fee >= 0);
+            const CAmount bump_fee_with_ancestors{needed_anc - it->second.GetModFeesWithAncestors()};
+            const CAmount bump_fee_individual{needed_self - it->second.GetModifiedFee()};
+            const CAmount bump_fee{std::max(CAmount{0}, std::max(bump_fee_with_ancestors, bump_fee_individual))};
             for (const auto& outpoint : outpoints) {
                 m_bump_fees.emplace(outpoint, bump_fee);
             }
@@ -441,6 +439,10 @@ std::optional<CAmount> MiniMiner::CalculateTotalBumpFees(const CFeeRate& target_
         [](int64_t sum, const auto it) {return sum + it->second.GetTxSize();});
     const auto ancestor_package_fee = std::accumulate(ancestors.cbegin(), ancestors.cend(), CAmount{0},
         [](CAmount sum, const auto it) {return sum + it->second.GetModifiedFee();});
-    return SelectionMinFee(target_feerate, ancestor_package_size) - ancestor_package_fee;
+    // GetFee is subadditive, so a union can already meet the combined floor
+    // while each leftover package does not. Wallet bump is never negative.
+    const CAmount needed{SelectionMinFee(target_feerate, ancestor_package_size)};
+    if (ancestor_package_fee >= needed) return CAmount{0};
+    return needed - ancestor_package_fee;
 }
 } // namespace node

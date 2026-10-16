@@ -741,6 +741,27 @@ BOOST_FIXTURE_TEST_CASE(miniminer_consensus_minimum_fee, TestChain100Setup)
     const auto bump_fees{mini_bump.CalculateBumpFees(feerate_zero)};
     BOOST_CHECK_EQUAL(Find(bump_fees, zero_out), floor_fee);
     BOOST_CHECK_EQUAL(Find(bump_fees, floor_out), 0);
+
+    // Two zero-fee leftovers: each bump is MinimumFee(self). The combined
+    // bump is MinimumFee(v0+v1), which is at least the sum and can be larger
+    // when remainders wrap past 12 vB (macOS mini_miner corpus).
+    const auto tx_zero_b = make_tx({COutPoint{m_coinbase_txns[2]->GetHash(), 0}}, /*num_outputs=*/1);
+    AddToMempool(pool, entry.Fee(0).FromTx(tx_zero_b));
+    const int64_t vsize_b{Assert(pool.GetEntry(tx_zero_b->GetHash()))->GetTxSize()};
+    BOOST_REQUIRE(MinimumFee(vsize_b) > 0);
+    const COutPoint zero_b_out{tx_zero_b->GetHash(), 0};
+
+    node::MiniMiner mini_pair(pool, {zero_out, zero_b_out});
+    BOOST_CHECK(mini_pair.IsReadyToCalculate());
+    const auto pair_bumps{mini_pair.CalculateBumpFees(feerate_zero)};
+    BOOST_CHECK_EQUAL(Find(pair_bumps, zero_out), MinimumFee(vsize));
+    BOOST_CHECK_EQUAL(Find(pair_bumps, zero_b_out), MinimumFee(vsize_b));
+
+    node::MiniMiner mini_pair_total(pool, {zero_out, zero_b_out});
+    BOOST_CHECK(mini_pair_total.IsReadyToCalculate());
+    const auto pair_total{mini_pair_total.CalculateTotalBumpFees(feerate_zero)};
+    BOOST_REQUIRE(pair_total.has_value());
+    BOOST_CHECK_EQUAL(*pair_total, MinimumFee(vsize + vsize_b));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -1067,6 +1067,9 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
 
     UniValue vbavailable(UniValue::VOBJ);
     uint32_t vbrequired = 0;
+    // nVersion is int32_t; invert the reserved mask in uint32_t so UBSan
+    // implicit-integer-sign-change does not abort GBT.
+    uint32_t n_version{static_cast<uint32_t>(block_header.nVersion)};
     for (int j = 0; j < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; ++j) {
         Consensus::DeploymentPos pos = Consensus::DeploymentPos(j);
         ThresholdState state = chainman.m_versionbitscache.State(pindexPrev, consensusParams, pos);
@@ -1078,7 +1081,7 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
                 break;
             case ThresholdState::LOCKED_IN:
                 // Unused work-kind bits (10–27, 30) stay 0. Testdummy (28) and TOP_BITS (29) may signal.
-                block_header.nVersion |= chainman.m_versionbitscache.Mask(consensusParams, pos) & ~static_cast<int32_t>(Consensus::VERSION_WORK_RESERVED_MASK);
+                n_version |= chainman.m_versionbitscache.Mask(consensusParams, pos) & ~Consensus::VERSION_WORK_RESERVED_MASK;
                 [[fallthrough]];
             case ThresholdState::STARTED:
             {
@@ -1090,7 +1093,7 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
                 if (setClientRules.find(vbinfo.name) == setClientRules.end()) {
                     if (!vbinfo.gbt_force) {
                         // If the client doesn't support this, don't indicate it in the [default] version
-                        block_header.nVersion &= ~chainman.m_versionbitscache.Mask(consensusParams, pos);
+                        n_version &= ~chainman.m_versionbitscache.Mask(consensusParams, pos);
                     }
                 }
                 break;
@@ -1110,6 +1113,7 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
             }
         }
     }
+    block_header.nVersion = static_cast<int32_t>(n_version);
     // RDTS (now a flag-day deployment; no signalling surface remains). When
     // RDTS is active for the template's block, the rules were enforced
     // during transaction selection: advertise

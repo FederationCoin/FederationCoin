@@ -348,7 +348,7 @@ static RPCHelpMan addnode()
                 {
                     {"node", RPCArg::Type::STR, RPCArg::Optional::NO, "The address of the peer to connect to"},
                     {"command", RPCArg::Type::STR, RPCArg::Optional::NO, "'add' to add a node to the list, 'remove' to remove a node from the list, 'onetry' to try a connection to the node once"},
-                    {"v2transport|connection_type_compat", {RPCArg::Type::BOOL, RPCArg::Type::STR}, RPCArg::DefaultHint{"set by -v2transport"}, "Attempt to connect using BIP324 v2 transport protocol (ignored for 'remove' command)"},
+                    {"v2transport|connection_type_compat", {RPCArg::Type::BOOL, RPCArg::Type::STR}, RPCArg::DefaultHint{"true"}, "Must be true or omitted. Connections use v3 from genesis (ignored for 'remove' command)"},
                     {"connection_type", RPCArg::Type::STR, RPCArg::Default{"manual"}, "Type of connection: \n" + Join(CONNECTION_TYPE_DOC, ",\n") + "\nOnly supported for command \"onetry\" for now."},
                 },
                 RPCResult{RPCResult::Type::NONE, "", ""},
@@ -389,8 +389,8 @@ static RPCHelpMan addnode()
         }
     }
 
-    if (use_v2transport && !node_v2transport) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Error: v2transport requested but not enabled (see -v2transport)");
+    if (!use_v2transport) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Error: v1 transport is not offered");
     }
 
     if (command == "onetry")
@@ -429,7 +429,7 @@ static RPCHelpMan addconnection()
         {
             {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The IP address and port to attempt connecting to."},
             {"connection_type", RPCArg::Type::STR, RPCArg::Optional::NO, "Type of connection to open (\"outbound-full-relay\", \"block-relay-only\", \"addr-fetch\" or \"feeler\")."},
-            {"v2transport", RPCArg::Type::BOOL, RPCArg::Optional::NO, "Attempt to connect using BIP324 v2 transport protocol"},
+            {"v2transport", RPCArg::Type::BOOL, RPCArg::Optional::NO, "Must be true. Connections use v3 from genesis."},
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
@@ -462,8 +462,8 @@ static RPCHelpMan addconnection()
     NodeContext& node = EnsureAnyNodeContext(request.context);
     CConnman& connman = EnsureConnman(node);
 
-    if (use_v2transport && !EncryptedP2POffered(connman.GetLocalServices())) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Error: Adding v2transport connections requires -v2transport init flag to be set.");
+    if (!use_v2transport) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Error: v1 transport is not offered");
     }
 
     const bool success = connman.AddConnection(address, conn_type, use_v2transport);

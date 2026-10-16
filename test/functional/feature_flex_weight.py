@@ -2,7 +2,7 @@
 # Copyright (c) 2026 The Bitcoin Knots developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Flex weight cap: floor 2,400,000, pegged blocks grow it, slack blocks cut it."""
+"""Flex weight cap: floor 2,400,000, saturated blocks grow it, slack blocks cut it."""
 
 from test_framework.blocktools import (
     REGTEST_HALVING_INTERVAL,
@@ -23,9 +23,10 @@ FILLER = CScript([OP_0, b"\x11" * 20])
 OVER_WEIGHT = MIN_CAP + 10000
 FIT_AFTER_GROW = 2_500_000
 OVER_GROWN = GROWN_CAP + 10000
-# Remaining room under 503 is pegged. Aim at the cap; the builder trims
-# an overshoot of one payment, which stays inside that hole.
-PEGGED_WEIGHT = MIN_CAP
+# Remaining room under 942 is saturated (two smallest payments plus 64).
+# Aim at the cap; the builder trims an overshoot of one payment, which
+# stays inside that hole.
+SATURATED_WEIGHT = MIN_CAP
 
 
 class FlexWeightTest(BitcoinTestFramework):
@@ -87,14 +88,14 @@ class FlexWeightTest(BitcoinTestFramework):
         assert node.getblockcount() == REGTEST_HALVING_INTERVAL
         assert self.flexcap() == MIN_CAP, "a cut from the floor stays at the floor"
 
-        pegged = REGTEST_HALVING_INTERVAL * 4 // 5
-        for _ in range(pegged):
-            result, weight = self.submit_weighted(PEGGED_WEIGHT)
-            assert result is None, f"pegged block rejected: {result} weight={weight}"
-            assert MIN_CAP - weight < 503, weight
-        assert node.getblockcount() == REGTEST_HALVING_INTERVAL + pegged
+        saturated = REGTEST_HALVING_INTERVAL * 4 // 5
+        for _ in range(saturated):
+            result, weight = self.submit_weighted(SATURATED_WEIGHT)
+            assert result is None, f"saturated block rejected: {result} weight={weight}"
+            assert MIN_CAP - weight < 942, weight
+        assert node.getblockcount() == REGTEST_HALVING_INTERVAL + saturated
 
-        self.generate(node, REGTEST_HALVING_INTERVAL - pegged - 1, sync_fun=self.no_op)
+        self.generate(node, REGTEST_HALVING_INTERVAL - saturated - 1, sync_fun=self.no_op)
         assert node.getblockcount() == 2 * REGTEST_HALVING_INTERVAL - 1
         assert self.flexcap() == MIN_CAP, "cap changes on the first block of the next epoch"
 

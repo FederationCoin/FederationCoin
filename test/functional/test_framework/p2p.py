@@ -85,6 +85,7 @@ from test_framework.util import (
 )
 from test_framework.v2_p2p import (
     EncryptedP2PState,
+    FCN_P2P_V3_VERSION_TAG,
     MSGTYPE_TO_SHORTID,
     SHORTID,
 )
@@ -170,8 +171,9 @@ class P2PConnection(asyncio.Protocol):
         # This lock is acquired before sending messages over the socket. There's an implied lock order and
         # p2p_lock must not be acquired after _send_lock as it could result in deadlocks.
         self._send_lock = threading.Lock()
-        self.v2_state = None  # EncryptedP2PState object needed for v2 p2p connections
+        self.v2_state = None  # EncryptedP2PState after BIP324; application frames are v3
         self.reconnect = False  # set if reconnection needs to happen
+        self.encrypted_version = FCN_P2P_V3_VERSION_TAG
 
     @property
     def is_connected(self):
@@ -195,7 +197,8 @@ class P2PConnection(asyncio.Protocol):
     def peer_connect(self, dstaddr, dstport, *, net, timeout_factor, supports_v2_p2p):
         self.peer_connect_helper(dstaddr, dstport, net, timeout_factor)
         if supports_v2_p2p:
-            self.v2_state = EncryptedP2PState(initiating=True, net=net)
+            self.v2_state = EncryptedP2PState(initiating=True, net=net,
+                                              transport_version=self.encrypted_version)
 
         loop = NetworkThread.network_event_loop
         logger.debug('Connecting to Bitcoin Node: %s:%d' % (self.dstaddr, self.dstport))
@@ -206,7 +209,8 @@ class P2PConnection(asyncio.Protocol):
         self.peer_connect_helper('0', 0, net, timeout_factor)
         self.reconnect = reconnect
         if supports_v2_p2p:
-            self.v2_state = EncryptedP2PState(initiating=False, net=net)
+            self.v2_state = EncryptedP2PState(initiating=False, net=net,
+                                              transport_version=self.encrypted_version)
 
         logger.debug('Listening for Bitcoin Node with id: {}'.format(connect_id))
         return lambda: NetworkThread.listen(self, connect_cb, idx=connect_id)
@@ -321,28 +325,14 @@ class P2PConnection(asyncio.Protocol):
         try:
             while True:
                 if self.supports_v2_p2p:
-                    # v2 P2P messages are read
-                    msglen, msg = self.v2_state.v2_receive_packet(self.recvbuf)
+                    msglen, msgtype, msg = self.v2_state.v3_receive_message(self.recvbuf)
                     if msglen == -1:
-                        raise ValueError("invalid v2 mac tag " + repr(self.recvbuf))
-                    elif msglen == 0:  # need to receive more bytes in recvbuf
+                        raise ValueError("invalid v3 frame " + repr(self.recvbuf))
+                    elif msglen == 0:
                         return
                     self.recvbuf = self.recvbuf[msglen:]
-
-                    if msg is None:  # ignore decoy messages
+                    if msgtype is None:
                         return
-                    assert msg  # application layer messages (which aren't decoy messages) are non-empty
-                    shortid = msg[0]  # 1-byte short message type ID
-                    if shortid == 0:
-                        # next 12 bytes are interpreted as ASCII message type if shortid is b'\x00'
-                        if len(msg) < 13:
-                            raise IndexError("msg needs minimum required length of 13 bytes")
-                        msgtype = msg[1:13].rstrip(b'\x00')
-                        msg = msg[13:]  # msg is set to be payload
-                    else:
-                        # a 1-byte short message type ID
-                        msgtype = SHORTID.get(shortid, f"unknown-{shortid}")
-                        msg = msg[1:]
                 else:
                     # v1 P2P messages are read
                     if len(self.recvbuf) < 4:
@@ -410,13 +400,11 @@ class P2PConnection(asyncio.Protocol):
         data = message.serialize()
         if self.supports_v2_p2p:
             if msgtype in SHORTID.values():
-                tmsg = MSGTYPE_TO_SHORTID.get(msgtype).to_bytes(1, 'big')
+                header = MSGTYPE_TO_SHORTID.get(msgtype).to_bytes(1, 'big')
             else:
-                tmsg = b"\x00"
-                tmsg += msgtype
-                tmsg += b"\x00" * (12 - len(msgtype))
-            tmsg += data
-            return self.v2_state.v2_enc_packet(tmsg, ignore=is_decoy)
+                header = b"\x00" + msgtype + b"\x00" * (12 - len(msgtype))
+            header += len(data).to_bytes(8, 'little')
+            return self.v2_state.v3_enc_packet(header + data, ignore=is_decoy, more=False)
         else:
             tmsg = self.magic_bytes
             tmsg += msgtype

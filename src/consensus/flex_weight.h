@@ -12,7 +12,7 @@
 
 namespace Consensus {
 
-/** Leftover weight still counted as pegged, above one simplest payment.
+/** Leftover weight still counted as saturated, above two simplest payments.
  *  Covers a compact-size wobble on the block tx count and a few witness bytes. */
 static constexpr uint64_t FULL_FIT_BUFFER_WEIGHT{64};
 
@@ -46,13 +46,14 @@ WideProduct Mul128(uint64_t a, uint64_t b);
 /** True if a * b >= c * d as unsigned 128-bit integers. No wrap. No float. */
 bool MulGe(uint64_t a, uint64_t b, uint64_t c, uint64_t d);
 
-/** True when this block's leftover weight cannot fit one more simplest
- *  payment (max signature of a kind valid at this height) plus
- *  FULL_FIT_BUFFER_WEIGHT. Demand filled the cap. weight == cap is pegged.
- *  weight > cap is not a valid block and is not pegged.
- *  Leftover-hole pegged is miner-fillable. The brake is 80% of a
- *  FLEX_CEILING_INTERVAL plus AtCeiling, not a fee-weighted oracle. */
-bool Pegged(uint64_t block_weight, uint64_t cap, int height);
+/** True when this block's leftover weight cannot fit two more simplest
+ *  payments (max signature of a kind valid at this height) plus
+ *  FULL_FIT_BUFFER_WEIGHT. If two still fit, the block was not full.
+ *  Demand filled the cap. weight == cap is saturated. weight > cap is
+ *  not a valid block and is not saturated. The brake is 80% of a
+ *  FLEX_CEILING_INTERVAL plus AtCeiling, not a fee-weighted oracle.
+ *  This is not uint32 wrap-avoidance and not IEEE satfinite. */
+bool Saturated(uint64_t block_weight, uint64_t cap, int height);
 
 /** True when block_weight * 5 < cap. Strictly under 20 percent of the live
  *  max. The product is a 128-bit compare, not a uint64 multiply. */
@@ -60,8 +61,8 @@ bool Slack(uint64_t block_weight, uint64_t cap);
 
 /** True when count * 5 >= interval * 4 (at least four fifths of the subsidy
  *  interval). Both products are 128-bit. interval <= 0 is not a stretch.
- *  For interval 210000, 167999 is false and 168000 is true. The pegged-block
- *  count and the slack-block count both use this compare. */
+ *  For interval 210000, 167999 is false and 168000 is true. The
+ *  saturated-block count and the slack-block count both use this compare. */
 bool CountMeetsFourFifths(uint64_t count, int interval);
 
 /** floor((cap * GROW_CAP_NUM) / GROW_CAP_DEN) when that product fits in
@@ -79,10 +80,10 @@ GrowCapResult GrowCap(uint64_t cap);
  *  Divisor is the constant 2. */
 uint64_t ShrinkCap(uint64_t cap);
 
-/** Next cap after one subsidy interval. Grow when the pegged count meets
+/** Next cap after one subsidy interval. Grow when the saturated count meets
  *  four fifths. Otherwise cut when the slack count meets four fifths.
  *  Otherwise the cap stays. One stretch takes one branch. */
-uint64_t DecideNextCap(uint64_t cap, uint64_t pegged_blocks, uint64_t slack_blocks, int interval);
+uint64_t DecideNextCap(uint64_t cap, uint64_t saturated_blocks, uint64_t slack_blocks, int interval);
 
 /** Apply GrowCap `times` times. Floor toward zero is GrowCap's. Stops
  *  on AtCeiling or MultiplyWouldOverflow so a large `times` does not

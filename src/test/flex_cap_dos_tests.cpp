@@ -171,13 +171,13 @@ struct Filled {
     std::vector<SpendCoin> produced;
 };
 
-Filled FillPegged(const SpendKeys& keys, std::array<std::deque<SpendCoin>, KIND_COUNT>& pool, uint64_t cap, uint64_t coinbase_weight, int height)
+Filled FillSaturated(const SpendKeys& keys, std::array<std::deque<SpendCoin>, KIND_COUNT>& pool, uint64_t cap, uint64_t coinbase_weight, int height)
 {
     Filled filled;
     uint64_t weight{coinbase_weight};
     int cell{0};
     const CAmount fee_gap{1000};
-    while (!Consensus::Pegged(weight, cap, height)) {
+    while (!Consensus::Saturated(weight, cap, height)) {
         bool added{false};
         for (int attempt{0}; attempt < KIND_COUNT * KIND_COUNT; ++attempt) {
             const int slot{(cell + attempt) % (KIND_COUNT * KIND_COUNT)};
@@ -203,7 +203,7 @@ Filled FillPegged(const SpendKeys& keys, std::array<std::deque<SpendCoin>, KIND_
         }
         if (!added) break;
     }
-    while (!Consensus::Pegged(weight, cap, height)) {
+    while (!Consensus::Saturated(weight, cap, height)) {
         auto& segwit{pool[static_cast<int>(Kind::Segwit)]};
         if (segwit.empty() || segwit.front().out.nValue <= fee_gap) break;
         CMutableTransaction tx{SpendOne(keys, segwit.front(), Kind::Segwit, segwit.front().out.nValue - fee_gap)};
@@ -219,7 +219,7 @@ Filled FillPegged(const SpendKeys& keys, std::array<std::deque<SpendCoin>, KIND_
         filled.txs.push_back(std::move(tx));
         segwit.pop_front();
     }
-    BOOST_REQUIRE(Consensus::Pegged(weight, cap, height));
+    BOOST_REQUIRE(Consensus::Saturated(weight, cap, height));
     int smallest{filled.cells[0][0]};
     int largest{filled.cells[0][0]};
     for (const auto& row : filled.cells) {
@@ -301,7 +301,7 @@ static std::array<std::deque<SpendCoin>, KIND_COUNT> FundKinds(TestChain100Setup
     return pool;
 }
 
-static CBlock ConnectPegged(TestChain100Setup& setup, const std::vector<CMutableTransaction>& txs, uint64_t cap)
+static CBlock ConnectSaturated(TestChain100Setup& setup, const std::vector<CMutableTransaction>& txs, uint64_t cap)
 {
     const int height_before{WITH_LOCK(cs_main, return setup.m_node.chainman->ActiveChain().Height())};
     SetMockTime(GetTime() + 1);
@@ -310,7 +310,7 @@ static CBlock ConnectPegged(TestChain100Setup& setup, const std::vector<CMutable
     const uint64_t weight{static_cast<uint64_t>(GetBlockWeight(block))};
     const int height{height_before + 1};
     BOOST_REQUIRE_LE(weight, cap);
-    BOOST_REQUIRE(Consensus::Pegged(weight, cap, height));
+    BOOST_REQUIRE(Consensus::Saturated(weight, cap, height));
     const Consensus::BlockLimits limits{Consensus::LimitsForCap(cap)};
     BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) <= limits.serialized_size);
     BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_WITH_WITNESS(block))) <= limits.block_message_bytes);
@@ -327,7 +327,7 @@ static CBlock ConnectPegged(TestChain100Setup& setup, const std::vector<CMutable
     return block;
 }
 
-BOOST_AUTO_TEST_CASE(wide_cap_connects_two_pegged_blocks)
+BOOST_AUTO_TEST_CASE(wide_cap_connects_two_saturated_blocks)
 {
     RestoreFloorLimit();
     const uint64_t cap{64000000};
@@ -340,16 +340,16 @@ BOOST_AUTO_TEST_CASE(wide_cap_connects_two_pegged_blocks)
     CBlock empty{CreateBlock({}, MldsaScriptPubKey(), m_node.chainman->ActiveChainstate())};
     const uint64_t coinbase_weight{static_cast<uint64_t>(GetBlockWeight(empty))};
     auto pool{FundKinds(*this, keys, cap)};
-    Filled opening{FillPegged(keys, pool, cap, coinbase_weight, height + 2)};
-    ConnectPegged(*this, opening.txs, cap);
+    Filled opening{FillSaturated(keys, pool, cap, coinbase_weight, height + 2)};
+    ConnectSaturated(*this, opening.txs, cap);
     std::array<std::deque<SpendCoin>, KIND_COUNT> next_pool;
     for (const SpendCoin& coin : opening.produced) next_pool[static_cast<int>(coin.kind)].push_back(coin);
     for (int kind{0}; kind < KIND_COUNT; ++kind) {
         for (const SpendCoin& coin : pool[kind]) next_pool[kind].push_back(coin);
     }
     const int height_after{WITH_LOCK(cs_main, return m_node.chainman->ActiveChain().Height())};
-    Filled following{FillPegged(keys, next_pool, cap, coinbase_weight, height_after + 1)};
-    CBlock block{ConnectPegged(*this, following.txs, cap)};
+    Filled following{FillSaturated(keys, next_pool, cap, coinbase_weight, height_after + 1)};
+    CBlock block{ConnectSaturated(*this, following.txs, cap)};
     BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_WITH_WITNESS(block))) <= CommandReceiveLimit("block"));
     RestoreFloorLimit();
 }
@@ -367,7 +367,7 @@ BOOST_AUTO_TEST_CASE(header_flex_raises_receive_without_tip_admit)
     RestoreFloorLimit();
 }
 
-BOOST_AUTO_TEST_CASE(floor_connects_pegged_and_rejects_wide_payload)
+BOOST_AUTO_TEST_CASE(floor_connects_saturated_and_rejects_wide_payload)
 {
     RestoreFloorLimit();
     const uint64_t cap{Consensus::MIN_FLEX_BLOCK_WEIGHT};
@@ -381,16 +381,16 @@ BOOST_AUTO_TEST_CASE(floor_connects_pegged_and_rejects_wide_payload)
     CBlock empty{CreateBlock({}, MldsaScriptPubKey(), m_node.chainman->ActiveChainstate())};
     const uint64_t coinbase_weight{static_cast<uint64_t>(GetBlockWeight(empty))};
     auto pool{FundKinds(*this, keys, cap)};
-    Filled opening{FillPegged(keys, pool, cap, coinbase_weight, height + 2)};
-    ConnectPegged(*this, opening.txs, cap);
+    Filled opening{FillSaturated(keys, pool, cap, coinbase_weight, height + 2)};
+    ConnectSaturated(*this, opening.txs, cap);
     std::array<std::deque<SpendCoin>, KIND_COUNT> next_pool;
     for (const SpendCoin& coin : opening.produced) next_pool[static_cast<int>(coin.kind)].push_back(coin);
     for (int kind{0}; kind < KIND_COUNT; ++kind) {
         for (const SpendCoin& coin : pool[kind]) next_pool[kind].push_back(coin);
     }
     const int height_after{WITH_LOCK(cs_main, return m_node.chainman->ActiveChain().Height())};
-    Filled following{FillPegged(keys, next_pool, cap, coinbase_weight, height_after + 1)};
-    ConnectPegged(*this, following.txs, cap);
+    Filled following{FillSaturated(keys, next_pool, cap, coinbase_weight, height_after + 1)};
+    ConnectSaturated(*this, following.txs, cap);
 
     std::vector<CMutableTransaction> fat;
     uint64_t fat_weight{coinbase_weight};

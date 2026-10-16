@@ -18,7 +18,7 @@ from test_framework.messages import (
     CBlockHeader,
     NODE_BLAKE2B,
     NODE_NETWORK,
-    NODE_P2P_V2,
+    NODE_P2P_V3,
     NODE_REDUCED_DATA,
     NODE_WITNESS,
     from_hex,
@@ -64,16 +64,15 @@ class StaleOutboundTest(BitcoinTestFramework):
         services = NODE_NETWORK | NODE_WITNESS | NODE_REDUCED_DATA
         if preferred:
             services |= NODE_BLAKE2B
-        if self.options.v2transport:
-            services |= NODE_P2P_V2
+        services |= NODE_P2P_V3
         return services
 
     def connect(self, node, p2p_idx, conn_type, *, preferred, **kwargs):
         return node.add_outbound_p2p_connection(
             P2PInterface(), p2p_idx=p2p_idx, connection_type=conn_type,
             services=self.services(preferred=preferred),
-            supports_v2_p2p=self.options.v2transport,
-            advertise_v2_p2p=self.options.v2transport, **kwargs)
+            supports_v2_p2p=True,
+            advertise_v2_p2p=True, **kwargs)
 
     def outbound_count(self, node):
         return len([p for p in node.getpeerinfo() if not p["inbound"]])

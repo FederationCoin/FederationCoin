@@ -140,8 +140,7 @@ class NetTest(BitcoinTestFramework):
         self.nodes[0].setmocktime(no_version_peer_conntime)
         with self.nodes[0].wait_for_new_peer():
             no_version_peer = self.nodes[0].add_p2p_connection(P2PInterface(), send_version=False, wait_for_verack=False)
-        if self.options.v2transport:
-            self.wait_until(lambda: self.nodes[0].getpeerinfo()[no_version_peer_id]["transport_protocol_type"] == "v2")
+        self.wait_until(lambda: self.nodes[0].getpeerinfo()[no_version_peer_id]["transport_protocol_type"] == "v3")
         self.nodes[0].setmocktime(0)
         peer_info = self.nodes[0].getpeerinfo()[no_version_peer_id]
         peer_info.pop("addr")
@@ -168,8 +167,8 @@ class NetTest(BitcoinTestFramework):
                 "last_block": 0,
                 "last_block_announcement": 0,
                 "last_transaction": 0,
-                "lastrecv": 0 if not self.options.v2transport else no_version_peer_conntime,
-                "lastsend": 0 if not self.options.v2transport else no_version_peer_conntime,
+                "lastrecv": no_version_peer_conntime,
+                "lastsend": no_version_peer_conntime,
                 "minfeefilter": Decimal("0E-8"),
                 "network": "not_publicly_routable",
                 "permissions": ['bloomfilter'],
@@ -178,13 +177,13 @@ class NetTest(BitcoinTestFramework):
                 "relaytxes": False,
                 "services": "0000000000000000",
                 "servicesnames": [],
-                "session_id": "" if not self.options.v2transport else no_version_peer.v2_state.peer['session_id'].hex(),
+                "session_id": no_version_peer.v2_state.peer['session_id'].hex(),
                 "startingheight": -1,
                 "subver": "",
                 "synced_blocks": -1,
                 "synced_headers": -1,
                 "timeoffset": 0,
-                "transport_protocol_type": "v1" if not self.options.v2transport else "v2",
+                "transport_protocol_type": "v3",
                 "version": 0,
                 "misbehavior_score": 0,
             },
@@ -198,9 +197,9 @@ class NetTest(BitcoinTestFramework):
         # sent/received should increase by at least the size of one ping
         # and one pong. Both have a payload size of 8 bytes, but the total
         # size depends on the used p2p version:
-        #   - p2p v1: 24 bytes (header) + 8 bytes (payload) = 32 bytes
-        #   - p2p v2: 21 bytes (header/tag with short-id) + 8 bytes (payload) = 29 bytes
-        ping_size = 32 if not self.options.v2transport else 29
+        #   - p2p v3 bytesrecv_per_msg is payload + V3_EXPANSION (8 + 25 = 33),
+        #     not the full 42-byte ciphertext.
+        ping_size = 33
         net_totals_before = self.nodes[0].getnettotals()
         peer_info_before = self.nodes[0].getpeerinfo()
 
@@ -285,10 +284,7 @@ class NetTest(BitcoinTestFramework):
     def test_service_flags(self):
         self.log.info("Test service flags")
         self.nodes[0].add_p2p_connection(P2PInterface(), services=(1 << 4) | (1 << 63))
-        if self.options.v2transport:
-            assert_equal(['UNKNOWN[2^4]', 'P2P_V2', 'UNKNOWN[2^63]'], self.nodes[0].getpeerinfo()[-1]['servicesnames'])
-        else:
-            assert_equal(['UNKNOWN[2^4]', 'UNKNOWN[2^63]'], self.nodes[0].getpeerinfo()[-1]['servicesnames'])
+        assert_equal(['UNKNOWN[2^4]', 'P2P_V3', 'UNKNOWN[2^63]'], self.nodes[0].getpeerinfo()[-1]['servicesnames'])
         self.nodes[0].disconnect_p2ps()
 
     def test_getnodeaddresses(self):
@@ -416,10 +412,8 @@ class NetTest(BitcoinTestFramework):
         node = self.nodes[0]
 
         self.restart_node(0)
-        # we want to use a p2p v1 connection here in order to ensure
-        # a peer id of zero (a downgrade from v2 to v1 would lead
-        # to an increase of the peer id)
-        self.connect_nodes(0, 1, peer_advertises_v2=False)
+        # First connection after restart is peer id 0.
+        self.connect_nodes(0, 1)
 
         self.log.info("Test sendmsgtopeer")
         self.log.debug("Send a valid message")
@@ -441,9 +435,9 @@ class NetTest(BitcoinTestFramework):
         self.log.debug("Test that empty msg is allowed")
         node.sendmsgtopeer(peer_id=0, msg_type="addr", msg="FF")
 
-        self.log.debug("Test that oversized messages are allowed, but get us disconnected")
+        self.log.debug("Test that oversized messages are dropped and the peer stays connected")
         node.sendmsgtopeer(peer_id=0, msg_type="addr", msg="", msg_size=MAX_PROTOCOL_MESSAGE_LENGTH + 1)
-        self.wait_until(lambda: len(self.nodes[0].getpeerinfo()) == 0, timeout=30)
+        assert_equal(len(self.nodes[0].getpeerinfo()), 1)
 
     def test_getaddrmaninfo(self):
         self.log.info("Test getaddrmaninfo")

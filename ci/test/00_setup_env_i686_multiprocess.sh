@@ -14,7 +14,7 @@ export CI_CONTAINER_CAP="--security-opt seccomp=unconfined"
 export PACKAGES="llvm clang g++-multilib"
 export DEP_OPTS="DEBUG=1 MULTIPROCESS=1"
 export GOAL="install"
-export TEST_RUNNER_EXTRA="--v2transport"
+# Application framing is v3 from genesis. There is no -v2transport option.
 export BITCOIN_CONFIG="\
  -DCMAKE_BUILD_TYPE=Debug \
  -DCMAKE_C_COMPILER='clang;-m32' \

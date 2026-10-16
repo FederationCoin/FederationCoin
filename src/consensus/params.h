@@ -27,6 +27,8 @@ enum BuriedDeployment : int16_t {
     DEPLOYMENT_CSV,
     DEPLOYMENT_SEGWIT,
 };
+/** True when dep is a Knots buried enumerator. The last enumerator is
+ *  DEPLOYMENT_SEGWIT. FederationCoin did not add a sixth buried deployment. */
 constexpr bool ValidDeployment(BuriedDeployment dep) { return dep <= DEPLOYMENT_SEGWIT; }
 
 enum DeploymentPos : uint16_t {

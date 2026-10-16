@@ -109,7 +109,7 @@ BASE_SCRIPTS = [
     # 'wallet_conflicts.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_conflicts.py --descriptors',
     'p2p_opportunistic_1p1c.py',
-    'p2p_node_network_limited.py --v1transport',
+    'p2p_node_network_limited.py',
     # vv Tests less than 2m vv
     'mining_getblocktemplate_longpoll.py',
     'p2p_segwit.py',
@@ -127,7 +127,7 @@ BASE_SCRIPTS = [
     # 'wallet_backup.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_backup.py --descriptors',
     # 'feature_segwit.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
-    'feature_segwit.py --descriptors --v1transport',
+    'feature_segwit.py --descriptors',
     'p2p_tx_download.py',
     # 'wallet_avoidreuse.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_avoidreuse.py --descriptors',
@@ -165,7 +165,7 @@ BASE_SCRIPTS = [
     # vv Tests less than 30s vv
     'p2p_invalid_messages.py',
     'rpc_createmultisig.py',
-    'p2p_timeouts.py --v1transport',
+    'p2p_timeouts.py',
     # 'wallet_dump.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_dump.py --descriptors',
     'wallet_importmulti.py --descriptors',
@@ -228,7 +228,7 @@ BASE_SCRIPTS = [
     'mempool_spend_coinbase.py',
     'wallet_avoid_mixing_output_types.py --descriptors',
     'mempool_reorg.py',
-    'p2p_block_sync.py --v1transport',
+    'p2p_block_sync.py',
     'p2p_block_times.py',
     # 'wallet_createwallet.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_createwallet.py --usecli',
@@ -256,11 +256,11 @@ BASE_SCRIPTS = [
     'wallet_transactiontime_rescan.py --descriptors',
     # 'wallet_transactiontime_rescan.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'p2p_addrv2_relay.py',
-    'p2p_compactblocks_hb.py --v1transport',
-    'p2p_disconnect_ban.py --v1transport',
+    'p2p_compactblocks_hb.py',
+    'p2p_disconnect_ban.py',
     'feature_posix_fs_permissions.py',
     'rpc_decodescript.py',
-    'rpc_blockchain.py --v1transport',
+    'rpc_blockchain.py',
     'rpc_deprecated.py',
     'wallet_disable.py',
     # 'wallet_change_address.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
@@ -269,22 +269,23 @@ BASE_SCRIPTS = [
     'p2p_getaddr_caching.py',
     'p2p_getdata.py',
     'p2p_addrfetch.py',
-    'rpc_net.py --v1transport',
+    'rpc_net.py',
     # 'wallet_keypool.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_keypool.py --descriptors',
     'wallet_descriptor.py --descriptors',
     'p2p_nobloomfilter_messages.py',
     TEST_FRAMEWORK_UNIT_TESTS,
     'p2p_filter.py',
-    'rpc_setban.py --v1transport',
+    'rpc_setban.py',
     'p2p_blocksonly.py',
     'mining_prioritisetransaction.py',
     'p2p_invalid_locator.py',
-    'p2p_invalid_block.py --v1transport',
-    'p2p_invalid_tx.py --v1transport',
+    'p2p_invalid_block.py',
+    'p2p_invalid_tx.py',
     'p2p_v2_transport.py',
     'p2p_v2_encrypted.py',
     'p2p_v2_misbehaving.py',
+    'p2p_v3_rejected.py',
     'example_test.py',
     'mempool_truc.py',
     # 'wallet_txn_doublespend.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
@@ -310,11 +311,11 @@ BASE_SCRIPTS = [
     'rpc_preciousblock.py',
     # 'wallet_importprunedfunds.py --legacy-wallet'  # this chain does not ship a Berkeley DB wallet
     'wallet_importprunedfunds.py --descriptors',
-    'p2p_leak_tx.py --v1transport',
+    'p2p_leak_tx.py',
     'p2p_eviction.py',
     'p2p_outbound_eviction.py',
-    'p2p_ibd_stalling.py --v1transport',
-    'p2p_net_deadlock.py --v1transport',
+    'p2p_ibd_stalling.py',
+    'p2p_net_deadlock.py',
     'wallet_signmessagewithaddress.py',
     'rpc_signmessagewithprivkey.py',
     'rpc_generate.py',

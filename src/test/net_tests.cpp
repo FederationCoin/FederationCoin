@@ -1286,6 +1286,12 @@ public:
         m_sent_aad = true;
     }
 
+    void SendV3Version(bool vers_ignore = false)
+    {
+        const uint8_t tag{FCN_P2P_V3_VERSION_TAG};
+        SendVersion(Span{&tag, 1}, vers_ignore);
+    }
+
     /** Expect a packet to have been received from transport, process it, and return its contents
      *  (only after ReceiveKey). Decoys are skipped. Optional associated authenticated data (AAD) is
      *  expected in the first received packet, no matter if that is a decoy or not. */
@@ -1341,29 +1347,26 @@ public:
     void ReceiveVersion()
     {
         auto contents = ReceivePacket(/*aad=*/MakeByteSpan(m_recv_garbage));
-        // Version packets from real BIP324 peers are expected to be empty, despite the fact that
-        // this class supports *sending* non-empty version packets (to test that BIP324 peers
-        // correctly ignore version packet contents).
-        BOOST_CHECK(contents.empty() ||
-                    (contents.size() == 1 && contents[0] == FCN_P2P_V3_VERSION_TAG));
+        BOOST_REQUIRE(!contents.empty());
+        BOOST_CHECK_EQUAL(contents[0], FCN_P2P_V3_VERSION_TAG);
     }
 
     /** Expect application packet to have been received, with specified short id and payload.
      *  (only after ReceiveKey). */
     void ReceiveMessage(uint8_t short_id, Span<const uint8_t> payload)
     {
-        auto ret = ReceivePacket();
-        BOOST_CHECK(ret.size() == payload.size() + 1);
+        auto ret = ReceivePacketV3();
+        BOOST_REQUIRE(ret.size() == payload.size() + 1 + 8);
         BOOST_CHECK(ret[0] == short_id);
-        BOOST_CHECK(std::ranges::equal(Span{ret}.subspan(1), payload));
+        BOOST_CHECK_EQUAL(ReadLE64(ret.data() + 1), payload.size());
+        BOOST_CHECK(std::ranges::equal(Span{ret}.subspan(9), payload));
     }
 
-    /** Expect application packet to have been received, with specified 12-char message type and
-     *  payload (only after ReceiveKey). */
+    /** Expect a v3 application packet with a 12-char message type and payload. */
     void ReceiveMessage(const std::string& m_type, Span<const uint8_t> payload)
     {
-        auto ret = ReceivePacket();
-        BOOST_REQUIRE(ret.size() == payload.size() + 1 + CMessageHeader::MESSAGE_TYPE_SIZE);
+        auto ret = ReceivePacketV3();
+        BOOST_REQUIRE(ret.size() == payload.size() + 1 + CMessageHeader::MESSAGE_TYPE_SIZE + 8);
         BOOST_CHECK(ret[0] == 0);
         for (unsigned i = 0; i < 12; ++i) {
             if (i < m_type.size()) {
@@ -1372,7 +1375,8 @@ public:
                 BOOST_CHECK(ret[1 + i] == 0);
             }
         }
-        BOOST_CHECK(std::ranges::equal(Span{ret}.subspan(1 + CMessageHeader::MESSAGE_TYPE_SIZE), payload));
+        BOOST_CHECK_EQUAL(ReadLE64(ret.data() + 1 + CMessageHeader::MESSAGE_TYPE_SIZE), payload.size());
+        BOOST_CHECK(std::ranges::equal(Span{ret}.subspan(1 + CMessageHeader::MESSAGE_TYPE_SIZE + 8), payload));
     }
 
     /** Schedule an encrypted packet with specified message type and payload to be sent to
@@ -1380,23 +1384,21 @@ public:
     void SendMessage(std::string mtype, Span<const uint8_t> payload)
     {
         // Construct contents consisting of 0x00 + 12-byte message type + payload.
-        std::vector<uint8_t> contents(1 + CMessageHeader::MESSAGE_TYPE_SIZE + payload.size());
+        std::vector<uint8_t> contents(1 + CMessageHeader::MESSAGE_TYPE_SIZE + 8 + payload.size(), 0);
         std::copy(mtype.begin(), mtype.end(), reinterpret_cast<char*>(contents.data() + 1));
-        std::copy(payload.begin(), payload.end(), contents.begin() + 1 + CMessageHeader::MESSAGE_TYPE_SIZE);
-        // Send a packet with that as contents.
-        SendPacket(contents);
+        WriteLE64(contents.data() + 1 + CMessageHeader::MESSAGE_TYPE_SIZE, payload.size());
+        std::copy(payload.begin(), payload.end(), contents.begin() + 1 + CMessageHeader::MESSAGE_TYPE_SIZE + 8);
+        SendPacketV3(contents, /*more=*/false);
     }
 
-    /** Schedule an encrypted packet with specified short message id and payload to be sent to
-     *  transport (only after ReceiveKey). */
+    /** Schedule a v3 frame with specified short message id and payload. */
     void SendMessage(uint8_t short_id, Span<const uint8_t> payload)
     {
-        // Construct contents consisting of short_id + payload.
-        std::vector<uint8_t> contents(1 + payload.size());
+        std::vector<uint8_t> contents(1 + 8 + payload.size());
         contents[0] = short_id;
-        std::copy(payload.begin(), payload.end(), contents.begin() + 1);
-        // Send a packet with that as contents.
-        SendPacket(contents);
+        WriteLE64(contents.data() + 1, payload.size());
+        std::copy(payload.begin(), payload.end(), contents.begin() + 9);
+        SendPacketV3(contents, /*more=*/false);
     }
 
     /** Test whether the transport's session ID matches the session ID we expect. */
@@ -1479,7 +1481,7 @@ BOOST_AUTO_TEST_CASE(make_transport_follows_v2_admit)
     }
     {
         const auto node{make_node(/*use_v2=*/false)};
-        BOOST_CHECK(node->m_transport->GetInfo().transport_type == TransportProtocolType::V1);
+        BOOST_CHECK(node->m_transport->GetInfo().transport_type == TransportProtocolType::DETECTING);
     }
     Consensus::SetBlockMessageAdmitWeight(saved);
 }
@@ -1504,17 +1506,21 @@ BOOST_AUTO_TEST_CASE(v1_message_size_limits)
     Consensus::SetBlockMessageAdmitWeight(saved);
 }
 
-BOOST_AUTO_TEST_CASE(v2_message_too_large_to_send)
+BOOST_AUTO_TEST_CASE(v3_message_too_large_to_send)
 {
     V2Transport transport{/*nodeid=*/0, /*initiating=*/true};
-    CSerializedNetMsg ok;
-    ok.m_type = "block";
-    ok.data.resize(100);
-    BOOST_CHECK(!transport.MessageTooLargeToSend(ok));
-    CSerializedNetMsg huge;
-    huge.m_type = "block";
-    huge.data.resize(BIP324Cipher::MAX_CONTENTS_LEN);
-    BOOST_CHECK(transport.MessageTooLargeToSend(huge));
+    CSerializedNetMsg ok_block;
+    ok_block.m_type = "block";
+    ok_block.data.resize(BIP324Cipher::MAX_CONTENTS_LEN);
+    BOOST_CHECK(!transport.MessageTooLargeToSend(ok_block));
+    CSerializedNetMsg ok_tx;
+    ok_tx.m_type = "tx";
+    ok_tx.data.resize(CommandReceiveLimit("tx"));
+    BOOST_CHECK(!transport.MessageTooLargeToSend(ok_tx));
+    CSerializedNetMsg huge_tx;
+    huge_tx.m_type = "tx";
+    huge_tx.data.resize(CommandReceiveLimit("tx") + 1);
+    BOOST_CHECK(transport.MessageTooLargeToSend(huge_tx));
 }
 
 BOOST_AUTO_TEST_CASE(v2transport_test)
@@ -1530,7 +1536,7 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         tester.SendGarbage();
         tester.ReceiveKey();
         tester.SendGarbageTerm();
-        tester.SendVersion();
+        tester.SendV3Version();
         ret = tester.Interact();
         BOOST_REQUIRE(ret && ret->empty());
         tester.ReceiveGarbage();
@@ -1539,13 +1545,11 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         auto msg_data_1 = m_rng.randbytes<uint8_t>(m_rng.randrange(100000));
         auto msg_data_2 = m_rng.randbytes<uint8_t>(m_rng.randrange(1000));
         tester.SendMessage(uint8_t(4), msg_data_1); // cmpctblock short id
-        tester.SendMessage(0, {}); // Invalidly encoded message
         tester.SendMessage("tx", msg_data_2); // 12-character encoded message type
         ret = tester.Interact();
-        BOOST_REQUIRE(ret && ret->size() == 3);
+        BOOST_REQUIRE(ret && ret->size() == 2);
         BOOST_CHECK((*ret)[0] && (*ret)[0]->m_type == "cmpctblock" && std::ranges::equal((*ret)[0]->m_recv, MakeByteSpan(msg_data_1)));
-        BOOST_CHECK(!(*ret)[1]);
-        BOOST_CHECK((*ret)[2] && (*ret)[2]->m_type == "tx" && std::ranges::equal((*ret)[2]->m_recv, MakeByteSpan(msg_data_2)));
+        BOOST_CHECK((*ret)[1] && (*ret)[1]->m_type == "tx" && std::ranges::equal((*ret)[1]->m_recv, MakeByteSpan(msg_data_2)));
 
         // Then send a message with a bit error, expecting failure. It's possible this failure does
         // not occur immediately (when the length descriptor was modified), but it should come
@@ -1571,7 +1575,7 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         BOOST_REQUIRE(ret && ret->empty());
         tester.ReceiveKey();
         tester.SendGarbageTerm();
-        tester.SendVersion();
+        tester.SendV3Version();
         ret = tester.Interact();
         BOOST_REQUIRE(ret && ret->empty());
         tester.ReceiveGarbage();
@@ -1585,15 +1589,6 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         BOOST_REQUIRE(ret && ret->size() == 2);
         BOOST_CHECK((*ret)[0] && (*ret)[0]->m_type == "inv" && std::ranges::equal((*ret)[0]->m_recv, MakeByteSpan(msg_data_1)));
         BOOST_CHECK((*ret)[1] && (*ret)[1]->m_type == "pong" && std::ranges::equal((*ret)[1]->m_recv, MakeByteSpan(msg_data_2)));
-
-        const uint64_t saved_admit{Consensus::BlockMessageAdmitWeight()};
-        Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
-        auto too_large = m_rng.randbytes<uint8_t>(CommandReceiveLimit("block") + 1);
-        tester.SendMessage(uint8_t(2), too_large); // "block" short id, one byte over the admit cap
-        ret = tester.Interact();
-        Consensus::SetBlockMessageAdmitWeight(saved_admit);
-        BOOST_REQUIRE(ret && ret->size() == 1);
-        BOOST_CHECK(!(*ret)[0]);
         auto msg_data_3 = m_rng.randbytes<uint8_t>(m_rng.randrange(10000));
         tester.SendMessage(uint8_t(11), msg_data_3); // getdata short id
         ret = tester.Interact();
@@ -1610,8 +1605,12 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         size_t garb_len = m_rng.randbool() ? 0 : V2Transport::MAX_GARBAGE_LEN;
         /** How many decoy packets to send before the version packet. */
         unsigned num_ignore_version = m_rng.randrange(10);
-        /** What data to send in the version packet (ignored by BIP324 peers, but reserved for future extensions). */
-        auto ver_data = m_rng.randbytes<uint8_t>(m_rng.randbool() ? 0 : m_rng.randrange(1000));
+        /** Version contents: 0x03, optionally followed by ignored extra bytes. */
+        std::vector<uint8_t> ver_data{FCN_P2P_V3_VERSION_TAG};
+        if (m_rng.randbool()) {
+            auto extra = m_rng.randbytes<uint8_t>(m_rng.randrange(1000));
+            ver_data.insert(ver_data.end(), extra.begin(), extra.end());
+        }
         /** Whether to immediately send key and garbage out (required for responders, optional otherwise). */
         bool send_immediately = !initiator || m_rng.randbool();
         /** How many decoy packets to send before the first and second real message. */
@@ -1642,26 +1641,23 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         tester.CompareSessionIDs();
         for (unsigned d = 0; d < num_decoys_1; ++d) {
             auto decoy_data = m_rng.randbytes<uint8_t>(m_rng.randrange(1000));
-            tester.SendPacket(/*content=*/decoy_data, /*aad=*/{}, /*ignore=*/true);
+            tester.SendPacketV3(decoy_data, /*more=*/false, /*ignore=*/true);
         }
         auto msg_data_1 = m_rng.randbytes<uint8_t>(m_rng.randrange(static_cast<size_t>(Consensus::BlockMessageReceiveLimit())));
         tester.SendMessage(uint8_t(28), msg_data_1);
         for (unsigned d = 0; d < num_decoys_2; ++d) {
             auto decoy_data = m_rng.randbytes<uint8_t>(m_rng.randrange(1000));
-            tester.SendPacket(/*content=*/decoy_data, /*aad=*/{}, /*ignore=*/true);
+            tester.SendPacketV3(decoy_data, /*more=*/false, /*ignore=*/true);
         }
         auto msg_data_2 = m_rng.randbytes<uint8_t>(m_rng.randrange(1000));
         tester.SendMessage(uint8_t(13), msg_data_2); // headers short id
-        // Send invalidly-encoded message
-        tester.SendMessage(std::string("blocktxn\x00\x00\x00a", CMessageHeader::MESSAGE_TYPE_SIZE), {});
         tester.SendMessage("foobar", {}); // test receiving unknown message type
         tester.AddMessage("barfoo", {}); // test sending unknown message type
         ret = tester.Interact();
-        BOOST_REQUIRE(ret && ret->size() == 4);
+        BOOST_REQUIRE(ret && ret->size() == 3);
         BOOST_CHECK((*ret)[0] && (*ret)[0]->m_type == "addrv2" && std::ranges::equal((*ret)[0]->m_recv, MakeByteSpan(msg_data_1)));
         BOOST_CHECK((*ret)[1] && (*ret)[1]->m_type == "headers" && std::ranges::equal((*ret)[1]->m_recv, MakeByteSpan(msg_data_2)));
-        BOOST_CHECK(!(*ret)[2]);
-        BOOST_CHECK((*ret)[3] && (*ret)[3]->m_type == "foobar" && (*ret)[3]->m_recv.empty());
+        BOOST_CHECK((*ret)[2] && (*ret)[2]->m_type == "foobar" && (*ret)[2]->m_recv.empty());
         tester.ReceiveMessage("barfoo", {});
     }
 
@@ -1712,7 +1708,7 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         garbage[len_before + 15] ^= (uint8_t(1) << m_rng.randrange(8));
         tester.SendGarbage(garbage);
         tester.SendGarbageTerm();
-        tester.SendVersion();
+        tester.SendV3Version();
         ret = tester.Interact();
         BOOST_REQUIRE(ret && ret->empty());
         tester.ReceiveGarbage();
@@ -1721,25 +1717,15 @@ BOOST_AUTO_TEST_CASE(v2transport_test)
         const size_t block_payload{static_cast<size_t>(Consensus::BlockMessageReceiveLimit())};
         auto msg_data_1 = m_rng.randbytes<uint8_t>(block_payload); // receiving a live-cap block payload works
         auto msg_data_2 = m_rng.randbytes<uint8_t>(block_payload); // sending a live-cap block payload works
-        tester.SendMessage(uint8_t(m_rng.randrange(223) + 33), {}); // unknown short id
         tester.SendMessage(uint8_t(2), msg_data_1); // "block" short id
         tester.AddMessage("blocktxn", msg_data_2); // schedule blocktxn to be sent to us
         ret = tester.Interact();
-        BOOST_REQUIRE(ret && ret->size() == 2);
-        BOOST_CHECK(!(*ret)[0]);
-        BOOST_CHECK((*ret)[1] && (*ret)[1]->m_type == "block" && std::ranges::equal((*ret)[1]->m_recv, MakeByteSpan(msg_data_1)));
+        BOOST_REQUIRE(ret && ret->size() == 1);
+        BOOST_CHECK((*ret)[0] && (*ret)[0]->m_type == "block" && std::ranges::equal((*ret)[0]->m_recv, MakeByteSpan(msg_data_1)));
         tester.ReceiveMessage(uint8_t(3), msg_data_2); // "blocktxn" short id
     }
 
-    // Send correct network's V1 header
-    {
-        V2TransportTester tester(m_rng, false);
-        tester.SendV1Version(Params().MessageStart());
-        auto ret = tester.Interact();
-        BOOST_CHECK(ret);
-    }
-
-    // Send wrong network's V1 header
+    // Wrong network's V1 header is not a BIP324 key.
     {
         V2TransportTester tester(m_rng, false);
         tester.SendV1Version(CChainParams::Main()->MessageStart());
@@ -1816,12 +1802,12 @@ BOOST_AUTO_TEST_CASE(v3_handshake_frames_and_fail_closed)
         BOOST_REQUIRE(ret && ret->empty());
         tester.ReceiveKey();
         tester.SendGarbageTerm();
-        tester.SendVersion();
+        tester.SendV3Version();
         ret = tester.Interact();
         BOOST_REQUIRE(ret && ret->empty());
         tester.ReceiveGarbage();
         tester.ReceiveVersion();
-        BOOST_CHECK(tester.Info().transport_type == TransportProtocolType::V2);
+        BOOST_CHECK(tester.Info().transport_type == TransportProtocolType::V3);
     }
 
     {
@@ -1948,7 +1934,7 @@ BOOST_AUTO_TEST_CASE(v3_handshake_frames_and_fail_closed)
     Consensus::SetBlockMessageAdmitWeight(saved);
 }
 
-BOOST_AUTO_TEST_CASE(v3_does_not_send_app_before_peer_version)
+BOOST_AUTO_TEST_CASE(v3_sends_app_before_peer_version)
 {
     const uint64_t saved{Consensus::BlockMessageAdmitWeight()};
     Consensus::SetBlockMessageAdmitWeight(BIP324Cipher::MAX_CONTENTS_LEN);
@@ -1968,21 +1954,22 @@ BOOST_AUTO_TEST_CASE(v3_does_not_send_app_before_peer_version)
         tester.ReceiveVersion();
         BOOST_CHECK_EQUAL(tester.ReceivedPending(), 0);
 
+        // v3 is the default: send application frames without waiting for the
+        // peer's version packet. That packet only completes the receive path.
         tester.AddMessage("ping", {0x11, 0x22});
         ret = tester.Interact();
         BOOST_REQUIRE(ret && ret->empty());
-        BOOST_CHECK_EQUAL(tester.ReceivedPending(), 0);
+        const auto ping{tester.ReceivePacketV3()};
+        BOOST_REQUIRE_GE(ping.size(), 1 + 8 + 2);
+        BOOST_CHECK_EQUAL(ReadLE64(ping.data() + 1), 2);
+        BOOST_CHECK_EQUAL(ping[ping.size() - 2], 0x11);
+        BOOST_CHECK_EQUAL(ping.back(), 0x22);
 
         const uint8_t tag{FCN_P2P_V3_VERSION_TAG};
         tester.SendVersion(Span{&tag, 1});
         ret = tester.Interact();
         BOOST_REQUIRE(ret && ret->empty());
         BOOST_CHECK(tester.Info().transport_type == TransportProtocolType::V3);
-        const auto ping{tester.ReceivePacketV3()};
-        BOOST_REQUIRE_GE(ping.size(), 1 + 8 + 2);
-        BOOST_CHECK_EQUAL(ReadLE64(ping.data() + 1), 2);
-        BOOST_CHECK_EQUAL(ping[ping.size() - 2], 0x11);
-        BOOST_CHECK_EQUAL(ping.back(), 0x22);
     }
 
     Consensus::SetBlockMessageAdmitWeight(saved);
@@ -2015,49 +2002,81 @@ BOOST_AUTO_TEST_CASE(v3_reserved_header_bit_fails)
     Consensus::SetBlockMessageAdmitWeight(saved);
 }
 
-BOOST_AUTO_TEST_CASE(local_services_swap_v3_at_crossing)
+BOOST_AUTO_TEST_CASE(local_services_always_v3)
 {
-    const uint64_t saved{Consensus::BlockMessageAdmitWeight()};
     m_node.connman->AddLocalServices(NODE_P2P_V2);
-    Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
-    Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
-    const ServiceFlags below{m_node.connman->GetLocalServices()};
-    BOOST_CHECK(below & NODE_P2P_V2);
-    BOOST_CHECK(below & NODE_P2P_V3);
-    BOOST_CHECK(EncryptedP2POffered(below));
-    Consensus::SetBlockMessageAdmitWeight(BIP324Cipher::MAX_CONTENTS_LEN);
-    const ServiceFlags above{m_node.connman->GetLocalServices()};
-    BOOST_CHECK(!(above & NODE_P2P_V2));
-    BOOST_CHECK(above & NODE_P2P_V3);
-    BOOST_CHECK(EncryptedP2POffered(above));
-    BOOST_CHECK(EncryptedP2POffered(NODE_P2P_V3));
+    const ServiceFlags flags{m_node.connman->GetLocalServices()};
+    BOOST_CHECK(!(flags & NODE_P2P_V2));
+    BOOST_CHECK(flags & NODE_P2P_V3);
+    BOOST_CHECK(EncryptedP2POffered(flags));
     m_node.connman->RemoveLocalServices(NODE_P2P_V2);
-    const ServiceFlags disabled{m_node.connman->GetLocalServices()};
-    BOOST_CHECK(!(disabled & NODE_P2P_V2));
-    BOOST_CHECK(!(disabled & NODE_P2P_V3));
-    BOOST_CHECK(!EncryptedP2POffered(disabled));
-    Consensus::SetBlockMessageAdmitWeight(saved);
+    const ServiceFlags still{m_node.connman->GetLocalServices()};
+    BOOST_CHECK(still & NODE_P2P_V3);
+    BOOST_CHECK(EncryptedP2POffered(still));
+    BOOST_CHECK(EncryptedP2POffered(NODE_P2P_V3));
 }
 
 BOOST_AUTO_TEST_CASE(v3_handshake_from_genesis)
 {
     Consensus::SetHeaderMaxFlex(Consensus::MIN_FLEX_BLOCK_WEIGHT);
     Consensus::SetBlockMessageAdmitWeight(Consensus::MIN_FLEX_BLOCK_WEIGHT);
-    V2TransportTester tester(m_rng, false);
-    tester.SendKey();
-    tester.SendGarbage();
-    auto ret = tester.Interact();
-    BOOST_REQUIRE(ret && ret->empty());
-    tester.ReceiveKey();
-    tester.SendGarbageTerm();
     const uint8_t tag{FCN_P2P_V3_VERSION_TAG};
-    tester.SendVersion(Span{&tag, 1});
-    ret = tester.Interact();
-    BOOST_REQUIRE(ret && ret->empty());
-    tester.ReceiveGarbage();
-    tester.ReceiveVersion();
-    tester.CompareSessionIDs();
-    BOOST_CHECK(tester.Info().transport_type == TransportProtocolType::V3);
+    const uint8_t higher{0x04};
+    const std::vector<std::vector<uint8_t>> version_packets{
+        {tag},
+        {},
+        {higher},
+    };
+    for (const auto& ver : version_packets) {
+        V2TransportTester tester(m_rng, false);
+        tester.SendKey();
+        tester.SendGarbage();
+        auto ret = tester.Interact();
+        BOOST_REQUIRE(ret && ret->empty());
+        tester.ReceiveKey();
+        tester.SendGarbageTerm();
+        tester.SendVersion(ver);
+        ret = tester.Interact();
+        BOOST_REQUIRE(ret && ret->empty());
+        tester.ReceiveGarbage();
+        tester.ReceiveVersion();
+        tester.CompareSessionIDs();
+        BOOST_CHECK(tester.Info().transport_type == TransportProtocolType::V3);
+        tester.SendMessage(uint8_t{18}, std::vector<uint8_t>{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88});
+        ret = tester.Interact();
+        BOOST_REQUIRE(ret && ret->size() == 1);
+        BOOST_CHECK((*ret)[0] && (*ret)[0]->m_type == "ping");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(v1_and_v2_application_rejected)
+{
+    {
+        V2TransportTester tester(m_rng, false);
+        tester.SendV1Version(Params().MessageStart());
+        auto ret = tester.Interact();
+        BOOST_CHECK(!ret);
+    }
+    {
+        // Empty BIP324 version packet is the default (v3). v2 3-byte
+        // application framing after that handshake is rejected.
+        V2TransportTester tester(m_rng, false);
+        tester.SendKey();
+        tester.SendGarbage();
+        auto ret = tester.Interact();
+        BOOST_REQUIRE(ret && ret->empty());
+        tester.ReceiveKey();
+        tester.SendGarbageTerm();
+        tester.SendVersion();
+        ret = tester.Interact();
+        BOOST_REQUIRE(ret && ret->empty());
+        tester.ReceiveGarbage();
+        tester.ReceiveVersion();
+        BOOST_CHECK(tester.Info().transport_type == TransportProtocolType::V3);
+        tester.SendPacket(std::vector<uint8_t>{0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+        ret = tester.Interact();
+        BOOST_CHECK(!ret);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

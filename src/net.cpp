@@ -434,8 +434,7 @@ CNode* CConnman::ConnectNode(CAddress addrConnect, const char *pszDest, bool fCo
         }
     }
 
-    LogPrintLevel(BCLog::NET, BCLog::Level::Debug, "trying %s connection %s lastseen=%.1fhrs\n",
-        use_v2transport ? "v2" : "v1",
+    LogPrintLevel(BCLog::NET, BCLog::Level::Debug, "trying v3 connection %s lastseen=%.1fhrs\n",
         pszDest ? pszDest : addrConnect.ToStringAddrPort(),
         Ticks<HoursDouble>(pszDest ? 0h : Now<NodeSeconds>() - addrConnect.nTime));
 
@@ -1068,7 +1067,7 @@ void V2Transport::SetReceiveState(RecvState recv_state) noexcept
         Assume(recv_state == RecvState::VERSION);
         break;
     case RecvState::VERSION:
-        Assume(recv_state == RecvState::APP || recv_state == RecvState::APP_V3);
+        Assume(recv_state == RecvState::APP_V3);
         break;
     case RecvState::APP:
         Assume(recv_state == RecvState::APP_READY);
@@ -1119,42 +1118,30 @@ bool V2Transport::ReceivedMessageComplete() const noexcept
     return m_recv_state == RecvState::APP_READY || m_recv_state == RecvState::APP_V3_READY;
 }
 
-void V2Transport::ProcessReceivedMaybeV1Bytes() noexcept
+bool V2Transport::ProcessReceivedMaybeV1Bytes() noexcept
 {
     AssertLockHeld(m_recv_mutex);
     AssertLockNotHeld(m_send_mutex);
     Assume(m_recv_state == RecvState::KEY_MAYBE_V1);
-    // We still have to determine if this is a v1 or v2 connection. The bytes being received could
-    // be the beginning of either a v1 packet (network magic + "version\x00\x00\x00\x00\x00"), or
-    // of a v2 public key. BIP324 specifies that a mismatch with this 16-byte string should trigger
-    // sending of the key.
+    // Detect a v1 version header so we can disconnect. Application framing is
+    // v3 from genesis.
     std::array<uint8_t, V1_PREFIX_LEN> v1_prefix = {0, 0, 0, 0, 'v', 'e', 'r', 's', 'i', 'o', 'n', 0, 0, 0, 0, 0};
     std::copy(std::begin(Params().MessageStart()), std::end(Params().MessageStart()), v1_prefix.begin());
     Assume(m_recv_buffer.size() <= v1_prefix.size());
     if (!std::equal(m_recv_buffer.begin(), m_recv_buffer.end(), v1_prefix.begin())) {
-        // Mismatch with v1 prefix, so we can assume a v2 connection.
+        // Mismatch with v1 prefix, so we can assume a BIP324 connection.
         SetReceiveState(RecvState::KEY); // Convert to KEY state, leaving received bytes around.
         // Transition the sender to AWAITING_KEY state and start sending.
         LOCK(m_send_mutex);
         SetSendState(SendState::AWAITING_KEY);
         StartSendingHandshake();
-    } else if (m_recv_buffer.size() == v1_prefix.size()) {
-        // Full match with the v1 prefix, so fall back to v1 behavior.
-        LOCK(m_send_mutex);
-        Span<const uint8_t> feedback{m_recv_buffer};
-        // Feed already received bytes to v1 transport. It should always accept these, because it's
-        // less than the size of a v1 header, and these are the first bytes fed to m_v1_fallback.
-        bool ret = m_v1_fallback.ReceivedBytes(feedback);
-        Assume(feedback.empty());
-        Assume(ret);
-        SetReceiveState(RecvState::V1);
-        SetSendState(SendState::V1);
-        // Reset v2 transport buffers to save memory.
-        ClearShrink(m_recv_buffer);
-        ClearShrink(m_send_buffer);
-    } else {
-        // We have not received enough to distinguish v1 from v2 yet. Wait until more bytes come.
+        return true;
     }
+    if (m_recv_buffer.size() == v1_prefix.size()) {
+        LogDebug(BCLog::NET, "V1 transport is not offered, peer=%d\n", m_nodeid);
+        return false;
+    }
+    return true;
 }
 
 bool V2Transport::ProcessReceivedKeyBytes() noexcept
@@ -1202,11 +1189,10 @@ bool V2Transport::ProcessReceivedKeyBytes() noexcept
                   m_cipher.GetSendGarbageTerminator().end(),
                   MakeWritableByteSpan(m_send_buffer).last(BIP324Cipher::GARBAGE_TERMINATOR_LEN).begin());
 
-        // Construct version packet in the send buffer, with the sent garbage data as AAD.
-        // v3 application framing from genesis. Empty version is the v1-plaintext
-        // downgrade, not a v2 application path.
+        // BIP324 version packet: declare application version 3. This is not a
+        // capability the peer must echo before we send. Empty from the peer
+        // still means v3. A later tag would be an offer of a higher version.
         std::vector<std::byte> version_contents(VERSION_CONTENTS.begin(), VERSION_CONTENTS.end());
-        m_sent_v3_offer = true;
         version_contents.push_back(std::byte{FCN_P2P_V3_VERSION_TAG});
         m_send_buffer.resize(m_send_buffer.size() + BIP324Cipher::EXPANSION + version_contents.size());
         m_cipher.Encrypt(
@@ -1296,16 +1282,12 @@ bool V2Transport::ProcessReceivedPacketBytes() noexcept
         // decoy, which we simply ignore, use the current state to decide what to do with it.
         if (!ignore) {
             switch (m_recv_state) {
-            case RecvState::VERSION: {
-                const bool peer_v3{!m_recv_decode_buffer.empty() &&
-                                  m_recv_decode_buffer[0] == FCN_P2P_V3_VERSION_TAG};
-                if (m_sent_v3_offer && peer_v3) {
-                    SetReceiveState(RecvState::APP_V3);
-                } else {
-                    SetReceiveState(RecvState::APP);
-                }
+            case RecvState::VERSION:
+                // Default application is v3. Do not wait for a matching 0x03.
+                // A first byte above 0x03 is an offer of a later version; we
+                // stay on v3 until that version exists.
+                SetReceiveState(RecvState::APP_V3);
                 break;
-            }
             case RecvState::APP:
                 // Application message decrypted correctly. It can be extracted using GetMessage().
                 SetReceiveState(RecvState::APP_READY);
@@ -1358,46 +1340,69 @@ bool V2Transport::ProcessReceivedV3PacketBytes() noexcept
         RandAddEvent(ReadLE32(m_recv_buffer.data() + m_recv_buffer.size() - 4));
 
         if (!ignore) {
-            Span<const uint8_t> contents{m_recv_decode_buffer};
-            if (m_v3_assemble == V3Assemble::NeedType) {
-                auto msg_type = GetMessageType(contents);
-                if (!msg_type || contents.size() < 8) {
-                    LogDebug(BCLog::NET, "V3 transport error: invalid first frame (%u bytes), peer=%d\n",
-                             m_recv_decode_buffer.size(), m_nodeid);
-                    return false;
-                }
-                m_v3_type = std::move(*msg_type);
-                m_v3_total = ReadLE64(contents.data());
-                contents = contents.subspan(8);
-                if (m_v3_total > CommandReceiveLimit(m_v3_type)) {
-                    LogDebug(BCLog::NET, "V3 transport error: %s total_payload too large (%llu), peer=%d\n",
-                             SanitizeString(m_v3_type), static_cast<unsigned long long>(m_v3_total), m_nodeid);
-                    return false;
-                }
-                m_v3_assemble = V3Assemble::Body;
-                m_v3_assembly.assign(contents.begin(), contents.end());
-            } else {
-                m_v3_assembly.insert(m_v3_assembly.end(), contents.begin(), contents.end());
+            const Span<const uint8_t> contents{m_recv_decode_buffer};
+            switch (m_v3_assemble) {
+            case V3Assemble::NeedType:
+                if (!AssembleV3FirstFrame(contents)) return false;
+                break;
+            case V3Assemble::Body:
+                if (!AssembleV3Body(contents)) return false;
+                break;
             }
-            if (m_v3_assembly.size() > m_v3_total) {
-                LogDebug(BCLog::NET, "V3 transport error: assembled past total_payload, peer=%d\n", m_nodeid);
-                return false;
-            }
-            if (more) {
-                if (m_v3_assembly.size() == m_v3_total) {
-                    LogDebug(BCLog::NET, "V3 transport error: MORE after complete payload, peer=%d\n", m_nodeid);
-                    return false;
-                }
-            } else if (m_v3_assembly.size() != m_v3_total) {
-                LogDebug(BCLog::NET, "V3 transport error: short assembly, peer=%d\n", m_nodeid);
-                return false;
-            } else {
-                SetReceiveState(RecvState::APP_V3_READY);
-            }
+            if (!FinishV3Assembly(more)) return false;
         }
         ClearShrink(m_recv_buffer);
         if (m_recv_state != RecvState::APP_V3_READY) ClearShrink(m_recv_decode_buffer);
     }
+    return true;
+}
+
+bool V2Transport::AssembleV3FirstFrame(Span<const uint8_t> contents) noexcept
+{
+    AssertLockHeld(m_recv_mutex);
+    Span<const uint8_t> rest{contents};
+    std::optional<std::string> msg_type{GetMessageType(rest)};
+    if (!msg_type || rest.size() < 8) {
+        LogDebug(BCLog::NET, "V3 transport error: invalid first frame (%u bytes), peer=%d\n",
+                 m_recv_decode_buffer.size(), m_nodeid);
+        return false;
+    }
+    m_v3_type = std::move(*msg_type);
+    m_v3_total = ReadLE64(rest.data());
+    rest = rest.subspan(8);
+    if (m_v3_total > CommandReceiveLimit(m_v3_type)) {
+        LogDebug(BCLog::NET, "V3 transport error: %s total_payload too large (%llu), peer=%d\n",
+                 SanitizeString(m_v3_type), static_cast<unsigned long long>(m_v3_total), m_nodeid);
+        return false;
+    }
+    m_v3_assemble = V3Assemble::Body;
+    m_v3_assembly.assign(rest.begin(), rest.end());
+    return true;
+}
+
+bool V2Transport::AssembleV3Body(Span<const uint8_t> contents) noexcept
+{
+    AssertLockHeld(m_recv_mutex);
+    m_v3_assembly.insert(m_v3_assembly.end(), contents.begin(), contents.end());
+    return true;
+}
+
+bool V2Transport::FinishV3Assembly(bool more) noexcept
+{
+    AssertLockHeld(m_recv_mutex);
+    if (m_v3_assembly.size() > m_v3_total) {
+        LogDebug(BCLog::NET, "V3 transport error: assembled past total_payload, peer=%d\n", m_nodeid);
+        return false;
+    }
+    if (more && m_v3_assembly.size() == m_v3_total) {
+        LogDebug(BCLog::NET, "V3 transport error: MORE after complete payload, peer=%d\n", m_nodeid);
+        return false;
+    }
+    if (!more && m_v3_assembly.size() != m_v3_total) {
+        LogDebug(BCLog::NET, "V3 transport error: short assembly, peer=%d\n", m_nodeid);
+        return false;
+    }
+    if (!more) SetReceiveState(RecvState::APP_V3_READY);
     return true;
 }
 
@@ -1516,8 +1521,7 @@ bool V2Transport::ReceivedBytes(Span<const uint8_t>& msg_bytes) noexcept
         // Process data in the buffer.
         switch (m_recv_state) {
         case RecvState::KEY_MAYBE_V1:
-            ProcessReceivedMaybeV1Bytes();
-            if (m_recv_state == RecvState::V1) return true;
+            if (!ProcessReceivedMaybeV1Bytes()) return false;
             break;
 
         case RecvState::KEY:
@@ -1654,67 +1658,43 @@ bool V2Transport::SetMessageToSend(CSerializedNetMsg& msg) noexcept
         LOCK(m_send_mutex);
         return m_v1_fallback.SetMessageToSend(msg);
     }
-    // After advertising 0x03, wait for the peer version packet. Empty version
-    // selects v2 application; 0x03 selects APP_V3.
-    if (m_sent_v3_offer && m_recv_state == RecvState::VERSION) return false;
-    const bool v3{RecvAppIsV3()};
     LOCK(m_send_mutex);
     // We only allow adding a new message to be sent when in the READY state (so the packet cipher
     // is available) and the send buffer is empty. This limits the number of messages in the send
     // buffer to just one, and leaves the responsibility for queueing them up to the caller.
     if (!(m_send_state == SendState::READY && m_send_buffer.empty())) return false;
-    if (v3) {
-        std::vector<uint8_t> header;
-        auto short_message_id = V2_MESSAGE_MAP(msg.m_type);
-        if (short_message_id) {
-            header.resize(1 + 8);
-            header[0] = *short_message_id;
-        } else {
-            header.resize(1 + CMessageHeader::MESSAGE_TYPE_SIZE + 8, 0);
-            std::copy(msg.m_type.begin(), msg.m_type.end(), header.data() + 1);
-        }
-        WriteLE64(header.data() + header.size() - 8, msg.data.size());
-        const bool block_cmd{msg.m_type == NetMsgType::BLOCK || msg.m_type == NetMsgType::CMPCTBLOCK ||
-                             msg.m_type == NetMsgType::BLOCKTXN};
-        if (!block_cmd && msg.data.size() > CommandReceiveLimit(msg.m_type)) return false;
-        const size_t first_max{BIP324Cipher::MAX_AEAD_FRAME - header.size()};
-        size_t offset{0};
-        const size_t first_n{std::min(first_max, msg.data.size())};
-        std::vector<uint8_t> first(header.size() + first_n);
-        std::copy(header.begin(), header.end(), first.begin());
-        std::copy(msg.data.begin(), msg.data.begin() + first_n, first.begin() + header.size());
-        offset = first_n;
-        const bool more{offset < msg.data.size()};
-        AppendV3Frame(first, more);
-        while (offset < msg.data.size()) {
-            const size_t n{std::min(BIP324Cipher::MAX_AEAD_FRAME, msg.data.size() - offset)};
-            AppendV3Frame(Span{msg.data}.subspan(offset, n), offset + n < msg.data.size());
-            offset += n;
-        }
-        m_send_type = msg.m_type;
-        ClearShrink(msg.data);
-        return true;
-    }
-    // Construct contents (encoding message type + payload).
-    std::vector<uint8_t> contents;
+    // Application send is v3 from genesis. Do not wait for a peer version
+    // packet: that only completes the receive handshake. Waiting here
+    // deadlocked outbound connections (peer waits for VERSION, we waited for
+    // their 0x03).
+    std::vector<uint8_t> header;
     auto short_message_id = V2_MESSAGE_MAP(msg.m_type);
     if (short_message_id) {
-        contents.resize(1 + msg.data.size());
-        contents[0] = *short_message_id;
-        std::copy(msg.data.begin(), msg.data.end(), contents.begin() + 1);
+        header.resize(1 + 8);
+        header[0] = *short_message_id;
     } else {
-        // Initialize with zeroes, and then write the message type string starting at offset 1.
-        // This means contents[0] and the unused positions in contents[1..13] remain 0x00.
-        contents.resize(1 + CMessageHeader::MESSAGE_TYPE_SIZE + msg.data.size(), 0);
-        std::copy(msg.m_type.begin(), msg.m_type.end(), contents.data() + 1);
-        std::copy(msg.data.begin(), msg.data.end(), contents.begin() + 1 + CMessageHeader::MESSAGE_TYPE_SIZE);
+        header.resize(1 + CMessageHeader::MESSAGE_TYPE_SIZE + 8, 0);
+        std::copy(msg.m_type.begin(), msg.m_type.end(), header.data() + 1);
     }
-    if (contents.size() > BIP324Cipher::MAX_CONTENTS_LEN) return false;
-    // Construct ciphertext in send buffer.
-    m_send_buffer.resize(contents.size() + BIP324Cipher::EXPANSION);
-    m_cipher.Encrypt(MakeByteSpan(contents), {}, false, MakeWritableByteSpan(m_send_buffer));
+    WriteLE64(header.data() + header.size() - 8, msg.data.size());
+    const bool block_cmd{msg.m_type == NetMsgType::BLOCK || msg.m_type == NetMsgType::CMPCTBLOCK ||
+                         msg.m_type == NetMsgType::BLOCKTXN};
+    if (!block_cmd && msg.data.size() > CommandReceiveLimit(msg.m_type)) return false;
+    const size_t first_max{BIP324Cipher::MAX_AEAD_FRAME - header.size()};
+    size_t offset{0};
+    const size_t first_n{std::min(first_max, msg.data.size())};
+    std::vector<uint8_t> first(header.size() + first_n);
+    std::copy(header.begin(), header.end(), first.begin());
+    std::copy(msg.data.begin(), msg.data.begin() + first_n, first.begin() + header.size());
+    offset = first_n;
+    const bool more{offset < msg.data.size()};
+    AppendV3Frame(first, more);
+    while (offset < msg.data.size()) {
+        const size_t n{std::min(BIP324Cipher::MAX_AEAD_FRAME, msg.data.size() - offset)};
+        AppendV3Frame(Span{msg.data}.subspan(offset, n), offset + n < msg.data.size());
+        offset += n;
+    }
     m_send_type = msg.m_type;
-    // Release memory
     ClearShrink(msg.data);
     return true;
 }
@@ -1730,23 +1710,14 @@ void V2Transport::AppendV3Frame(Span<const uint8_t> contents, bool more) noexcep
 
 bool V2Transport::MessageTooLargeToSend(const CSerializedNetMsg& msg) const noexcept
 {
-    AssertLockNotHeld(m_recv_mutex);
     AssertLockNotHeld(m_send_mutex);
-    LOCK(m_recv_mutex);
     LOCK(m_send_mutex);
     if (m_send_state == SendState::V1) return false;
-    if (RecvAppIsV3()) {
-        if (msg.m_type == NetMsgType::BLOCK || msg.m_type == NetMsgType::CMPCTBLOCK ||
-            msg.m_type == NetMsgType::BLOCKTXN) {
-            return false;
-        }
-        return msg.data.size() > CommandReceiveLimit(msg.m_type);
+    if (msg.m_type == NetMsgType::BLOCK || msg.m_type == NetMsgType::CMPCTBLOCK ||
+        msg.m_type == NetMsgType::BLOCKTXN) {
+        return false;
     }
-    if (m_sent_v3_offer && m_recv_state == RecvState::VERSION) return false;
-    const size_t contents_len{V2_MESSAGE_MAP(msg.m_type)
-                                  ? 1 + msg.data.size()
-                                  : 1 + CMessageHeader::MESSAGE_TYPE_SIZE + msg.data.size()};
-    return contents_len > BIP324Cipher::MAX_CONTENTS_LEN;
+    return msg.data.size() > CommandReceiveLimit(msg.m_type);
 }
 
 Transport::BytesToSend V2Transport::GetBytesToSend(bool have_next_message) const noexcept
@@ -1790,19 +1761,7 @@ void V2Transport::MarkBytesSent(size_t bytes_sent) noexcept
 
 bool V2Transport::ShouldReconnectV1() const noexcept
 {
-    AssertLockNotHeld(m_send_mutex);
-    AssertLockNotHeld(m_recv_mutex);
-    // Only outgoing connections need reconnection.
-    if (!m_initiating) return false;
-
-    LOCK(m_recv_mutex);
-    // We only reconnect in the very first state and when the receive buffer is empty. Together
-    // these conditions imply nothing has been received so far.
-    if (m_recv_state != RecvState::KEY) return false;
-    if (!m_recv_buffer.empty()) return false;
-    // Check if we've sent enough for the other side to disconnect us (if it was V1).
-    LOCK(m_send_mutex);
-    return m_sent_v1_header_worth;
+    return false;
 }
 
 size_t V2Transport::GetSendMemoryUsage() const noexcept
@@ -1822,11 +1781,11 @@ Transport::Info V2Transport::GetInfo() const noexcept
 
     Transport::Info info;
 
-    // Do not report v2 and session ID until the version packet has been received
-    // and verified (confirming that the other side very likely has the same keys as us).
+    // Do not report the session ID until the version packet has been received
+    // (confirming that the other side very likely has the same keys as us).
     if (m_recv_state != RecvState::KEY_MAYBE_V1 && m_recv_state != RecvState::KEY &&
         m_recv_state != RecvState::GARB_GARBTERM && m_recv_state != RecvState::VERSION) {
-        info.transport_type = RecvAppIsV3() ? TransportProtocolType::V3 : TransportProtocolType::V2;
+        info.transport_type = TransportProtocolType::V3;
         info.session_id = uint256(MakeUCharSpan(m_cipher.GetSessionID()));
     } else {
         info.transport_type = TransportProtocolType::DETECTING;
@@ -4202,14 +4161,8 @@ bool EncryptedP2POffered(ServiceFlags flags) noexcept
 ServiceFlags CConnman::GetLocalServices() const
 {
     ServiceFlags flags{m_local_services};
-    // Encrypted P2P advertises v3 from genesis. Keep v2 while a v2 packet
-    // can still name a block; -v2transport=0 stays v1.
-    if (flags & NODE_P2P_V2) {
-        flags = ServiceFlags(flags | NODE_P2P_V3);
-        if (!V2CanCarryAdmitCap()) {
-            flags = ServiceFlags(flags & ~NODE_P2P_V2);
-        }
-    }
+    // Application framing is v3 from genesis. v1 and v2 are not advertised.
+    flags = ServiceFlags((flags | NODE_P2P_V3) & ~NODE_P2P_V2);
     return flags;
 }
 
@@ -4221,15 +4174,10 @@ bool V2CanCarryAdmitCap() noexcept
            BIP324Cipher::MAX_CONTENTS_LEN - admit >= overhead;
 }
 
-static std::unique_ptr<Transport> MakeTransport(NodeId id, bool use_v2transport, bool inbound) noexcept
+static std::unique_ptr<Transport> MakeTransport(NodeId id, bool /*use_v2transport*/, bool inbound) noexcept
 {
-    // Encrypted handshake is BIP324. Version 0x03 selects v3 application
-    // frames when both sides offer. Empty version is v2 application. v1 is
-    // the unencrypted handshake downgrade.
-    if (use_v2transport) {
-        return std::make_unique<V2Transport>(id, /*initiating=*/!inbound);
-    }
-    return std::make_unique<V1Transport>(id);
+    // BIP324 handshake, then v3 application. v1 and v2 application are rejected.
+    return std::make_unique<V2Transport>(id, /*initiating=*/!inbound);
 }
 
 CNode::CNode(NodeId idIn,

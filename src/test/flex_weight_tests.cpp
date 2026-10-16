@@ -151,20 +151,20 @@ BOOST_AUTO_TEST_CASE(grow_does_not_wrap)
     const uint64_t too_wide{std::numeric_limits<uint64_t>::max() / Consensus::GROW_CAP_NUM + 1};
     const Consensus::GrowCapResult overflow{Consensus::GrowCap(too_wide)};
     BOOST_CHECK(std::holds_alternative<Consensus::MultiplyWouldOverflow>(overflow));
-    BOOST_CHECK_EQUAL(Consensus::DecideNextCap(too_wide, /*pegged_blocks=*/210000, /*slack_blocks=*/0, /*interval=*/210000), too_wide);
+    BOOST_CHECK_EQUAL(Consensus::DecideNextCap(too_wide, /*saturated_blocks=*/210000, /*slack_blocks=*/0, /*interval=*/210000), too_wide);
 }
 
-BOOST_AUTO_TEST_CASE(pegged_and_slack_block)
+BOOST_AUTO_TEST_CASE(saturated_and_slack_block)
 {
     const uint64_t cap{2400000};
-    BOOST_CHECK(Consensus::Pegged(cap, cap, 0));
-    BOOST_CHECK(Consensus::Pegged(cap - 502, cap, 0));
-    BOOST_CHECK(!Consensus::Pegged(cap - 503, cap, 0));
-    BOOST_CHECK(!Consensus::Pegged(cap + 1, cap, 0));
+    BOOST_CHECK(Consensus::Saturated(cap, cap, 0));
+    BOOST_CHECK(Consensus::Saturated(cap - 941, cap, 0));
+    BOOST_CHECK(!Consensus::Saturated(cap - 942, cap, 0));
+    BOOST_CHECK(!Consensus::Saturated(cap + 1, cap, 0));
 
     BOOST_CHECK(Consensus::Slack(479999, cap));
     BOOST_CHECK(!Consensus::Slack(480000, cap));
-    BOOST_CHECK(!Consensus::Slack(cap - 502, cap));
+    BOOST_CHECK(!Consensus::Slack(cap - 941, cap));
 }
 
 BOOST_AUTO_TEST_CASE(four_fifths_counts)
@@ -187,7 +187,7 @@ BOOST_AUTO_TEST_CASE(unchanged_load_does_not_cycle)
     const uint64_t cut{Consensus::ShrinkCap(cap)};
     BOOST_CHECK_EQUAL(cut, 2400000ULL);
     BOOST_CHECK(!Consensus::Slack(weight, cut));
-    BOOST_CHECK(!Consensus::Pegged(weight, cut, 0));
+    BOOST_CHECK(!Consensus::Saturated(weight, cut, 0));
 
     Consensus::EpochWatermark held;
     for (int h{0}; h < 150; ++h) {
@@ -196,12 +196,12 @@ BOOST_AUTO_TEST_CASE(unchanged_load_does_not_cycle)
     BOOST_CHECK_EQUAL(held.CapAfter(cut, 150), cut);
 
     const uint64_t floor_cap{2400000};
-    const uint64_t full{floor_cap - 502};
-    BOOST_CHECK(Consensus::Pegged(full, floor_cap, 0));
+    const uint64_t full{floor_cap - 941};
+    BOOST_CHECK(Consensus::Saturated(full, floor_cap, 0));
     const Consensus::GrowCapResult grown{Consensus::GrowCap(floor_cap)};
     const Consensus::Grew* grew{std::get_if<Consensus::Grew>(&grown)};
     BOOST_REQUIRE(grew);
-    BOOST_CHECK(!Consensus::Pegged(full, grew->cap, 0));
+    BOOST_CHECK(!Consensus::Saturated(full, grew->cap, 0));
     BOOST_CHECK(!Consensus::Slack(full, grew->cap));
 }
 
@@ -209,12 +209,12 @@ BOOST_AUTO_TEST_CASE(watermark_epoch_boundary)
 {
     Consensus::EpochWatermark mark;
     const uint64_t cap{2400000};
-    const uint64_t full{cap - 502};
+    const uint64_t full{cap - 941};
     const int interval{150};
     for (int h{0}; h < 120; ++h) {
         mark.AddBlock(full, cap, h);
     }
-    BOOST_CHECK_EQUAL(mark.pegged_blocks, 120U);
+    BOOST_CHECK_EQUAL(mark.saturated_blocks, 120U);
     BOOST_CHECK_EQUAL(mark.slack_blocks, 0U);
     BOOST_CHECK_EQUAL(mark.CapAfter(cap, interval), 2688000ULL);
     BOOST_CHECK_EQUAL(Consensus::CapForBlock(cap, mark, 150, interval), 2688000ULL);
@@ -266,11 +266,11 @@ BOOST_AUTO_TEST_CASE(admit_weight_for_window)
     BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 209000, 210000, 1024), 2688000ULL);
     BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, empty, 209999, 210000, 1024), floor);
 
-    Consensus::EpochWatermark pegged;
+    Consensus::EpochWatermark saturated;
     for (int h{0}; h < 168000; ++h) {
-        pegged.AddBlock(floor - 502, floor, h);
+        saturated.AddBlock(floor - 941, floor, h);
     }
-    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, pegged, 209999, 210000, 1024), 2688000ULL);
+    BOOST_CHECK_EQUAL(Consensus::AdmitWeightForWindow(floor, saturated, 209999, 210000, 1024), 2688000ULL);
 
     // Regtest interval 160: the next block may already grow, then five more
     // boundaries sit in a 1024 window. Admit is not "next cap only".

@@ -130,7 +130,6 @@ class P2PEvict(BitcoinTestFramework):
             node.add_p2p_connection(P2PInterface())
 
         # Create a peer that expects to be rejected
-        # FIXME: "multiprocess, i686, DEBUG" CI task has a reliable timeout issue for v2transport
         class RejectedPeer(P2PInterface):
             def connection_lost(self, exc):
                 return

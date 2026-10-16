@@ -124,9 +124,7 @@ class NodeNetworkLimitedTest(BitcoinTestFramework):
     def run_test(self):
         node = self.nodes[0].add_p2p_connection(P2PIgnoreInv())
 
-        expected_services = NODE_WITNESS | NODE_NETWORK_LIMITED | NODE_BLAKE2B | NODE_REDUCED_DATA
-        if self.options.v2transport:
-            expected_services |= NODE_P2P_V3
+        expected_services = NODE_WITNESS | NODE_NETWORK_LIMITED | NODE_BLAKE2B | NODE_REDUCED_DATA | NODE_P2P_V3
 
         self.log.info("Check that node has signalled expected services.")
         assert_equal(node.nServices, expected_services)

@@ -29,7 +29,7 @@ from .authproxy import (
 )
 from .address import bech32_to_bytes
 from .descriptors import descsum_create
-from .messages import MAX_OP_RETURN_RELAY, NODE_P2P_V2
+from .messages import MAX_OP_RETURN_RELAY, NODE_P2P_V3
 from .segwit_addr import encode_segwit_address
 from .p2p import P2P_SERVICES, P2P_SUBVERSION
 from .util import (
@@ -78,7 +78,7 @@ class TestNode():
     To make things easier for the test writer, any unrecognised messages will
     be dispatched to the RPC connection."""
 
-    def __init__(self, i, datadir_path, *, chain, rpchost, timewait, timeout_factor, bitcoind, bitcoin_cli, coverage_dir, cwd, extra_conf=None, extra_args=None, use_cli=False, start_perf=False, use_valgrind=False, version=None, descriptors=False, v2transport=False, wallet_compiled=True):
+    def __init__(self, i, datadir_path, *, chain, rpchost, timewait, timeout_factor, bitcoind, bitcoin_cli, coverage_dir, cwd, extra_conf=None, extra_args=None, use_cli=False, start_perf=False, use_valgrind=False, version=None, descriptors=False, wallet_compiled=True):
         """
         Kwargs:
             start_perf (bool): If True, begin profiling the node with `perf` as soon as
@@ -151,16 +151,8 @@ class TestNode():
         if self.version_is_at_least(290100):
             self.args.append("-nologratelimit")
 
-        # Default behavior from global -v2transport flag is added to args to persist it over restarts.
-        # May be overwritten in individual tests, using extra_args.
-        self.default_to_v2 = v2transport
-        if self.version_is_at_least(260000):
-            # 26.0 and later support v2transport
-            if v2transport:
-                self.args.append("-v2transport=1")
-            else:
-                self.args.append("-v2transport=0")
-        # if v2transport is requested via global flag but not supported for node version, ignore it
+        # Encrypted P2P is v3 from genesis. -v2transport is not a node option.
+        self.default_to_v2 = True
 
         self.cli = TestNodeCLI(
             bitcoin_cli,
@@ -251,7 +243,7 @@ class TestNode():
             extra_args.append(f"-bind=0.0.0.0:{p2p_port(self.index)}")
             extra_args.append(f"-bind=127.0.0.1:{tor_port(self.index)}=onion")
 
-        self.use_v2transport = "-v2transport=1" in extra_args or (self.default_to_v2 and "-v2transport=0" not in extra_args)
+        self.use_v2transport = True
 
         # Add a new stdout and stderr file each time bitcoind is started
         if stderr is None:
@@ -793,12 +785,8 @@ class TestNode():
         This method adds the p2p connection to the self.p2ps list and also
         returns the connection to the caller.
 
-        When self.use_v2transport is True, TestNode advertises NODE_P2P_V2 service flag
-
-        An inbound connection is made from TestNode <------ P2PConnection
-        - if TestNode doesn't advertise NODE_P2P_V2 service, P2PConnection sends version message and v1 P2P is followed
-        - if TestNode advertises NODE_P2P_V2 service, (and if P2PConnections supports v2 P2P)
-                P2PConnection sends ellswift bytes and v2 P2P is followed
+        Python EncryptedP2P speaks v3 application frames after BIP324.
+        supports_v2_p2p=False sends unencrypted v1, which the node rejects.
         """
         if 'dstport' not in kwargs:
             kwargs['dstport'] = p2p_port(self.index)
@@ -808,7 +796,7 @@ class TestNode():
             supports_v2_p2p = self.use_v2transport
 
         if self.use_v2transport:
-            kwargs['services'] = kwargs.get('services', P2P_SERVICES) | NODE_P2P_V2
+            kwargs['services'] = kwargs.get('services', P2P_SERVICES) | NODE_P2P_V3
         supports_v2_p2p = self.use_v2transport and supports_v2_p2p
         p2p_conn.peer_connect(**kwargs, send_version=send_version, net=self.chain, timeout_factor=self.timeout_factor, supports_v2_p2p=supports_v2_p2p)()
 
@@ -879,7 +867,7 @@ class TestNode():
             advertise_v2_p2p = self.use_v2transport
 
         if advertise_v2_p2p:
-            kwargs['services'] = kwargs.get('services', P2P_SERVICES) | NODE_P2P_V2
+            kwargs['services'] = kwargs.get('services', P2P_SERVICES) | NODE_P2P_V3
             assert self.use_v2transport  # only a v2 TestNode could make a v2 outbound connection
 
         # if P2PConnection is advertised to support v2 P2P when it doesn't actually support v2 P2P,

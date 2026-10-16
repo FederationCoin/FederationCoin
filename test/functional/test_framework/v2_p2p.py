@@ -17,8 +17,11 @@ from .messages import MAGIC_BYTES
 CHACHA20POLY1305_EXPANSION = 16
 HEADER_LEN = 1
 IGNORE_BIT_POS = 7
+MORE_BIT_POS = 6
 LENGTH_FIELD_LEN = 3
+V3_LENGTH_FIELD_LEN = 8
 MAX_GARBAGE_LEN = 4095
+FCN_P2P_V3_VERSION_TAG = b'\x03'
 
 SHORTID = {
     1: b"addr",
@@ -78,7 +81,7 @@ class EncryptedP2PState:
 
         encrypt/decrypt v2 P2P messages using v2_enc_packet() and v2_receive_packet().
     """
-    def __init__(self, *, initiating, net):
+    def __init__(self, *, initiating, net, transport_version=FCN_P2P_V3_VERSION_TAG):
         self.initiating = initiating  # True if initiator
         self.net = net
         self.peer = {}  # object with various BIP324 derived keys and ciphers
@@ -91,8 +94,13 @@ class EncryptedP2PState:
         # stores length of packet contents to detect whether first 3 bytes (which contains length of packet contents)
         # has been decrypted. set to -1 if decryption hasn't been done yet.
         self.contents_len = -1
+        self.v3_contents_len = -1
         self.found_garbage_terminator = False
-        self.transport_version = b''
+        self.transport_version = transport_version
+        self.v3_need_type = True
+        self.v3_msgtype = None
+        self.v3_total = 0
+        self.v3_assembly = b''
 
     @staticmethod
     def v2_ecdh(priv, ellswift_theirs, ellswift_ours, initiating):
@@ -218,7 +226,9 @@ class EncryptedP2PState:
             # decoy packets have contents = None. v2 handshake is complete only when version packet
             # (can be empty with contents = b"") with contents != None is received.
             if contents is not None:
-                assert contents == b""  # currently TestNode sends an empty version packet
+                # Handshake version packet is not a v3 gate. Empty is the
+                # default (v3 application). A first byte above 0x03 would be
+                # an offer of a later version.
                 self.tried_v2_handshake = True
                 return processed_length, True
             response = response[length:]
@@ -281,3 +291,84 @@ class EncryptedP2PState:
         length = LENGTH_FIELD_LEN + HEADER_LEN + self.contents_len + CHACHA20POLY1305_EXPANSION
         self.contents_len = -1
         return length, None if (header[0] & (1 << IGNORE_BIT_POS)) else plaintext[HEADER_LEN:]
+
+    def v3_enc_packet(self, contents, aad=b'', ignore=False, more=False):
+        """Encrypt an FCN-P2P-v3 application frame."""
+        assert len(contents) <= 2**24 - 1
+        header = ((ignore << IGNORE_BIT_POS) | (more << MORE_BIT_POS)).to_bytes(HEADER_LEN, 'little')
+        plaintext = header + contents
+        aead_ciphertext = self.peer['send_P'].encrypt(aad, plaintext)
+        enc_plaintext_len = self.peer['send_L'].crypt(len(contents).to_bytes(V3_LENGTH_FIELD_LEN, 'little'))
+        return enc_plaintext_len + aead_ciphertext
+
+    def v3_receive_message(self, response):
+        """Decrypt v3 frames until one application message is complete.
+
+        Returns:
+        1. int - bytes consumed (0 need more, -1 error)
+        2. bytes | None - msgtype when complete
+        3. bytes | None - payload when complete
+        """
+        consumed = 0
+        while True:
+            if self.v3_contents_len == -1:
+                if len(response) < V3_LENGTH_FIELD_LEN:
+                    return consumed, None, None
+                enc_contents_len = response[:V3_LENGTH_FIELD_LEN]
+                self.v3_contents_len = int.from_bytes(self.peer['recv_L'].crypt(enc_contents_len), 'little')
+            rest = response[V3_LENGTH_FIELD_LEN:]
+            frame_plain = HEADER_LEN + self.v3_contents_len + CHACHA20POLY1305_EXPANSION
+            if len(rest) < frame_plain:
+                return consumed, None, None
+            aead_ciphertext = rest[:frame_plain]
+            plaintext = self.peer['recv_P'].decrypt(b'', aead_ciphertext)
+            if plaintext is None:
+                return -1, None, None
+            header = plaintext[0]
+            body = plaintext[HEADER_LEN:]
+            frame_len = V3_LENGTH_FIELD_LEN + frame_plain
+            consumed += frame_len
+            response = response[frame_len:]
+            self.v3_contents_len = -1
+            if header & (1 << IGNORE_BIT_POS):
+                continue
+            more = bool(header & (1 << MORE_BIT_POS))
+            if self.v3_need_type:
+                if not body:
+                    return -1, None, None
+                shortid = body[0]
+                if shortid == 0:
+                    if len(body) < 13 + 8:
+                        return -1, None, None
+                    msgtype = body[1:13].rstrip(b'\x00')
+                    total = int.from_bytes(body[13:21], 'little')
+                    piece = body[21:]
+                else:
+                    if len(body) < 1 + 8:
+                        return -1, None, None
+                    msgtype = SHORTID.get(shortid, f"unknown-{shortid}".encode())
+                    if not isinstance(msgtype, bytes):
+                        msgtype = str(msgtype).encode()
+                    total = int.from_bytes(body[1:9], 'little')
+                    piece = body[9:]
+                self.v3_msgtype = msgtype
+                self.v3_total = total
+                self.v3_assembly = piece
+                self.v3_need_type = False
+            else:
+                self.v3_assembly += body
+            if len(self.v3_assembly) > self.v3_total:
+                return -1, None, None
+            if more:
+                if len(self.v3_assembly) == self.v3_total:
+                    return -1, None, None
+                continue
+            if len(self.v3_assembly) != self.v3_total:
+                return -1, None, None
+            msgtype = self.v3_msgtype
+            payload = self.v3_assembly
+            self.v3_need_type = True
+            self.v3_msgtype = None
+            self.v3_total = 0
+            self.v3_assembly = b''
+            return consumed, msgtype, payload

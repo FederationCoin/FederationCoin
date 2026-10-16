@@ -4,11 +4,35 @@
 
 #include <consensus/flex_weight.h>
 
+#include <consensus/checked_arith.h>
 #include <consensus/spend_kind_weight.h>
+#include <util/check.h>
 
 #include <limits>
+#include <optional>
+#include <variant>
 
 namespace Consensus {
+namespace {
+
+template <class... Arms>
+struct VisitArms : Arms... {
+    using Arms::operator()...;
+};
+template <class... Arms>
+VisitArms(Arms...) -> VisitArms<Arms...>;
+
+uint64_t CapAfterGrowResult(const GrowCapResult& grown, uint64_t cap)
+{
+    return std::visit(VisitArms{
+                          [](const Grew& grew) { return grew.cap; },
+                          [](const AtCeiling& ceiling) { return ceiling.cap; },
+                          [cap](MultiplyWouldOverflow) { return cap; },
+                      },
+                      grown);
+}
+
+} // namespace
 
 WideProduct Mul128(uint64_t a, uint64_t b)
 {
@@ -32,13 +56,16 @@ bool MulGe(uint64_t a, uint64_t b, uint64_t c, uint64_t d)
     return ab.hi > cd.hi || (ab.hi == cd.hi && ab.lo >= cd.lo);
 }
 
-bool Pegged(uint64_t block_weight, uint64_t cap, int height)
+bool Saturated(uint64_t block_weight, uint64_t cap, int height)
 {
     if (block_weight > cap) return false;
     const std::optional<uint64_t> smallest{SmallestSimplePaymentWeight(height)};
     if (!smallest) return false;
-    if (*smallest > std::numeric_limits<uint64_t>::max() - FULL_FIT_BUFFER_WEIGHT) return false;
-    const uint64_t hole{*smallest + FULL_FIT_BUFFER_WEIGHT};
+    Assert(*smallest <= std::numeric_limits<uint64_t>::max() / 2);
+    uint64_t two_smallest{0};
+    if (!CheckedMul(*smallest, 2, two_smallest)) return false;
+    uint64_t hole{0};
+    if (!CheckedAdd(two_smallest, FULL_FIT_BUFFER_WEIGHT, hole)) return false;
     return (cap - block_weight) < hole;
 }
 
@@ -71,14 +98,10 @@ uint64_t ShrinkCap(uint64_t cap)
     return halved < MIN_FLEX_BLOCK_WEIGHT ? MIN_FLEX_BLOCK_WEIGHT : halved;
 }
 
-uint64_t DecideNextCap(uint64_t cap, uint64_t pegged_blocks, uint64_t slack_blocks, int interval)
+uint64_t DecideNextCap(uint64_t cap, uint64_t saturated_blocks, uint64_t slack_blocks, int interval)
 {
-    if (CountMeetsFourFifths(pegged_blocks, interval)) {
-        const GrowCapResult grown{GrowCap(cap)};
-        if (const Grew* grew = std::get_if<Grew>(&grown)) return grew->cap;
-        if (const AtCeiling* ceiling = std::get_if<AtCeiling>(&grown)) return ceiling->cap;
-        // MultiplyWouldOverflow: do not grow, do not wrap.
-        return cap;
+    if (CountMeetsFourFifths(saturated_blocks, interval)) {
+        return CapAfterGrowResult(GrowCap(cap), cap);
     }
     if (CountMeetsFourFifths(slack_blocks, interval)) return ShrinkCap(cap);
     return cap;
@@ -86,16 +109,21 @@ uint64_t DecideNextCap(uint64_t cap, uint64_t pegged_blocks, uint64_t slack_bloc
 
 uint64_t ApplyGrowCapTimes(uint64_t cap, uint64_t times)
 {
-    for (uint64_t i{0}; i < times; ++i) {
-        const GrowCapResult grown{GrowCap(cap)};
-        if (const AtCeiling* ceiling = std::get_if<AtCeiling>(&grown)) {
-            return ceiling->cap;
-        }
-        if (const Grew* grew = std::get_if<Grew>(&grown)) {
-            cap = grew->cap;
-            continue;
-        }
-        return cap;
+    for (uint64_t step{0}; step < times; ++step) {
+        bool stop{false};
+        cap = std::visit(VisitArms{
+                             [](const Grew& grew) { return grew.cap; },
+                             [&](const AtCeiling& ceiling) {
+                                 stop = true;
+                                 return ceiling.cap;
+                             },
+                             [&](MultiplyWouldOverflow) {
+                                 stop = true;
+                                 return cap;
+                             },
+                         },
+                         GrowCap(cap));
+        if (stop) return cap;
     }
     return cap;
 }

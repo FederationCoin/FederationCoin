@@ -67,9 +67,11 @@ static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 4'000'000;
 
 /** True when a v2 packet can still name a block at the live admit cap. */
 bool V2CanCarryAdmitCap() noexcept;
-/** True when flags advertise BIP324 v2 or FCN-P2P-v3. */
+/** True when flags advertise encrypted P2P (NODE_P2P_V2 or NODE_P2P_V3). */
 bool EncryptedP2POffered(ServiceFlags flags) noexcept;
-/** Version packet first byte: this side offers v3 application frames. */
+/** BIP324 version-packet first byte: this node's application version.
+ *  v3 is the default (send/assume without waiting). A later value would
+ *  offer a higher version; this node stays on v3 until that version exists. */
 static constexpr uint8_t FCN_P2P_V3_VERSION_TAG{0x03};
 /** Maximum length of the user agent string in `version` message */
 static const unsigned int MAX_SUBVERSION_LENGTH = 256;
@@ -108,8 +110,6 @@ static const size_t DEFAULT_MAXSENDBUFFER    = 1 * 1000;
  *  Other commands use MAX_PROTOCOL_MESSAGE_LENGTH. The block figure is
  *  Consensus::BlockMessageReceiveLimit(). */
 uint64_t CommandReceiveLimit(std::string_view command);
-
-static constexpr bool DEFAULT_V2_TRANSPORT{true};
 
 typedef int64_t NodeId;
 
@@ -529,9 +529,9 @@ private:
          * A packet is received, and decrypted/verified. If that fails, the connection aborts. The
          * first received packet in this state (whether it's a decoy or not) is expected to
          * authenticate the garbage received during the GARB_GARBTERM state as associated
-         * authenticated data (AAD). The first non-decoy packet in this state is interpreted as
-         * version negotiation: empty contents is BIP324 v2 application framing;
-         * 0x03 from both sides is v3. Afterwards the state becomes APP or APP_V3. */
+         * authenticated data (AAD). The first non-decoy packet completes the BIP324 handshake.
+         * Application framing is v3 from genesis (empty contents included). A first byte above
+         * 0x03 is an offer of a later version; this node stays on v3. Afterwards APP_V3. */
         VERSION,
 
         /** Application packet.
@@ -629,8 +629,6 @@ private:
     /** First non-ignore v3 frame carries type and total; further frames are body. */
     enum class V3Assemble : uint8_t { NeedType, Body };
     V3Assemble m_v3_assemble GUARDED_BY(m_recv_mutex) {V3Assemble::NeedType};
-    /** True if our version packet contained 0x03. Not recomputed from live admit. */
-    bool m_sent_v3_offer GUARDED_BY(m_recv_mutex) {false};
     /** Current receiver state. */
     RecvState m_recv_state GUARDED_BY(m_recv_mutex);
 
@@ -650,14 +648,6 @@ private:
     /** Whether we've sent at least 24 bytes (which would trigger disconnect for V1 peers). */
     bool m_sent_v1_header_worth GUARDED_BY(m_send_mutex) {false};
 
-    bool RecvAppIsV3() const noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex)
-    {
-        return m_recv_state == RecvState::APP_V3 || m_recv_state == RecvState::APP_V3_READY;
-    }
-    bool RecvAppIsV2() const noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex)
-    {
-        return m_recv_state == RecvState::APP || m_recv_state == RecvState::APP_READY;
-    }
     /** Change the receive state. */
     void SetReceiveState(RecvState recv_state) noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
     /** Change the send state. */
@@ -669,15 +659,22 @@ private:
     /** Put our public key + garbage in the send buffer. */
     void StartSendingHandshake() noexcept EXCLUSIVE_LOCKS_REQUIRED(m_send_mutex);
     /** Process bytes in m_recv_buffer, while in KEY_MAYBE_V1 state. */
-    void ProcessReceivedMaybeV1Bytes() noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex, !m_send_mutex);
+    bool ProcessReceivedMaybeV1Bytes() noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex, !m_send_mutex);
     /** Process bytes in m_recv_buffer, while in KEY state. */
     bool ProcessReceivedKeyBytes() noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex, !m_send_mutex);
     /** Process bytes in m_recv_buffer, while in GARB_GARBTERM state. */
     bool ProcessReceivedGarbageBytes() noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
     /** Process bytes in m_recv_buffer, while in VERSION/APP state. */
     bool ProcessReceivedPacketBytes() noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
-    /** Process bytes in m_recv_buffer, while in APP_V3 state. */
+    /** Process bytes in m_recv_buffer, while in APP_V3 state. Decrypts one
+     *  frame, then visits NeedType vs Body. */
     bool ProcessReceivedV3PacketBytes() noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
+    /** First non-ignore v3 frame: type, total_payload, then leftover bytes. */
+    bool AssembleV3FirstFrame(Span<const uint8_t> contents) noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
+    /** Later non-ignore v3 frame: append decrypted contents to the body. */
+    bool AssembleV3Body(Span<const uint8_t> contents) noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
+    /** After a non-ignore frame: MORE must not follow a complete payload. */
+    bool FinishV3Assembly(bool more) noexcept EXCLUSIVE_LOCKS_REQUIRED(m_recv_mutex);
     /** Append one v3 AEAD frame to m_send_buffer. */
     void AppendV3Frame(Span<const uint8_t> contents, bool more) noexcept EXCLUSIVE_LOCKS_REQUIRED(m_send_mutex);
 
@@ -701,7 +698,7 @@ public:
 
     // Send side functions.
     bool SetMessageToSend(CSerializedNetMsg& msg) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex, !m_send_mutex);
-    bool MessageTooLargeToSend(const CSerializedNetMsg& msg) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_recv_mutex, !m_send_mutex);
+    bool MessageTooLargeToSend(const CSerializedNetMsg& msg) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     BytesToSend GetBytesToSend(bool have_next_message) const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     void MarkBytesSent(size_t bytes_sent) noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);
     size_t GetSendMemoryUsage() const noexcept override EXCLUSIVE_LOCKS_REQUIRED(!m_send_mutex);

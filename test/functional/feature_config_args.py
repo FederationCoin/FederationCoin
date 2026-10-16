@@ -412,10 +412,7 @@ class ConfArgsTest(BitcoinTestFramework):
     def test_v2onlyclearnet(self):
         self.log.info('Test -v2onlyclearnet startup options')
         self.nodes[0].assert_start_raises_init_error(
-            extra_args=['-v2onlyclearnet=1', '-v2transport=0'],
-            expected_msg='Error: Cannot set -v2onlyclearnet to true when v2transport is disabled.')
-        self.nodes[0].assert_start_raises_init_error(
-            extra_args=['-v2onlyclearnet=1', '-v2transport=1', '-listen=1'],
+            extra_args=['-v2onlyclearnet=1', '-listen=1'],
             expected_msg='Error: Cannot set -v2onlyclearnet=1 with listen=1. See -help for details on -v2onlyclearnet.')
 
     def test_ignored_conf(self):

@@ -48,13 +48,15 @@ bool GrindProofOfWork(CBlockHeader& header, const Consensus::Params& params);
  * given height is not possible, given the proof-of-work on the prior block as
  * specified by old_nbits.
  *
- * This function only checks that the new value is within a factor of 4 of the
- * old value for blocks at the difficulty adjustment interval, and otherwise
- * requires the values to be the same.
+ * Recover S from each header's kind and compact. Off-window S must match.
+ * On a retarget height, S may move by at most 4 (bound-safe). Mixed-kind
+ * headers at the same S are allowed even when compact nBits differ.
  *
  * Always returns true on networks where min difficulty blocks are allowed,
  * such as regtest/testnet.
  */
-bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height, uint32_t old_nbits, uint32_t new_nbits);
+bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height,
+                                   uint32_t old_nbits, uint32_t old_complete_version,
+                                   uint32_t new_nbits, uint32_t new_complete_version);
 
 #endif // BITCOIN_POW_H

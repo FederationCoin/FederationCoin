@@ -174,6 +174,8 @@ BOOST_AUTO_TEST_CASE(headers_sync_v2_same_nbits)
     chain_start.nHeight = 800000;
     chain_start.nBits = tip_nbits;
     chain_start.nTime = block_time - 6000;
+    chain_start.m_header_v2 = true;
+    chain_start.nVersion = 4;
     chain_start.phashBlock = &start_hash;
     BOOST_CHECK((chain_start.nHeight + 1) % params.DifficultyAdjustmentInterval() != 0);
 
@@ -187,12 +189,14 @@ BOOST_AUTO_TEST_CASE(headers_sync_v2_same_nbits)
         headers[0].nBits = first_nbits;
         headers[0].m_header_v2 = true;
         headers[0].m_height = chain_start.nHeight + 1;
+        Consensus::ApplyWorkKindTag(headers[0], Consensus::WorkKindTag::BLAKE2B);
         headers[1].nVersion = 4;
         headers[1].hashPrevBlock = headers[0].GetBlockIdentity();
         headers[1].nTime = block_time - 600;
         headers[1].nBits = second_nbits;
         headers[1].m_header_v2 = true;
         headers[1].m_height = chain_start.nHeight + 2;
+        Consensus::ApplyWorkKindTag(headers[1], Consensus::WorkKindTag::BLAKE2B);
         return headers;
     };
 
@@ -231,6 +235,8 @@ BOOST_AUTO_TEST_CASE(headers_sync_easier_nbits_accepted)
     chain_start.nHeight = 800000;
     chain_start.nBits = tip_nbits;
     chain_start.nTime = block_time - 6000;
+    chain_start.m_header_v2 = true;
+    chain_start.nVersion = 4;
     chain_start.phashBlock = &start_hash;
 
     std::vector<CBlockHeader> headers;
@@ -247,6 +253,7 @@ BOOST_AUTO_TEST_CASE(headers_sync_easier_nbits_accepted)
         header.nBits = easier;
         header.m_header_v2 = true;
         header.m_height = chain_start.nHeight + i + 1;
+        Consensus::ApplyWorkKindTag(header, Consensus::WorkKindTag::BLAKE2B);
         headers.push_back(header);
         prev = header.GetBlockIdentity();
     }

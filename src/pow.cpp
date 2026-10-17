@@ -20,18 +20,15 @@
 #include <thread>
 #include <vector>
 
-/** Do not ease past nMinDifficultyBits (smaller target = harder). */
-static unsigned int ApplyMinDifficultyFloor(unsigned int nBits, const Consensus::Params& params)
+/** Do not ease past that kind's T0 floor (smaller target = harder). */
+static unsigned int ApplyMinDifficultyFloor(unsigned int nBits, size_t kind_index, const Consensus::Params& params)
 {
-    if (params.nMinDifficultyBits == 0) {
-        return nBits;
-    }
+    if (kind_index >= Consensus::WORK_KIND_COUNT) return 0;
     arith_uint256 bn;
     bn.SetCompact(nBits);
-    arith_uint256 floor_target;
-    floor_target.SetCompact(params.nMinDifficultyBits);
+    const arith_uint256 floor_target{UintToArith256(params.powFloor0[kind_index])};
     if (bn > floor_target) {
-        return params.nMinDifficultyBits;
+        return floor_target.GetCompact();
     }
     return nBits;
 }
@@ -43,6 +40,7 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     const Consensus::WorkKindTag kind_tag{*tag};
     const Consensus::WorkKind* kind{Consensus::LookupWorkKind(kind_tag)};
     if (!kind) return 0;
+    const size_t kind_index{static_cast<size_t>(kind_tag)};
     const uint256 S{Consensus::NextWorkScale(pindexLast, params)};
     unsigned int nBits{kind->ExpectedNBits(S, params)};
 
@@ -50,46 +48,53 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
         pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing * 2) {
         arith_uint256 s{UintToArith256(S)};
         if (s == 0) s = 1;
-        arith_uint256 floor{UintToArith256(params.powFloor0)};
+        arith_uint256 floor{UintToArith256(params.powFloor0[kind_index])};
         floor /= s;
         if (floor == 0) floor = 1;
-        const arith_uint256 limit{UintToArith256(params.powLimitKind)};
+        const arith_uint256 limit{UintToArith256(params.powLimitKind[kind_index])};
         if (floor > limit) floor = limit;
         nBits = floor.GetCompact();
     }
 
-    return ApplyMinDifficultyFloor(nBits, params);
+    return ApplyMinDifficultyFloor(nBits, kind_index, params);
 }
 
-// Compact nBits is comparable across kinds only because every kind shares
-// one T0 (FillWorkMenu). A later per-kind T0 would abort mixed-kind presync
-// here: equal scale would look like an illegal compact jump. Do not split T0.
-bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height, uint32_t old_nbits, uint32_t new_nbits)
+// Recover S from (kind, nBits, T0[k]). Off-window S must match. On-window S
+// moves by at most 4 (ScaleAfterWindow clamp). Mixed-kind equal S with
+// different compact is honest. Do not compare raw nBits.
+bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height,
+                                   uint32_t old_nbits, uint32_t old_complete_version,
+                                   uint32_t new_nbits, uint32_t new_complete_version)
 {
     if (params.fPowAllowMinDifficultyBlocks) return true;
     if (params.fPowNoRetargeting) return true;
     const int64_t interval{params.DifficultyAdjustmentInterval()};
     if (interval <= 0) return false;
 
-    bool f_negative{false};
-    bool f_overflow{false};
-    arith_uint256 old_target;
-    old_target.SetCompact(old_nbits, &f_negative, &f_overflow);
-    if (f_negative || old_target == 0 || f_overflow) return false;
-    arith_uint256 new_target;
-    new_target.SetCompact(new_nbits, &f_negative, &f_overflow);
-    if (f_negative || new_target == 0 || f_overflow) return false;
+    const auto old_tag{Consensus::DecodeWorkKindTag(old_complete_version)};
+    const auto new_tag{Consensus::DecodeWorkKindTag(new_complete_version)};
+    if (!old_tag || !new_tag) return false;
+    const auto old_s{Consensus::ScaleFromNBits(old_nbits, static_cast<size_t>(*old_tag), params)};
+    const auto new_s{Consensus::ScaleFromNBits(new_nbits, static_cast<size_t>(*new_tag), params)};
+    if (!old_s || !new_s) return false;
+
+    const arith_uint256 old_scale{UintToArith256(*old_s)};
+    const arith_uint256 new_scale{UintToArith256(*new_s)};
+    if (old_scale == 0 || new_scale == 0) return false;
 
     if (height % interval == 0) {
-        // ScaleAfterWindow clamps span to [expected/k, expected*k], so S
-        // (and therefore the compact target at fixed T0) moves by at most k.
         static constexpr uint32_t kRetargetFactor{4};
-        if (old_target.bits() > 256 - 2 || new_target.bits() > 256 - 2) return false;
-        if (new_target > old_target * kRetargetFactor) return false;
-        if (old_target > new_target * kRetargetFactor) return false;
+        const arith_uint256 max{~arith_uint256(0)};
+        if (new_scale > old_scale) {
+            if (old_scale > max / kRetargetFactor) return false;
+            if (new_scale > old_scale * kRetargetFactor) return false;
+        } else if (old_scale > new_scale) {
+            if (new_scale > max / kRetargetFactor) return false;
+            if (old_scale > new_scale * kRetargetFactor) return false;
+        }
         return true;
     }
-    return old_nbits == new_nbits;
+    return old_scale == new_scale;
 }
 
 // Bypasses the actual proof of work check during fuzz testing with a simplified validation checking whether

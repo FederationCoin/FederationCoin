@@ -8,6 +8,7 @@
 
 #include <uint256.h>
 
+#include <array>
 #include <chrono>
 #include <limits>
 #include <map>
@@ -38,6 +39,9 @@ enum DeploymentPos : uint16_t {
     MAX_VERSION_BITS_DEPLOYMENTS
 };
 constexpr bool ValidDeployment(DeploymentPos dep) { return dep < MAX_VERSION_BITS_DEPLOYMENTS; }
+
+/** Four frozen work kinds (header version bits 8–9). Same count as WorkKindTag. */
+static constexpr unsigned WORK_KIND_COUNT{4};
 
 /**
  * Struct for each individual consensus rule change using BIP9.
@@ -119,10 +123,13 @@ struct Params {
     BIP9Deployment vDeployments[MAX_VERSION_BITS_DEPLOYMENTS];
     /** Proof of work parameters */
     uint256 powLimit;
-    /** Shared genesis target T0, kind cap, and testnet floor. All kinds use one T0. */
-    uint256 powT0;
-    uint256 powLimitKind;
-    uint256 powFloor0;
+    /** Per-kind genesis hash target T0[k], kind cap, and testnet floor.
+     *  Shared S; T[k] = T0[k]/S. T0[k] = T0_ref * O_k * D_k (hash-cost then
+     *  knob discount; ops, not digest width). Presync compares recovered S,
+     *  not compact nBits. */
+    std::array<uint256, WORK_KIND_COUNT> powT0{};
+    std::array<uint256, WORK_KIND_COUNT> powLimitKind{};
+    std::array<uint256, WORK_KIND_COUNT> powFloor0{};
     bool fPowAllowMinDifficultyBlocks;
     /**
      * If non-zero, testnet min-difficulty blocks use this compact target

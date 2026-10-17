@@ -126,5 +126,7 @@ FUZZ_TARGET(pow_transition, .init = initialize_pow)
     dummy.nVersion = 4;
     Consensus::ApplyWorkKindTag(dummy, Consensus::WorkKindTag::BLAKE2B);
     unsigned int new_nbits{GetNextWorkRequired(last_block, &dummy, consensus_params)};
-    (void)PermittedDifficultyTransition(consensus_params, last_block->nHeight + 1, last_block->nBits, new_nbits);
+    (void)PermittedDifficultyTransition(consensus_params, last_block->nHeight + 1,
+                                        last_block->nBits, last_block->GetBlockHeader().GetCompleteVersion(),
+                                        new_nbits, dummy.GetCompleteVersion());
 }

@@ -10,6 +10,7 @@
 #include <consensus/amount.h>
 #include <consensus/merkle.h>
 #include <consensus/params.h>
+#include <consensus/work/kind.h>
 #include <hash.h>
 #include <kernel/messagestartchars.h>
 #include <logging.h>
@@ -65,23 +66,33 @@ static constexpr uint32_t kRegtestMinerWindow = 120;
 static constexpr uint32_t kDummyMainBits = 0x1e00ffff;
 static constexpr uint32_t kSignetGenesisBits = 0x1e0377ae;
 static constexpr uint32_t kRegtestBits = 0x207fffff;
+/** Cap above T0[k] after hash-cost / knob discount. Genesis nBits stay.
+ *  7fff<<240 leaves T0_fp8 (T0_ref * D) strictly below the cap with headroom. */
+static const uint256 kWorkMenuPowLimit{"7fff000000000000000000000000000000000000000000000000000000000000"};
 
-/** One T0 from genesis compact for every work kind, forever. Compact nBits
- *  is the same function of (T0, S) for Blake2b, SHA-256d, FP8, and Poseidon2,
- *  so PermittedDifficultyTransition can compare nBits on mixed-kind chains.
- *  Per-kind T0 would make equal scale look like a 4x jump and abort presync.
- *  Does not change genesis bytes, magic, ports, or nBits. */
+/** T0[k] = T0_ref * O_k * D_k. O_k is specified hash ops vs kind-0 B2BC;
+ *  D_k is pre-hash gym work (1 except FP8). Not digest width. Shared S.
+ *  If the product overflows 256 bits or would not stay strictly below
+ *  powLimit, that kind keeps T0_ref (regtest compact is already the
+ *  encoding max). Presync compares recovered S, not compact nBits.
+ *  Does not remine genesis. */
 static void FillWorkMenu(Consensus::Params& c, uint32_t genesis_compact)
 {
     arith_uint256 t0;
     t0.SetCompact(genesis_compact);
-    c.powT0 = ArithToUint256(t0);
-    c.powLimitKind = c.powLimit;
-    c.powFloor0 = c.powLimit;
-    if (c.nMinDifficultyBits != 0) {
-        arith_uint256 f;
-        f.SetCompact(c.nMinDifficultyBits);
-        c.powFloor0 = ArithToUint256(f);
+    const uint256 t0_ref{ArithToUint256(t0)};
+    const arith_uint256 cap{UintToArith256(c.powLimit)};
+    for (size_t i{0}; i < Consensus::WORK_KIND_COUNT; ++i) {
+        c.powLimitKind[i] = c.powLimit;
+        const Consensus::WorkKind* kind{Consensus::WorkKindAt(i)};
+        assert(kind);
+        const auto scaled{Consensus::GenesisTargetForKind(t0_ref, kind->HashCostOffsetB2bc(), kind->KnobDiscountB2bc())};
+        if (scaled && UintToArith256(*scaled) < cap) {
+            c.powT0[i] = *scaled;
+        } else {
+            c.powT0[i] = t0_ref;
+        }
+        c.powFloor0[i] = c.powT0[i];
     }
 }
 
@@ -152,7 +163,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
-        consensus.powLimit = uint256{"000000ffff000000000000000000000000000000000000000000000000000000"};
+        consensus.powLimit = kWorkMenuPowLimit;
         FillWorkMenu(consensus, kDummyMainBits);
         consensus.nPowTargetTimespan = kPowTargetTimespan;
         consensus.nPowTargetSpacing = kPowTargetSpacing;
@@ -248,7 +259,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
-        consensus.powLimit = uint256{"000000ffff000000000000000000000000000000000000000000000000000000"};
+        consensus.powLimit = kWorkMenuPowLimit;
         consensus.nPowTargetTimespan = kPowTargetTimespan;
         consensus.nPowTargetSpacing = kPowTargetSpacing;
         consensus.fPowAllowMinDifficultyBlocks = true;
@@ -339,7 +350,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0;
-        consensus.powLimit = uint256{"000000ffff000000000000000000000000000000000000000000000000000000"};
+        consensus.powLimit = kWorkMenuPowLimit;
         consensus.nPowTargetTimespan = kPowTargetTimespan;
         consensus.nPowTargetSpacing = kPowTargetSpacing;
         consensus.fPowAllowMinDifficultyBlocks = true;
@@ -467,7 +478,7 @@ public:
         consensus.fPowNoRetargeting = false;
         consensus.nRuleChangeActivationThreshold = kMainBip9Threshold;
         consensus.nMinerConfirmationWindow = kMinerConfirmationWindow;
-        consensus.powLimit = uint256{"00000377ae000000000000000000000000000000000000000000000000000000"};
+        consensus.powLimit = kWorkMenuPowLimit;
         FillWorkMenu(consensus, kSignetGenesisBits);
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
         consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;

@@ -5,6 +5,7 @@
 #include <consensus/work/kind.h>
 
 #include <arith_uint256.h>
+#include <consensus/work/cost.h>
 #include <consensus/work/fp8_gym.h>
 #include <consensus/work/poseidon2.h>
 #include <hash.h>
@@ -34,6 +35,11 @@ uint256 Uint256FromBE(std::span<const unsigned char> be32)
     return uint256{Span{le, 32}};
 }
 
+const uint256& LimitForKind(const Params& params, WorkKindTag tag)
+{
+    return params.powLimitKind[static_cast<size_t>(tag)];
+}
+
 bool DigestMeetsTarget(const uint256& digest, unsigned int nBits, const uint256& pow_limit)
 {
     bool fNegative{false};
@@ -60,12 +66,14 @@ public:
     }
     bool Check(const CBlockHeader& header, unsigned int nBits, const Params& params) const override
     {
-        return DigestMeetsTarget(WorkDigest(header), nBits, params.powLimitKind);
+        return DigestMeetsTarget(WorkDigest(header), nBits, LimitForKind(params, Kind()));
     }
     unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const override
     {
-        return CompactTargetForScale(work_scale, params);
+        return CompactTargetForScale(work_scale, params, static_cast<size_t>(Kind()));
     }
+    uint64_t HashCostOffsetB2bc() const override { return 1; }
+    uint64_t KnobDiscountB2bc() const override { return 1; }
 };
 
 class Sha256dWork final : public WorkKind
@@ -102,12 +110,14 @@ public:
     }
     bool Check(const CBlockHeader& header, unsigned int nBits, const Params& params) const override
     {
-        return DigestMeetsTarget(WorkDigest(header), nBits, params.powLimitKind);
+        return DigestMeetsTarget(WorkDigest(header), nBits, LimitForKind(params, Kind()));
     }
     unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const override
     {
-        return CompactTargetForScale(work_scale, params);
+        return CompactTargetForScale(work_scale, params, static_cast<size_t>(Kind()));
     }
+    uint64_t HashCostOffsetB2bc() const override { return Sha256dHashCostB2bc(); }
+    uint64_t KnobDiscountB2bc() const override { return 1; }
 };
 
 class Fp8GymWork final : public WorkKind
@@ -142,7 +152,7 @@ public:
         bool fOverflow{false};
         arith_uint256 bnTarget;
         bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
-        const arith_uint256 limit{UintToArith256(params.powLimitKind)};
+        const arith_uint256 limit{UintToArith256(LimitForKind(params, Kind()))};
         if (fNegative || bnTarget == 0 || fOverflow || bnTarget > limit) return false;
         const auto digest{Fp8GymDigest(header)};
         if (!digest) return false;
@@ -150,8 +160,10 @@ public:
     }
     unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const override
     {
-        return CompactTargetForScale(work_scale, params);
+        return CompactTargetForScale(work_scale, params, static_cast<size_t>(Kind()));
     }
+    uint64_t HashCostOffsetB2bc() const override { return 1; }
+    uint64_t KnobDiscountB2bc() const override { return Fp8KnobDiscountB2bc(); }
 };
 
 class Poseidon2Work final : public WorkKind
@@ -178,12 +190,14 @@ public:
     bool Check(const CBlockHeader& header, unsigned int nBits, const Params& params) const override
     {
         // U512 BE < target256<<256 iff high 256 < target256. Equality invalid.
-        return DigestMeetsTarget(WorkDigest(header), nBits, params.powLimitKind);
+        return DigestMeetsTarget(WorkDigest(header), nBits, LimitForKind(params, Kind()));
     }
     unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const override
     {
-        return CompactTargetForScale(work_scale, params);
+        return CompactTargetForScale(work_scale, params, static_cast<size_t>(Kind()));
     }
+    uint64_t HashCostOffsetB2bc() const override { return Poseidon2HashCostB2bc(); }
+    uint64_t KnobDiscountB2bc() const override { return 1; }
 };
 
 const Blake2bWork g_blake2b;
@@ -250,16 +264,32 @@ uint256 GetBlockIdentity(const CBlockHeader& header)
     return header.GetBlockIdentity();
 }
 
-unsigned int CompactTargetForScale(const uint256& work_scale, const Params& params)
+unsigned int CompactTargetForScale(const uint256& work_scale, const Params& params, size_t kind_index)
 {
+    if (kind_index >= WORK_KIND_COUNT) return 0;
     arith_uint256 s{UintToArith256(work_scale)};
     if (s == 0) s = 1;
-    arith_uint256 t{UintToArith256(params.powT0)};
+    arith_uint256 t{UintToArith256(params.powT0[kind_index])};
     t /= s;
     if (t == 0) t = 1;
-    const arith_uint256 limit{UintToArith256(params.powLimitKind)};
+    const arith_uint256 limit{UintToArith256(params.powLimitKind[kind_index])};
     if (t > limit) t = limit;
     return t.GetCompact();
+}
+
+std::optional<uint256> GenesisTargetForKind(const uint256& t0_ref, uint64_t hash_cost_b2bc, uint64_t knob_discount_b2bc)
+{
+    if (hash_cost_b2bc == 0 || knob_discount_b2bc == 0) return std::nullopt;
+    arith_uint256 t{UintToArith256(t0_ref)};
+    if (t == 0) return std::nullopt;
+    const arith_uint256 max{~arith_uint256(0)};
+    const arith_uint256 o{hash_cost_b2bc};
+    const arith_uint256 d{knob_discount_b2bc};
+    if (t > max / o) return std::nullopt;
+    t *= o;
+    if (t > max / d) return std::nullopt;
+    t *= d;
+    return ArithToUint256(t);
 }
 
 bool CheckWorkKindCheap(const CBlockHeader& header, [[maybe_unused]] const Params& params)

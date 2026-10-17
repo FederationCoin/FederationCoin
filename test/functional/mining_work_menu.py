@@ -63,6 +63,7 @@ class MiningWorkMenuTest(BitcoinTestFramework):
         assert "work_kind" in tmpl["capabilities"]
         for kind in KINDS:
             assert_equal(self.gbt(kind)["work_kind"], kind)
+        gym_s1 = int(self.gbt("fp8gym")["bits"], 16)
 
         step_time()
         blake_hash = self.mine(1, "blake2b")[0]
@@ -116,6 +117,8 @@ class MiningWorkMenuTest(BitcoinTestFramework):
         for kind in KINDS:
             nbits_s4[kind] = int(self.gbt(kind)["bits"], 16)
             assert nbits_s4[kind] != genesis_nbits
+            if kind == "fp8gym":
+                assert nbits_s4[kind] != gym_s1
         self.log.info("Mine cheap kinds at the new target; gym nBits tracks shared S")
         # Window 120–239 must be slow enough that span >= 4*expected (119
         # gaps). 4*spacing * 119 is just under 4*expected; add a minute.
@@ -149,7 +152,7 @@ class MiningWorkMenuTest(BitcoinTestFramework):
         for kind in ("blake2b", "sha256d", "poseidon2"):
             step_time(spacing)
             self.mine(1, kind)
-        assert_equal(int(self.gbt("fp8gym")["bits"], 16), genesis_nbits)
+        assert_equal(int(self.gbt("fp8gym")["bits"], 16), gym_s1)
 
 
 if __name__ == "__main__":

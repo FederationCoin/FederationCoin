@@ -27,7 +27,6 @@ enum class WorkKindTag : uint8_t {
     POSEIDON2 = 3,
 };
 
-static constexpr unsigned WORK_KIND_COUNT{4};
 static constexpr uint32_t VERSION_WORK_KIND_SHIFT{8};
 static constexpr uint32_t VERSION_WORK_KIND_MASK{0x00000300};
 /** Unused version bits that must stay 0. Kind is bits 8–9; bit 31 is v2.
@@ -59,8 +58,12 @@ public:
     /** Zero fields this kind forbids grinding. Called from CreateNewBlock. */
     virtual void PrepareTemplate(CBlockHeader& header) const = 0;
     virtual bool Check(const CBlockHeader& header, unsigned int nBits, const Params& params) const = 0;
-    /** Compact T0/S, floors 1 and powLimitKind. */
+    /** Compact T0[k]/S, floors 1 and powLimitKind[k]. */
     virtual unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const = 0;
+    /** Native hash try-cost in B2BC vs kind-0 grind = 1. Specified ops, not output bits. */
+    virtual uint64_t HashCostOffsetB2bc() const = 0;
+    /** Pre-hash knob work in B2BC. 1 except a gym; that discount anchors the gym to compute cost. */
+    virtual uint64_t KnobDiscountB2bc() const = 0;
 };
 
 const WorkKind* LookupWorkKind(WorkKindTag tag);
@@ -79,8 +82,13 @@ uint256 Sha256dBytes(std::span<const unsigned char> bytes);
  *  of the full v2 header. */
 uint256 GetBlockIdentity(const CBlockHeader& header);
 
-/** Compact T0/S with floors. Shared T0 for every kind. */
-unsigned int CompactTargetForScale(const uint256& work_scale, const Params& params);
+/** Compact T0[kind]/S with floors 1 and powLimitKind[kind]. kind_index >= WORK_KIND_COUNT is 0. */
+unsigned int CompactTargetForScale(const uint256& work_scale, const Params& params, size_t kind_index);
+
+/** T0_ref * hash_cost * knob_discount, floor toward zero. Hash cost is native
+ *  digest ops; knob discount is pre-hash gym. Nullopt if a factor is 0 or the
+ *  product would exceed 256 bits. */
+std::optional<uint256> GenesisTargetForKind(const uint256& t0_ref, uint64_t hash_cost_b2bc, uint64_t knob_discount_b2bc);
 
 /** v2, declared kind, enable height, TailRule. No digest. */
 bool CheckWorkKindCheap(const CBlockHeader& header, const Params& params);

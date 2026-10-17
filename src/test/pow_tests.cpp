@@ -103,7 +103,7 @@ BOOST_AUTO_TEST_CASE(retarget_fast_window_multiplies_s)
     const unsigned nbits_s4{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(s, params)};
     BOOST_CHECK_NE(nbits_s1, nbits_s4);
     for (size_t k{0}; k < Consensus::WORK_KIND_COUNT; ++k) {
-        BOOST_CHECK_EQUAL(Consensus::WorkKindAt(k)->ExpectedNBits(s, params), Consensus::CompactTargetForScale(s, params));
+        BOOST_CHECK_EQUAL(Consensus::WorkKindAt(k)->ExpectedNBits(s, params), Consensus::CompactTargetForScale(s, params, k));
     }
 }
 
@@ -129,23 +129,40 @@ BOOST_AUTO_TEST_CASE(mixed_kind_window_one_s)
     auto blocks = MakeIndexChain(120, 1'000'000, 1, Consensus::WorkScaleOne());
     const uint256 s{Consensus::NextWorkScale(&blocks[119], params)};
     BOOST_CHECK_EQUAL(UintToArith256(s), 4);
-    // One T0 for every kind, so compact matches; S is shared.
+    // Shared S; compact may differ when T0[k] differs. Recover S from each kind.
     const unsigned b{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(s, params)};
     const unsigned sha{Consensus::LookupWorkKind(Consensus::WorkKindTag::SHA256D)->ExpectedNBits(s, params)};
     const unsigned fp8{Consensus::LookupWorkKind(Consensus::WorkKindTag::FP8_GYM)->ExpectedNBits(s, params)};
     const unsigned p2{Consensus::LookupWorkKind(Consensus::WorkKindTag::POSEIDON2)->ExpectedNBits(s, params)};
-    BOOST_CHECK_EQUAL(b, sha);
-    BOOST_CHECK_EQUAL(sha, fp8);
-    BOOST_CHECK_EQUAL(fp8, p2);
+    const uint256 s4{ArithToUint256(arith_uint256{4})};
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(b, static_cast<size_t>(Consensus::WorkKindTag::BLAKE2B), params), s4);
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(sha, static_cast<size_t>(Consensus::WorkKindTag::SHA256D), params), s4);
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(fp8, static_cast<size_t>(Consensus::WorkKindTag::FP8_GYM), params), s4);
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(p2, static_cast<size_t>(Consensus::WorkKindTag::POSEIDON2), params), s4);
     CBlockHeader h_sha{HeaderForKind(Consensus::WorkKindTag::SHA256D)};
     BOOST_CHECK_EQUAL(GetNextWorkRequired(&blocks[119], &h_sha, params), sha);
     CBlockHeader h_b{HeaderForKind(Consensus::WorkKindTag::BLAKE2B)};
     BOOST_CHECK_EQUAL(GetNextWorkRequired(&blocks[119], &h_b, params), b);
-    // Height 120 is the retarget on this chain (interval 120). Off-window
-    // compact must stay equal; a synthetic b+1 is not allowed there.
-    BOOST_CHECK(PermittedDifficultyTransition(params, 120, b, b));
-    BOOST_CHECK(PermittedDifficultyTransition(params, 121, b, b));
-    BOOST_CHECK(!PermittedDifficultyTransition(params, 121, b, b + 1));
+    const uint32_t vb{h_b.GetCompleteVersion()};
+    const uint32_t vsha{h_sha.GetCompleteVersion()};
+    CBlockHeader h_fp8{HeaderForKind(Consensus::WorkKindTag::FP8_GYM)};
+    const uint32_t vfp8{h_fp8.GetCompleteVersion()};
+    BOOST_CHECK(PermittedDifficultyTransition(params, 120, b, vb, b, vb));
+    BOOST_CHECK(PermittedDifficultyTransition(params, 121, b, vb, b, vb));
+    BOOST_CHECK(!PermittedDifficultyTransition(params, 121, b, vb, b + 1, vb));
+    BOOST_CHECK(PermittedDifficultyTransition(params, 121, b, vb, sha, vsha));
+    BOOST_CHECK(PermittedDifficultyTransition(params, 121, b, vb, fp8, vfp8));
+    // Regtest compact is encoding-max so T0[k] stays T0_ref. MAIN gym T0 is
+    // discounted; same S, different nBits, still a permitted transition.
+    const auto mainParams{CreateChainParams(*m_node.args, ChainType::MAIN)};
+    const Consensus::Params& mp{mainParams->GetConsensus()};
+    const unsigned mb{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(s4, mp)};
+    const unsigned mfp8{Consensus::LookupWorkKind(Consensus::WorkKindTag::FP8_GYM)->ExpectedNBits(s4, mp)};
+    BOOST_CHECK_NE(mb, mfp8);
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(mb, static_cast<size_t>(Consensus::WorkKindTag::BLAKE2B), mp), s4);
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(mfp8, static_cast<size_t>(Consensus::WorkKindTag::FP8_GYM), mp), s4);
+    BOOST_CHECK(PermittedDifficultyTransition(mp, 1, mb, vb, mfp8, vfp8));
+    BOOST_CHECK(!PermittedDifficultyTransition(mp, 1, mb, vb, mb + 1, vb));
 }
 
 BOOST_AUTO_TEST_CASE(halving_heights_do_not_move_s)
@@ -181,7 +198,7 @@ BOOST_AUTO_TEST_CASE(main_interval_and_halving_bounds)
     for (int h : {209999, 210000, 210001}) {
         for (size_t k{0}; k < Consensus::WORK_KIND_COUNT; ++k) {
             BOOST_CHECK(Consensus::WorkKindAt(k)->EnabledAt(h));
-            (void)Consensus::CompactTargetForScale(s, params);
+            (void)Consensus::CompactTargetForScale(s, params, k);
         }
     }
 }
@@ -325,11 +342,17 @@ BOOST_AUTO_TEST_CASE(permitted_difficulty_transition_gate)
 {
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
     const auto& params = chainParams->GetConsensus();
-    BOOST_CHECK(!PermittedDifficultyTransition(params, 1, 0x1e00ffff, 0x1d00ffff));
-    BOOST_CHECK(PermittedDifficultyTransition(params, 1, 0x1e00ffff, 0x1e00ffff));
+    const uint32_t vb{HeaderForKind(Consensus::WorkKindTag::BLAKE2B).GetCompleteVersion()};
+    const uint32_t vfp8{HeaderForKind(Consensus::WorkKindTag::FP8_GYM).GetCompleteVersion()};
+    BOOST_CHECK(!PermittedDifficultyTransition(params, 1, 0x1e00ffff, vb, 0x1d00ffff, vb));
+    BOOST_CHECK(PermittedDifficultyTransition(params, 1, 0x1e00ffff, vb, 0x1e00ffff, vb));
     const int64_t interval{params.DifficultyAdjustmentInterval()};
-    BOOST_CHECK(PermittedDifficultyTransition(params, interval, 0x1e00ffff, 0x1e00ffff));
-    BOOST_CHECK(!PermittedDifficultyTransition(params, interval, 0x1e00ffff, 0x1c00ffff));
+    BOOST_CHECK(PermittedDifficultyTransition(params, interval, 0x1e00ffff, vb, 0x1e00ffff, vb));
+    BOOST_CHECK(!PermittedDifficultyTransition(params, interval, 0x1e00ffff, vb, 0x1c00ffff, vb));
+    const unsigned blake_s1{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(Consensus::WorkScaleOne(), params)};
+    const unsigned fp8_s1{Consensus::LookupWorkKind(Consensus::WorkKindTag::FP8_GYM)->ExpectedNBits(Consensus::WorkScaleOne(), params)};
+    BOOST_CHECK_NE(blake_s1, fp8_s1);
+    BOOST_CHECK(PermittedDifficultyTransition(params, 1, blake_s1, vb, fp8_s1, vfp8));
 }
 
 BOOST_AUTO_TEST_CASE(headers_match_expected_nbits)

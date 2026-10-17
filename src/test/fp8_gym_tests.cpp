@@ -21,6 +21,10 @@ BOOST_AUTO_TEST_CASE(decode_quantize_roundtrip_finite)
     BOOST_CHECK(!Consensus::DecodeE4M3FN(0x7F));
     BOOST_CHECK(!Consensus::DecodeE4M3FN(0xFF));
     BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0x00), 0.0f);
+    BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0x01), std::ldexp(1.0f, -9));
+    BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0x07), std::ldexp(7.0f, -9));
+    BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0x08), std::ldexp(1.0f, -6));
+    BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0x81), -std::ldexp(1.0f, -9));
     BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0x7E), 448.0f);
     BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0xFE), -448.0f);
     BOOST_CHECK_EQUAL(*Consensus::DecodeE4M3FN(0x78), 256.0f);

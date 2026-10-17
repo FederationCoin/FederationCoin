@@ -56,18 +56,23 @@ E4M3Encoding ClassifyE4M3FN(uint8_t encoded)
     return E4M3FiniteNonZero{negative, 8 + stored_mantissa, static_cast<int32_t>(stored_exponent) - 7};
 }
 
-float SignedLdexp(uint32_t three_bit_magnitude, int32_t power_of_two, bool negative)
+float SignedLdexp(uint32_t three_bit_magnitude, int32_t unbiased_exponent, bool negative)
 {
-    // E4M3 finite non-zero: magnitude 1..15, unbiased exp -6..7. Exact in
-    // binary32 without libm. Do not retune QuantizeE4M3FN.
-    Assume(three_bit_magnitude >= 1 && three_bit_magnitude <= 15);
-    Assume(power_of_two >= -6 && power_of_two <= 7);
+    // Finite E4M3FN: mag 1..15, unbiased -6..8 (subnormal and stored-1 are -6;
+    // stored 15 mantissa 0..6 is +8). value = ±mag * 2^(unbiased-3) because mag
+    // already includes the 3-bit significand. Do not retune QuantizeE4M3FN.
+    Assert(three_bit_magnitude >= 1 && three_bit_magnitude <= 15);
+    Assert(unbiased_exponent >= -6 && unbiased_exponent <= 8);
+    const int32_t power_of_two{unbiased_exponent - 3};
     float magnitude;
     if (power_of_two >= 0) {
+        Assert(power_of_two <= 5);
         magnitude = static_cast<float>(three_bit_magnitude << power_of_two);
     } else {
+        const uint32_t frac_shift{static_cast<uint32_t>(-power_of_two)};
+        Assert(frac_shift <= 9);
         magnitude = static_cast<float>(three_bit_magnitude) /
-                    static_cast<float>(1u << static_cast<uint32_t>(-power_of_two));
+                    static_cast<float>(1u << frac_shift);
     }
     return negative ? -magnitude : magnitude;
 }
@@ -275,7 +280,7 @@ std::optional<float> DecodeE4M3FN(uint8_t encoded)
                           [](E4M3NaN) -> std::optional<float> { return std::nullopt; },
                           [](E4M3SignedZero) -> std::optional<float> { return 0.0f; },
                           [](const E4M3FiniteNonZero& finite) -> std::optional<float> {
-                              return SignedLdexp(finite.three_bit_magnitude, finite.unbiased_exponent - 3,
+                              return SignedLdexp(finite.three_bit_magnitude, finite.unbiased_exponent,
                                                  finite.negative);
                           },
                       },

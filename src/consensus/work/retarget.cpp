@@ -78,8 +78,11 @@ std::optional<uint256> ScaleFromNBits(unsigned int nBits, size_t kind_index, con
     if (target > UintToArith256(params.powLimitKind[kind_index])) return std::nullopt;
     arith_uint256 t0{UintToArith256(params.powT0[kind_index])};
     if (t0 == 0) return std::nullopt;
+    // T[k] = T0[k]/S with S >= 1, so an honest target is never easier than T0.
+    // Integer / is 0 iff target > T0; that is not S=1. Clamping it to 1 made a
+    // powLimit compact look like genesis scale and pass headers presync.
     arith_uint256 s{t0 / target};
-    if (s == 0) s = 1;
+    if (s == 0) return std::nullopt;
     return ArithToUint256(s);
 }
 

@@ -71,14 +71,18 @@ inline constexpr uint64_t Poseidon2HashCostB2bc()
 /** FP8 knob discount in B2BC. MAC and quantize divides floor toward zero. */
 inline constexpr uint64_t Fp8KnobDiscountB2bc()
 {
-    const uint64_t macs_b2bc{kFp8Macs / kFp8MacsPerB2bc};
-    const uint64_t quant_b2bc{kFp8Quantizes / kFp8QuantizesPerB2bc};
-    uint64_t sum{kFp8SeedB2bc};
-    sum += kFp8ExpandCount;
-    sum += macs_b2bc;
-    sum += quant_b2bc;
-    sum += kFp8OutB2bc;
-    return sum;
+    static_assert(kFp8MacsPerB2bc > 0);
+    static_assert(kFp8QuantizesPerB2bc > 0);
+    constexpr uint64_t macs_b2bc{kFp8Macs / kFp8MacsPerB2bc};
+    constexpr uint64_t quant_b2bc{kFp8Quantizes / kFp8QuantizesPerB2bc};
+    static_assert(kFp8SeedB2bc <= std::numeric_limits<uint64_t>::max() - kFp8ExpandCount);
+    constexpr uint64_t seed_expand{kFp8SeedB2bc + kFp8ExpandCount};
+    static_assert(seed_expand <= std::numeric_limits<uint64_t>::max() - macs_b2bc);
+    constexpr uint64_t with_macs{seed_expand + macs_b2bc};
+    static_assert(with_macs <= std::numeric_limits<uint64_t>::max() - quant_b2bc);
+    constexpr uint64_t with_quant{with_macs + quant_b2bc};
+    static_assert(with_quant <= std::numeric_limits<uint64_t>::max() - kFp8OutB2bc);
+    return with_quant + kFp8OutB2bc;
 }
 
 } // namespace Consensus

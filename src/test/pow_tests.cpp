@@ -13,6 +13,7 @@
 #include <test/util/setup_common.h>
 #include <util/chaintype.h>
 
+#include <array>
 #include <vector>
 
 #include <boost/test/unit_test.hpp>
@@ -353,6 +354,51 @@ BOOST_AUTO_TEST_CASE(permitted_difficulty_transition_gate)
     const unsigned fp8_s1{Consensus::LookupWorkKind(Consensus::WorkKindTag::FP8_GYM)->ExpectedNBits(Consensus::WorkScaleOne(), params)};
     BOOST_CHECK_NE(blake_s1, fp8_s1);
     BOOST_CHECK(PermittedDifficultyTransition(params, 1, blake_s1, vb, fp8_s1, vfp8));
+    const unsigned powlim{UintToArith256(params.powLimit).GetCompact()};
+    BOOST_CHECK(!PermittedDifficultyTransition(params, 1, blake_s1, vb, powlim, vb));
+    BOOST_CHECK(!PermittedDifficultyTransition(params, 1, fp8_s1, vfp8, powlim, vfp8));
+    BOOST_CHECK(!Consensus::ScaleFromNBits(powlim, static_cast<size_t>(Consensus::WorkKindTag::BLAKE2B), params));
+    BOOST_CHECK(!Consensus::ScaleFromNBits(powlim, static_cast<size_t>(Consensus::WorkKindTag::FP8_GYM), params));
+}
+
+BOOST_AUTO_TEST_CASE(scale_from_nbits_round_trip_and_rejects_easier_than_t0)
+{
+    const std::array chains{ChainType::MAIN, ChainType::TESTNET};
+    for (const ChainType chain : chains) {
+        const auto params{CreateChainParams(*m_node.args, chain)->GetConsensus()};
+        for (size_t k{0}; k < Consensus::WORK_KIND_COUNT; ++k) {
+            const Consensus::WorkKind* kind{Consensus::WorkKindAt(k)};
+            BOOST_REQUIRE(kind);
+            const arith_uint256 t0{UintToArith256(params.powT0[k])};
+            const arith_uint256 cap{UintToArith256(params.powLimitKind[k])};
+            for (unsigned s{1}; s <= 32; ++s) {
+                const uint256 scale{ArithToUint256(arith_uint256{s})};
+                const unsigned nbits{kind->ExpectedNBits(scale, params)};
+                const auto rec{Consensus::ScaleFromNBits(nbits, k, params)};
+                BOOST_REQUIRE_MESSAGE(rec, "kind " << k << " S=" << s << " chain " << static_cast<int>(chain));
+                BOOST_CHECK_EQUAL(UintToArith256(*rec), s);
+            }
+            // T0+1 is usually the same compact as T0. Double the target so
+            // decode is actually easier, then require nullopt.
+            arith_uint256 easier{t0 << 1};
+            if (easier <= cap && easier > t0) {
+                bool neg{false};
+                bool ovf{false};
+                arith_uint256 decoded;
+                decoded.SetCompact(easier.GetCompact(), &neg, &ovf);
+                if (!neg && !ovf && decoded > t0) {
+                    BOOST_CHECK(!Consensus::ScaleFromNBits(easier.GetCompact(), k, params));
+                }
+            }
+            bool cap_neg{false};
+            bool cap_ovf{false};
+            arith_uint256 cap_decoded;
+            cap_decoded.SetCompact(cap.GetCompact(), &cap_neg, &cap_ovf);
+            if (!cap_neg && !cap_ovf && cap_decoded > t0) {
+                BOOST_CHECK(!Consensus::ScaleFromNBits(cap.GetCompact(), k, params));
+            }
+        }
+    }
 }
 
 BOOST_AUTO_TEST_CASE(headers_match_expected_nbits)

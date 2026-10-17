@@ -304,10 +304,10 @@ uint256 Poseidon2Preimage(const CBlockHeader& header)
     DataStream ss;
     ss << z;
     static constexpr char kDomain[]{"gfcn-poseidon2-pre-v1"};
-    std::array<unsigned char, 20 + 164> msg{};
+    std::array<unsigned char, 20 + BLOCK_HEADER_V2_SERIALIZED_SIZE> msg{};
     std::memcpy(msg.data(), kDomain, 20);
-    assert(ss.size() == 164);
-    std::memcpy(msg.data() + 20, ss.data(), 164);
+    assert(ss.size() == BLOCK_HEADER_V2_SERIALIZED_SIZE);
+    std::memcpy(msg.data() + 20, ss.data(), BLOCK_HEADER_V2_SERIALIZED_SIZE);
     uint256 pre;
     assert(0 == blake2b_nokey(pre.begin(), 32, msg.data(), msg.size()));
     return pre;

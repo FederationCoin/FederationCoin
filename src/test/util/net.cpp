@@ -31,6 +31,8 @@ void ConnmanTestMsg::Handshake(CNode& node,
     auto& connman{*this};
 
     peerman.InitializeNode(node, local_services);
+    m_test_peer.erase(node.GetId());
+    CompleteEncryptedHandshake(node);
     peerman.SendMessages(&node);
     FlushSendBuffer(node); // Drop the version message added by SendMessages.
 
@@ -73,7 +75,13 @@ void ConnmanTestMsg::Handshake(CNode& node,
 
 void ConnmanTestMsg::NodeReceiveMsgBytes(CNode& node, Span<const uint8_t> msg_bytes, bool& complete) const
 {
-    assert(node.ReceiveMsgBytes(msg_bytes, complete));
+    // Application v3 can refuse a payload (oversize, AEAD, assembly). That is
+    // a disconnect, not a fuzzer abort. Handshake still asserts empty buffers
+    // after the BIP324 pump.
+    if (!node.ReceiveMsgBytes(msg_bytes, complete)) {
+        node.fDisconnect = true;
+        return;
+    }
     if (complete) {
         node.MarkReceivedMsgsForProcessing();
     }
@@ -91,16 +99,68 @@ void ConnmanTestMsg::FlushSendBuffer(CNode& node) const
     }
 }
 
+namespace {
+void FeedPeerTransport(V2Transport& peer, std::vector<uint8_t> bytes)
+{
+    Span<const uint8_t> span{bytes};
+    while (!span.empty()) {
+        assert(peer.ReceivedBytes(span));
+        if (peer.ReceivedMessageComplete()) {
+            bool reject{false};
+            (void)peer.GetReceivedMessage({}, reject);
+        }
+    }
+}
+} // namespace
+
+void ConnmanTestMsg::CompleteEncryptedHandshake(CNode& node) const
+{
+    // Every dummy CNode is BIP324 then v3. Pair a simulated peer so application
+    // bytes are v3 frames. Do not inject v1 or v2 application.
+    if (!m_test_peer.contains(node.GetId())) {
+        m_test_peer.emplace(node.GetId(), std::make_unique<V2Transport>(node.GetId(), node.IsInboundConn()));
+    }
+    V2Transport& peer = *m_test_peer.at(node.GetId());
+    Transport& ours = *node.m_transport;
+    for (int i = 0; i < 1024; ++i) {
+        bool progress{false};
+        {
+            const auto& [to_send, _more, _msg_type] = ours.GetBytesToSend(false);
+            if (!to_send.empty()) {
+                std::vector<uint8_t> bytes(to_send.begin(), to_send.end());
+                ours.MarkBytesSent(bytes.size());
+                FeedPeerTransport(peer, std::move(bytes));
+                progress = true;
+            }
+        }
+        {
+            const auto& [to_send, _more, _msg_type] = peer.GetBytesToSend(false);
+            if (!to_send.empty()) {
+                std::vector<uint8_t> bytes(to_send.begin(), to_send.end());
+                peer.MarkBytesSent(bytes.size());
+                bool complete{false};
+                NodeReceiveMsgBytes(node, bytes, complete);
+                progress = true;
+            }
+        }
+        if (!progress) break;
+    }
+    assert(std::get<0>(ours.GetBytesToSend(false)).empty());
+    assert(std::get<0>(peer.GetBytesToSend(false)).empty());
+}
+
 bool ConnmanTestMsg::ReceiveMsgFrom(CNode& node, CSerializedNetMsg&& ser_msg) const
 {
-    bool queued = node.m_transport->SetMessageToSend(ser_msg);
-    assert(queued);
+    CompleteEncryptedHandshake(node);
+    V2Transport& peer = *m_test_peer.at(node.GetId());
+    if (!peer.SetMessageToSend(ser_msg)) return false;
     bool complete{false};
     while (true) {
-        const auto& [to_send, _more, _msg_type] = node.m_transport->GetBytesToSend(false);
+        const auto& [to_send, _more, _msg_type] = peer.GetBytesToSend(false);
         if (to_send.empty()) break;
-        NodeReceiveMsgBytes(node, to_send, complete);
-        node.m_transport->MarkBytesSent(to_send.size());
+        std::vector<uint8_t> bytes(to_send.begin(), to_send.end());
+        peer.MarkBytesSent(bytes.size());
+        NodeReceiveMsgBytes(node, bytes, complete);
     }
     return complete;
 }

@@ -28,7 +28,7 @@ static constexpr unsigned POSEIDON2_EXTERNAL_ROUNDS{8};
 std::array<unsigned char, 64> Poseidon2HashSqueezeTwice(std::span<const unsigned char> input);
 std::array<unsigned char, 32> Poseidon2HashBytes(std::span<const unsigned char> input);
 
-/** Blake2b-256("gfcn-poseidon2-pre-v1" || 164 with nonce overlay zeroed). */
+/** Blake2b-256("gfcn-poseidon2-pre-v1" || 166-byte header with nonce overlay zeroed). */
 uint256 Poseidon2Preimage(const CBlockHeader& header);
 /** nNonce||nonce2||nonce3||extranonce||time_offset||mm_rhs (64 bytes). */
 std::array<unsigned char, 64> Poseidon2NonceOverlay(const CBlockHeader& header);

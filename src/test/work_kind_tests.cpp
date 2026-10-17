@@ -41,7 +41,7 @@ static CBlockHeader HeaderFromV2Json(const UniValue& fields)
     BOOST_REQUIRE_EQUAL(extranonce.size(), header.m_extranonce.size());
     std::reverse_copy(extranonce.begin(), extranonce.end(), header.m_extranonce.begin());
     header.m_time_offset = fields["m_time_offset"].getInt<uint32_t>();
-    header.m_txcount = fields["m_txcount"].getInt<uint16_t>();
+    header.m_txcount = fields["m_txcount"].getInt<uint32_t>();
     header.m_flags = fields["m_flags"].getInt<uint8_t>();
     header.m_xor_key_mask_clear_bits = fields["m_xor_key_mask_clear_bits"].getInt<uint8_t>();
     const auto xor_key{ParseHex(fields["m_xor_key"].get_str())};
@@ -109,7 +109,7 @@ BOOST_AUTO_TEST_CASE(sha256d_80_ignores_tail_bytes)
     const uint256 d0{sha->WorkDigest(header)};
     DataStream ss;
     ss << header;
-    BOOST_REQUIRE_EQUAL(ss.size(), 164U);
+    BOOST_REQUIRE_EQUAL(ss.size(), BLOCK_HEADER_V2_SERIALIZED_SIZE);
     BOOST_CHECK_EQUAL(d0, Consensus::Sha256dBytes(std::span<const unsigned char>{
         reinterpret_cast<const unsigned char*>(ss.data()), 80}));
 

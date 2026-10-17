@@ -2548,7 +2548,7 @@ bool PeerManagerImpl::CheckHeadersPoW(const std::vector<CBlockHeader>& headers, 
     }
 
     // Cheap nBits along the in-message chain, then digests off cs_main.
-    // Unconnecting batches skip both; HandleUnconnectingHeaders does not gym.
+    // Missing parent returns here: unconnecting batches skip nBits and gym.
     {
         LOCK(::cs_main);
         const CBlockIndex* pprev{m_chainman.m_blockman.LookupBlockIndex(headers[0].hashPrevBlock)};

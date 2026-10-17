@@ -301,7 +301,7 @@ class ZMQTest (BitcoinTestFramework):
             block = CBlock()
             block.deserialize(BytesIO(raw_block))
             assert block.m_header_v2
-            assert_equal(len(CBlockHeader(block).serialize()), 164)
+            assert_equal(len(CBlockHeader(block).serialize()), 166)
             assert_equal(block.m_height, node.getblockcount())
             assert_equal(block.m_txcount, len(block.vtx))
             assert_equal(block.m_flags & 3, 0)

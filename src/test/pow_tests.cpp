@@ -60,13 +60,28 @@ BOOST_AUTO_TEST_CASE(work_scale_s4_adds_four)
 
 BOOST_AUTO_TEST_CASE(scale_slow_window_stays_one)
 {
-    BOOST_CHECK_EQUAL(UintToArith256(Consensus::ScaleAfterWindow(uint256::ONE, 120, 480)), 1);
+    const auto s{Consensus::ScaleAfterWindow(uint256::ONE, 120, 480)};
+    BOOST_REQUIRE(s);
+    BOOST_CHECK_EQUAL(UintToArith256(*s), 1);
 }
 
 BOOST_AUTO_TEST_CASE(scale_times_four_and_div_four)
 {
-    BOOST_CHECK_EQUAL(UintToArith256(Consensus::ScaleAfterWindow(uint256::ONE, 86400, 21600)), 4);
-    BOOST_CHECK_EQUAL(UintToArith256(Consensus::ScaleAfterWindow(ArithToUint256(arith_uint256{4}), 86400, 345600)), 1);
+    const auto fast{Consensus::ScaleAfterWindow(uint256::ONE, 86400, 21600)};
+    BOOST_REQUIRE(fast);
+    BOOST_CHECK_EQUAL(UintToArith256(*fast), 4);
+    const auto slow{Consensus::ScaleAfterWindow(ArithToUint256(arith_uint256{4}), 86400, 345600)};
+    BOOST_REQUIRE(slow);
+    BOOST_CHECK_EQUAL(UintToArith256(*slow), 1);
+}
+
+BOOST_AUTO_TEST_CASE(scale_overflow_and_zero_inputs_are_nullopt)
+{
+    BOOST_CHECK(!Consensus::ScaleAfterWindow(uint256::ONE, 0, 120));
+    BOOST_CHECK(!Consensus::ScaleAfterWindow(uint256::ONE, 120, 0));
+    BOOST_CHECK(!Consensus::ScaleAfterWindow(uint256{}, 120, 120));
+    const arith_uint256 max{~arith_uint256(0)};
+    BOOST_CHECK(!Consensus::ScaleAfterWindow(ArithToUint256(max), 2, 1));
 }
 
 BOOST_AUTO_TEST_CASE(retarget_fast_window_multiplies_s)

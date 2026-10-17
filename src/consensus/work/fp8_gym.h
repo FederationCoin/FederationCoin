@@ -22,7 +22,7 @@ namespace Consensus {
  *  chips mine this kind only if they emit these bits. Golden digests in
  *  fp8_gym_tests are the 5070 Ti dump.
  *
- *  Pipeline (see fp8_gym.md): 164-byte header -> Blake2b seed
+ *  Pipeline (see fp8_gym.md): v2 header -> Blake2b seed
  *  (domain gfcn-fp8-gym-v2) -> 2048 x 64-byte expands -> A then B
  *  256x256 E4M3FN with NaN encodings remapped to max finite -> tiled
  *  QMMA (k_tile, m_tile, n_tile) -> C binary32 -> cvt.rn.satfinite to
@@ -52,7 +52,7 @@ std::optional<float> DecodeE4M3FN(uint8_t encoded);
  *  mantissa. Why: output C must match the pin card before the digest. */
 uint8_t QuantizeE4M3FN(float value);
 
-/** Expand A then B (65536 bytes each) from the 164-byte header. Remaps
+/** Expand A then B (65536 bytes each) from the v2 header. Remaps
  *  0x7F/0xFF to max finite 0x7E/0xFE so QMMA never sees a NaN encoding.
  *  Seed is Blake2b-256 of ASCII domain "gfcn-fp8-gym-v2" || header.
  *  Why: the matrices are a function of the header alone. */

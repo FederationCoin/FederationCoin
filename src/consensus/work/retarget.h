@@ -29,9 +29,10 @@ uint256 WorkScaleOne();
 uint256 NextWorkScale(const CBlockIndex* pindexLast, const Params& params);
 
 /** Bound-safe S * expected / span, floor toward zero.
- *  expected and span > 0. Input S==0 is assert. After divide, S=0 (slow
- *  window at genesis scale) becomes 1. */
-uint256 ScaleAfterWindow(const uint256& prev_scale, int64_t expected, int64_t span);
+ *  expected and span > 0. Input S==0 or S * expected overflowing 256 bits
+ *  is nullopt (not NDEBUG Assert). After divide, S=0 (slow window at
+ *  genesis scale) becomes 1. */
+std::optional<uint256> ScaleAfterWindow(const uint256& prev_scale, int64_t expected, int64_t span);
 
 /** Work added by one block at this scale. Input S==0 is assert, not clamp. */
 arith_uint256 WorkFromScale(const uint256& work_scale);

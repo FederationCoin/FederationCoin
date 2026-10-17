@@ -67,7 +67,7 @@ class PowChangeTest(BitcoinTestFramework):
             header.m_height = fields["m_height"]
             header.m_mm_rhs = int(fields["m_mm_rhs"], 16)
 
-            assert_equal(len(header.serialize()), 164)
+            assert_equal(len(header.serialize()), 166)
             assert_equal(header.serialize().hex(), vector["serialized"])
             components = blake2b_header_hash_components(header)
             assert_equal(components["asic_profile"], vector["asic_profile"])
@@ -88,7 +88,7 @@ class PowChangeTest(BitcoinTestFramework):
         self.log.info("Genesis and every mined block use header v2 / Blake2b")
         genesis = self.get_header(node.getblockhash(0))
         assert genesis.m_header_v2
-        assert_equal(len(genesis.serialize()), 164)
+        assert_equal(len(genesis.serialize()), 166)
 
         self.log.info("getblocktemplate requires the blake2b client rule")
         assert_raises_rpc_error(
@@ -109,7 +109,7 @@ class PowChangeTest(BitcoinTestFramework):
         tip_hash = node.getbestblockhash()
         tip_header = self.get_header(tip_hash)
         assert tip_header.m_header_v2
-        assert_equal(len(tip_header.serialize()), 164)
+        assert_equal(len(tip_header.serialize()), 166)
         assert_equal(tip_hash, powhash(tip_header)[::-1].hex())
         verbose_tip = node.getblockheader(tip_hash)
         assert_equal(verbose_tip["version"], tip_header.nVersion)

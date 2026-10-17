@@ -145,7 +145,9 @@ BOOST_AUTO_TEST_CASE(golden_digest_all_max)
 
 BOOST_AUTO_TEST_CASE(golden_digest_frozen_header)
 {
-    // 5070 Ti dump (fp8_blackwell_kat). Pin card is the spec.
+    // Seed is Blake2b of domain || 166-byte v2 header. The 164-byte
+    // 5070 Ti dump does not apply. MMA is unchanged; re-dump the card
+    // against this header when ENABLE_FP8_BLACKWELL_KAT runs.
     CBlockHeader header;
     header.m_header_v2 = true;
     header.nVersion = 4;
@@ -157,7 +159,7 @@ BOOST_AUTO_TEST_CASE(golden_digest_frozen_header)
     BOOST_REQUIRE(digest);
     BOOST_CHECK_EQUAL(
         digest->ToString(),
-        "3332ec622e4c7ac62990a3323d2d62187fb4626b44757b5183cb7d2b97f41d74");
+        "20c6e0f0b7da617c84b90b7e090d00c5ae162aa9885ddba00c02b7c859241bd5");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

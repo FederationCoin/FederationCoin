@@ -16,16 +16,16 @@ uint256 CBlockHeader::GetBlockIdentity() const
     const uint32_t v{GetCompleteVersion()};
     const unsigned kind{(v >> 8) & 3u};
     // Kind 00 is Knots Blake2b GetHash (H1/H2, xor key, Sv1 payload).
-    // Not Blake2b of the raw 164-byte header. Knots Blake2b ASICs that
+    // Not Blake2b of the raw v2 header. Knots Blake2b ASICs that
     // speak that Sv1 construction can work; Core stratum hashing an
     // 80-byte job as Blake2b will not.
     if (kind == 0) {
         return GetHash();
     }
     // Kind 01: identity is the 80-byte SHA-256d work digest. m_txcount and
-    // m_height sit in the tail; hashing 164 bytes would mint 2^16 (and
-    // 2^32) index keys per solved prefix. A Core SHA-256d ASIC can hash
-    // these 80 bytes if stratum does not version-roll bits 8–9 or bit 31.
+    // m_height sit in the tail; hashing the full header would mint a new
+    // index key per tail grind. A Core SHA-256d ASIC can hash these 80
+    // bytes if stratum does not version-roll bits 8–9 or bit 31.
     if (kind == 1) {
         DataStream ss;
         ss << *this;
@@ -45,7 +45,7 @@ uint256 CBlockHeader::GetHash() const
     }
 
     // BLAKE2b Knots GetHash (H1/H2, xor key, Sv1-shaped payload). Not a
-    // hash of the raw 164-byte header. Kind-1 SHA-256d uses GetBlockIdentity.
+    // hash of the raw v2 header. Kind-1 SHA-256d uses GetBlockIdentity.
 
     static constexpr uint128 zeros{};
 

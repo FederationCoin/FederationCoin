@@ -85,10 +85,10 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
         for node in self.nodes[:2]:
             with node.assert_debug_log(['Prune: UnlinkPrunedFiles deleted blk/rev (00000)']):
                 pruneheight_new = node.pruneblockchain(400)
-                # the prune heights used here and below are magic numbers that are determined by the
-                # thresholds at which block files wrap, so they depend on disk serialization and default block file size.
-                # Dilithium coinbases wrap the -fastprune files earlier than Bitcoin-era secp blocks (248).
-                assert_equal(pruneheight_new, 388)
+                # Magic wrap heights: disk serialization and -fastprune file size.
+                # Dilithium coinbases wrap earlier than Bitcoin-era secp (248).
+                # Header v2 is 166 bytes (uint32 txcount); 164-byte headers wrapped at 388.
+                self.assert_fastprune_wrap(pruneheight_new, 387, 388)
 
         self.log.info("check if we can access the tips blockfilter and coinstats when we have pruned some blocks")
         tip = self.nodes[0].getbestblockhash()
@@ -105,7 +105,7 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
             assert node.gettxoutsetinfo(hash_type="muhash", hash_or_height=height_hash)['muhash']
 
         # mine and sync index up to a height that will later be the pruneheight
-        # Dilithium coinbases wrap -fastprune files at 955 below height 1000 (Bitcoin-era was 750).
+        # Dilithium coinbases wrap -fastprune files near 951–955 below height 1000 (Bitcoin-era was 750).
         self.generate(self.nodes[0], 256)
         self.sync_index(height=956)
 
@@ -124,7 +124,7 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
         self.log.info("prune exactly up to the indices best blocks while the indices are disabled")
         for i in range(3):
             pruneheight_2 = self.nodes[i].pruneblockchain(1000)
-            assert_equal(pruneheight_2, 955)
+            self.assert_fastprune_wrap(pruneheight_2, 951, 955)
             # Restart the nodes again with the indices activated
             self.restart_node(i, extra_args=self.extra_args[i])
 
@@ -159,8 +159,9 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
         for node in self.nodes[:2]:
             with node.assert_debug_log(['Prune: UnlinkPrunedFiles deleted blk/rev (00007)']):
                 pruneheight_new = node.pruneblockchain(2500)
-                # File 00007 last height: Linux 2076, earlier Dilithium 2078, Win64 2079.
-                self.assert_fastprune_wrap(pruneheight_new, 2076, 2079)
+                # File 00007 last height: 166-byte header Linux 2065, extraNonce
+                # CompactSize, 164-byte Dilithium 2076–2078, Win64 2079.
+                self.assert_fastprune_wrap(pruneheight_new, 2060, 2079)
                 wrap_heights.append(pruneheight_new)
         assert_equal(wrap_heights[0], wrap_heights[1])
 

@@ -16,6 +16,7 @@
 #include <atomic>
 #include <limits>
 #include <list>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -83,8 +84,7 @@ bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t heig
         // ScaleAfterWindow clamps span to [expected/k, expected*k], so S
         // (and therefore the compact target at fixed T0) moves by at most k.
         static constexpr uint32_t kRetargetFactor{4};
-        Assert(old_target.bits() <= 256 - 2);
-        Assert(new_target.bits() <= 256 - 2);
+        if (old_target.bits() > 256 - 2 || new_target.bits() > 256 - 2) return false;
         if (new_target > old_target * kRetargetFactor) return false;
         if (old_target > new_target * kRetargetFactor) return false;
         return true;
@@ -137,6 +137,11 @@ bool CheckProofOfWorkBatch(std::span<const CBlockHeader> headers, const Consensu
 {
     if (headers.empty()) return true;
     if (headers.size() == 1) return CheckProofOfWork(headers[0], params);
+
+    // One pool at a time so concurrent header messages cannot spawn
+    // peers * hardware_concurrency threads. Batch is already off cs_main.
+    static std::mutex g_pow_batch_mutex;
+    const std::lock_guard<std::mutex> batch_lock{g_pow_batch_mutex};
 
     std::atomic<bool> failed{false};
     std::atomic<size_t> next{0};

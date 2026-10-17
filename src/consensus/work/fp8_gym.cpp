@@ -58,7 +58,17 @@ E4M3Encoding ClassifyE4M3FN(uint8_t encoded)
 
 float SignedLdexp(uint32_t three_bit_magnitude, int32_t power_of_two, bool negative)
 {
-    const float magnitude{std::ldexp(static_cast<float>(three_bit_magnitude), power_of_two)};
+    // E4M3 finite non-zero: magnitude 1..15, unbiased exp -6..7. Exact in
+    // binary32 without libm. Do not retune QuantizeE4M3FN.
+    Assume(three_bit_magnitude >= 1 && three_bit_magnitude <= 15);
+    Assume(power_of_two >= -6 && power_of_two <= 7);
+    float magnitude;
+    if (power_of_two >= 0) {
+        magnitude = static_cast<float>(three_bit_magnitude << power_of_two);
+    } else {
+        magnitude = static_cast<float>(three_bit_magnitude) /
+                    static_cast<float>(1u << static_cast<uint32_t>(-power_of_two));
+    }
     return negative ? -magnitude : magnitude;
 }
 
@@ -291,10 +301,10 @@ void Fp8ExpandAB(const CBlockHeader& header, std::vector<uint8_t>& matrix_a, std
     DataStream stream;
     stream << header;
     static constexpr char kDomain[]{"gfcn-fp8-gym-v2"};
-    std::array<unsigned char, 16 + 164> seed_msg{};
+    std::array<unsigned char, 16 + BLOCK_HEADER_V2_SERIALIZED_SIZE> seed_msg{};
     std::memcpy(seed_msg.data(), kDomain, 16);
-    Assert(stream.size() == 164);
-    std::memcpy(seed_msg.data() + 16, stream.data(), 164);
+    Assert(stream.size() == BLOCK_HEADER_V2_SERIALIZED_SIZE);
+    std::memcpy(seed_msg.data() + 16, stream.data(), BLOCK_HEADER_V2_SERIALIZED_SIZE);
     uint256 seed;
     Assert(0 == blake2b_nokey(seed.begin(), 32, seed_msg.data(), seed_msg.size()));
 

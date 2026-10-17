@@ -82,8 +82,9 @@ class P2PIBDStallingTest(BitcoinTestFramework):
 
         # Need to wait until 1023 blocks are received - the magic total bytes number is a workaround in lack of an rpc
         # returning the number of downloaded (but not connected) blocks.
-        # v3 bytesrecv_per_msg is payload + V3_EXPANSION for 1023 lookahead blocks.
-        bytes_recv = 281199
+        # v3 bytesrecv_per_msg is payload + V3_EXPANSION for 1023 lookahead
+        # blocks at 166-byte header v2.
+        bytes_recv = 283245
         observed = {'n': None}
         def lookahead_filled():
             observed['n'] = self.total_bytes_recv_for_blocks()

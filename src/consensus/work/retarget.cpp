@@ -17,15 +17,14 @@ uint256 WorkScaleOne()
     return uint256::ONE;
 }
 
-uint256 ScaleAfterWindow(const uint256& prev_scale, int64_t expected, int64_t span)
+std::optional<uint256> ScaleAfterWindow(const uint256& prev_scale, int64_t expected, int64_t span)
 {
-    Assert(expected > 0);
-    Assert(span > 0);
+    if (expected <= 0 || span <= 0) return std::nullopt;
     arith_uint256 s{UintToArith256(prev_scale)};
-    Assert(s != 0);
+    if (s == 0) return std::nullopt;
     const arith_uint256 exp{static_cast<uint64_t>(expected)};
     const arith_uint256 max{~arith_uint256(0)};
-    Assert(s <= max / exp);
+    if (s > max / exp) return std::nullopt;
     s *= exp;
     s /= static_cast<uint64_t>(span);
     // Floor toward zero. A slow window at genesis scale (S=1, span=4*expected)
@@ -63,7 +62,9 @@ uint256 NextWorkScale(const CBlockIndex* pindexLast, const Params& params)
     if (span < expected / 4) span = expected / 4;
     if (span > expected * 4) span = expected * 4;
     if (span <= 0) span = 1;
-    return ScaleAfterWindow(parent_s, expected, span);
+    const auto next{ScaleAfterWindow(parent_s, expected, span)};
+    if (!next) return parent_s;
+    return *next;
 }
 
 std::optional<uint256> ScaleFromNBits(unsigned int nBits, size_t kind_index, const Params& params)

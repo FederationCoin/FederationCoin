@@ -27,7 +27,7 @@ NON_HF = NODE_NETWORK | NODE_WITNESS
 NUM_ADDRS = 12
 FIRST_SLOTS = 6
 
-ATTEMPT_RE = re.compile(r"trying v[12] connection (25[01])\.\d+\.0\.1:8333")
+ATTEMPT_RE = re.compile(r"trying v3 connection (25[01])\.\d+\.0\.1:8333")
 
 
 class Blake2bOutboundPreference(BitcoinTestFramework):

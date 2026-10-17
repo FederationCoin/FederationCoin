@@ -1054,7 +1054,7 @@ static UniValue TemplateToJSON(const Consensus::Params& consensusParams, const C
         aRules.push_back("!sha256d");
         aRules.push_back("!fp8gym");
         aRules.push_back("!poseidon2");
-        // Kind 0 is Knots GetHash (H1/H2/Sv1), not Blake2b of 164 bytes.
+        // Kind 0 is Knots GetHash (H1/H2/Sv1), not Blake2b of the raw v2 header.
         // Kind 1 SHA-256d is the first 80 serialized bytes; a Core ASIC can
         // hash that blob if version bits 8–9 stay 01 and bit 31 stays v2.
         // Gap: this still requires the blake2b client rule for every v2

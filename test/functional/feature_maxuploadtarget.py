@@ -132,17 +132,16 @@ class MaxUploadTest(BitcoinTestFramework):
         # Start the 24h cycle, then move forward inside it so the reserve
         # shrinks to `periods` of MAX_BLOCK_SERIALIZED_SIZE.
         self.nodes[0].setmocktime(cycle_start)
-        probe = self.nodes[0].add_p2p_connection(TestP2PConn(), supports_v2_p2p=False)
+        probe = self.nodes[0].add_p2p_connection(TestP2PConn())
         probe.sync_with_ping()
         self.nodes[0].setmocktime(cycle_start + 24 * 60 * 60 - periods * 12 * 60)
         self.nodes[0].disconnect_p2ps()
 
         # p2p_conns[0] requests old blocks, [1] requests the new block,
-        # [2] checks that the counters reset. v2 transport is left off:
-        # the Python ChaCha20 implementation is too slow for this many round trips.
+        # [2] checks that the counters reset. Application is v3; v1 is not offered.
         p2p_conns = []
         for _ in range(3):
-            p2p_conns.append(self.nodes[0].add_p2p_connection(TestP2PConn(), supports_v2_p2p=False))
+            p2p_conns.append(self.nodes[0].add_p2p_connection(TestP2PConn()))
         self.assert_uploadtarget_state(target_reached=False, serve_historical_blocks=True)
 
         getdata_request = msg_getdata()
@@ -218,7 +217,7 @@ class MaxUploadTest(BitcoinTestFramework):
         self.assert_uploadtarget_state(target_reached=False, serve_historical_blocks=False)
 
         # Reconnect to self.nodes[0]
-        peer = self.nodes[0].add_p2p_connection(TestP2PConn(), supports_v2_p2p=False)
+        peer = self.nodes[0].add_p2p_connection(TestP2PConn())
 
         # Sending mempool message shouldn't disconnect peer, as total limit isn't reached yet
         peer.send_and_ping(msg_mempool())

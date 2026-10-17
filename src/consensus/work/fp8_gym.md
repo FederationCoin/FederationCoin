@@ -10,7 +10,7 @@ leftover-hole predicate `Saturated()`.
 
 ```mermaid
 flowchart TD
-  header["164-byte header v2"]
+  header["166-byte header v2"]
   seed["Blake2b-256 domain gfcn-fp8-gym-v2"]
   expand["2048 x 64-byte Blake2b stream"]
   matrices["A then B 256x256 E4M3FN"]

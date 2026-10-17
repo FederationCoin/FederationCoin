@@ -11,6 +11,8 @@
 #include <core_io.h>
 #include <hash.h>
 #include <net.h>
+#include <streams.h>
+#include <util/strencodings.h>
 #include <script/script.h>
 #include <signet.h>
 #include <uint256.h>
@@ -147,6 +149,32 @@ BOOST_AUTO_TEST_CASE(block_header_requires_v2)
     CBlockHeader v2hdr;
     v2hdr.m_header_v2 = true;
     BOOST_CHECK_EQUAL(::GetSerializeSize(v2hdr), BLOCK_HEADER_V2_SERIALIZED_SIZE);
+
+    CBlockHeader wide_txcount;
+    wide_txcount.m_header_v2 = true;
+    wide_txcount.m_txcount = 65536;
+    DataStream wide_ss;
+    wide_ss << wide_txcount;
+    BOOST_CHECK_EQUAL(wide_ss.size(), BLOCK_HEADER_V2_SERIALIZED_SIZE);
+    CBlockHeader wide_back;
+    wide_ss >> wide_back;
+    BOOST_CHECK_EQUAL(wide_back.m_txcount, 65536U);
+    CBlock wide_mismatch;
+    wide_mismatch.m_header_v2 = true;
+    wide_mismatch.m_txcount = 65536;
+    state = {};
+    BOOST_CHECK(!CheckBlock(wide_mismatch, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/true));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-txnlist-size");
+    CBlockHeader pin16;
+    pin16.m_header_v2 = true;
+    pin16.m_txcount = 3;
+    const uint256 pin_hash{pin16.GetHash()};
+    pin16.m_txcount = 3;
+    BOOST_CHECK_EQUAL(pin16.GetHash(), pin_hash);
+    DataStream pin_ss;
+    pin_ss << pin16;
+    BOOST_REQUIRE_EQUAL(pin_ss.size(), BLOCK_HEADER_V2_SERIALIZED_SIZE);
+    BOOST_CHECK_EQUAL(HexStr(pin_ss).substr(216, 8), "03000000");
 
     CBlock under_grown;
     under_grown.m_header_v2 = true;

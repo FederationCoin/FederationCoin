@@ -70,13 +70,13 @@ const WorkKind* WorkKindAt(size_t index);
 std::optional<WorkKindTag> DecodeWorkKindTag(uint32_t complete_version);
 void ApplyWorkKindTag(CBlockHeader& header, WorkKindTag tag);
 
-/** 164-byte v2 serialization. Empty if not v2. */
+/** Full v2 serialization. Empty if not v2. */
 std::vector<unsigned char> SerializeHeaderV2(const CBlockHeader& header);
 uint256 Sha256dBytes(std::span<const unsigned char> bytes);
 
 /** Chain identity. Blake2b is GetHash(); SHA-256d (kind 1) is SHA-256d of
- *  the first 80 serialized bytes, not the full 164. Other kinds are SHA-256d
- *  of the 164-byte header. */
+ *  the first 80 serialized bytes, not the full header. Other kinds are SHA-256d
+ *  of the full v2 header. */
 uint256 GetBlockIdentity(const CBlockHeader& header);
 
 /** Compact T0/S with floors. Shared T0 for every kind. */

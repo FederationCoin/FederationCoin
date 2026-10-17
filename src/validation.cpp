@@ -4630,6 +4630,9 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
 
     // Worst-case cap at the header height: parent watermark is not connected
     // here. ContextualCheckBlock still enforces CapForBlock on the parent.
+    // TX_NO_WITNESS is pre-malleation serialize, not a no-witness block.
+    // Every named spend (Dilithium 87, Dilithium 44, SegWit) carries witness.
+    // Dilithium is closest to 1:1 bytes/weight. Live weight is Contextual/Connect.
     if (block.vtx.empty()) {
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
     }
@@ -4978,6 +4981,8 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
             flex_cap = Consensus::CapForBlock(pindexPrev->nFlexCap, pindexPrev->nEpochWatermark, nHeight, interval);
         }
         const Consensus::BlockLimits limits{Consensus::LimitsForCap(flex_cap)};
+        // TX_NO_WITNESS serialize vs cap (1:1, Dilithium-closest). Weight is
+        // GetBlockWeight below. Not a no-witness block.
         if (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(block))) > limits.serialized_size) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-length", "size limits failed");
         }

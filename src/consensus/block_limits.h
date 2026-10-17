@@ -27,8 +27,11 @@ static constexpr uint64_t SIGOPS_WEIGHT_DIVISOR{50};
 static constexpr uint64_t STANDARD_TX_SIGOPS_DIVISOR{5};
 
 /** Limits that mean "as big as a block" at one live weight cap.
- *  serialized_size and block_message_bytes are the cap itself: wire bytes
- *  are always below weight, and Dilithium spends get closest. */
+ *  serialized_size and block_message_bytes are the cap itself: Dilithium
+ *  spends get closest (wire ≈ weight). CheckBlock compares TX_NO_WITNESS
+ *  serialize (pre-malleation; witness is not trusted yet). That flag is
+ *  not a no-witness block: every named spend carries witness. Live weight
+ *  is ContextualCheckBlock / ConnectBlock. Do not compare stripped*4. */
 struct BlockLimits {
     uint64_t weight_cap;
     uint64_t serialized_size;

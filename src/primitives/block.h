@@ -43,7 +43,7 @@ struct CompressedHeader {
     uint8_t m_xor_key_mask_clear_bits{0};
     uint128 m_xor_key{};
     uint256 m_mm_rhs;
-    uint16_t m_txcount{0};
+    uint32_t m_txcount{0};
 
     CompressedHeader()
     {
@@ -166,8 +166,16 @@ public:
     }
 
     uint256 GetHash() const;
+    /** Chain link / P2P identity. Blake2b (tag 00) is GetHash(); SHA-256d
+     *  (tag 01) is SHA-256d of the first 80 serialized bytes (the work
+     *  digest) so a tail grind cannot mint a new index key. Other kinds
+     *  are SHA-256d of the full v2 header. */
+    uint256 GetBlockIdentity() const;
 };
 
+/** Serialized size of a version-2 header. Not a block-size cap.
+ *  Offset 108 is uint32 m_txcount (H1 already hashed that width). */
+static constexpr uint32_t BLOCK_HEADER_V2_SERIALIZED_SIZE{166};
 
 class CBlock : public CBlockHeader
 {

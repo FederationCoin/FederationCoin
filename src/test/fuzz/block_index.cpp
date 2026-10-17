@@ -5,11 +5,13 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <node/blockstorage.h>
+#include <pow.h>
 #include <test/fuzz/FuzzedDataProvider.h>
 #include <test/fuzz/fuzz.h>
 #include <test/fuzz/util.h>
 #include <test/util/setup_common.h>
 #include <txdb.h>
+#include <util/overflow.h>
 #include <validation.h>
 
 namespace {
@@ -41,6 +43,13 @@ CBlockHeader ConsumeBlockHeader(FuzzedDataProvider& provider)
     header.nTime = provider.ConsumeIntegral<decltype(header.nTime)>();
     header.nBits = Params().GenesisBlock().nBits;
     header.nNonce = provider.ConsumeIntegral<decltype(header.nNonce)>();
+    // Fuzz CheckProofOfWork is (GetHash()[31] & 0x80) == 0. GetHash is Blake2b,
+    // so a Bitcoin SHA256d corpus nonce usually misses. Grind so LoadBlockIndexGuts
+    // can assert the round-trip.
+    const auto& params = Params().GetConsensus();
+    for (int i = 0; i < 256 && !CheckProofOfWork(header, params); ++i) {
+        header.nNonce = WrappingAdd(header.nNonce, uint32_t{1});
+    }
     return header;
 }
 

@@ -123,6 +123,41 @@ class OrphanHandlingTest(BitcoinTestFramework):
         self.num_nodes = 1
         self.extra_args = [[]]
 
+    def with_standard_output(self, tx_info):
+        """Pay a product v0 program. RAW_P2PK outputs are not standard."""
+        tx = tx_info["tx"]
+        tx.vout[0].scriptPubKey = bytearray(self.wallet.get_output_script())
+        assert self.wallet_nonsegwit.resign(tx)
+        txid = tx.rehash()
+        tx_info["txid"] = txid
+        tx_info["wtxid"] = tx.getwtxid()
+        tx_info["hex"] = tx.serialize().hex()
+        for key in ("new_utxo",):
+            if tx_info.get(key) is not None:
+                tx_info[key]["txid"] = txid
+                tx_info[key]["wtxid"] = tx_info["wtxid"]
+        for u in tx_info.get("new_utxos") or []:
+            u["txid"] = txid
+            u["wtxid"] = tx_info["wtxid"]
+        return tx_info
+
+    def make_txid_eq_wtxid(self, tx_info):
+        """Drop witness so txid == wtxid. Used by rejection-filter tests."""
+        tx = tx_info["tx"]
+        tx.wit.vtxinwit = []
+        txid = tx.rehash()
+        tx_info["txid"] = txid
+        tx_info["wtxid"] = tx.getwtxid()
+        tx_info["hex"] = tx.serialize().hex()
+        if tx_info.get("new_utxo") is not None:
+            tx_info["new_utxo"]["txid"] = txid
+            tx_info["new_utxo"]["wtxid"] = tx_info["wtxid"]
+        for u in tx_info.get("new_utxos") or []:
+            u["txid"] = txid
+            u["wtxid"] = tx_info["wtxid"]
+        assert_equal(tx_info["txid"], tx.getwtxid())
+        return tx_info
+
     def create_parent_and_child(self):
         """Create package with 1 parent and 1 child, normal fees (no cpfp)."""
         parent = self.wallet.create_self_transfer()
@@ -204,7 +239,7 @@ class OrphanHandlingTest(BitcoinTestFramework):
 
         self.log.info("Test orphan handling when a nonsegwit parent is known to be invalid")
         parent_low_fee_nonsegwit = self.wallet_nonsegwit.create_self_transfer(fee_rate=0)
-        assert_equal(parent_low_fee_nonsegwit["txid"], parent_low_fee_nonsegwit["tx"].getwtxid())
+        self.make_txid_eq_wtxid(parent_low_fee_nonsegwit)
         parent_other = self.wallet_nonsegwit.create_self_transfer()
         child_nonsegwit = self.wallet_nonsegwit.create_self_transfer_multi(
             utxos_to_spend=[parent_other["new_utxo"], parent_low_fee_nonsegwit["new_utxo"]])
@@ -333,14 +368,15 @@ class OrphanHandlingTest(BitcoinTestFramework):
         # Parents of child_A and child_B
         missing_parent_AB = self.wallet_nonsegwit.create_self_transfer(utxo_to_spend=confirmed_utxos[1])
         inflight_parent_AB = self.wallet_nonsegwit.create_self_transfer(utxo_to_spend=confirmed_utxos[2])
+        self.make_txid_eq_wtxid(inflight_parent_AB)
         # Parent of child_B only
         missing_parent_B = self.wallet_nonsegwit.create_self_transfer(utxo_to_spend=confirmed_utxos[3])
-        child_A = self.wallet_nonsegwit.create_self_transfer_multi(
+        child_A = self.with_standard_output(self.wallet_nonsegwit.create_self_transfer_multi(
             utxos_to_spend=[missing_parent_A["new_utxo"], missing_parent_AB["new_utxo"], inflight_parent_AB["new_utxo"]]
-        )
-        child_B = self.wallet_nonsegwit.create_self_transfer_multi(
+        ))
+        child_B = self.with_standard_output(self.wallet_nonsegwit.create_self_transfer_multi(
             utxos_to_spend=[missing_parent_B["new_utxo"], missing_parent_AB["new_utxo"], inflight_parent_AB["new_utxo"]]
-        )
+        ))
 
         # The wtxid and txid need to be the same for the node to recognize that the missing input
         # and in-flight request for inflight_parent_AB are the same transaction.
@@ -381,9 +417,12 @@ class OrphanHandlingTest(BitcoinTestFramework):
 
         self.log.info("Test handling of an orphan with a parent who is another orphan")
         missing_grandparent = self.wallet_nonsegwit.create_self_transfer()
-        missing_parent_orphan = self.wallet_nonsegwit.create_self_transfer(utxo_to_spend=missing_grandparent["new_utxo"])
+        self.make_txid_eq_wtxid(missing_grandparent)
+        missing_parent_orphan = self.with_standard_output(self.wallet_nonsegwit.create_self_transfer(utxo_to_spend=missing_grandparent["new_utxo"]))
+        self.make_txid_eq_wtxid(missing_parent_orphan)
         missing_parent = self.wallet_nonsegwit.create_self_transfer()
-        orphan = self.wallet_nonsegwit.create_self_transfer_multi(utxos_to_spend=[missing_parent["new_utxo"], missing_parent_orphan["new_utxo"]])
+        self.make_txid_eq_wtxid(missing_parent)
+        orphan = self.with_standard_output(self.wallet_nonsegwit.create_self_transfer_multi(utxos_to_spend=[missing_parent["new_utxo"], missing_parent_orphan["new_utxo"]]))
 
         # The node should put missing_parent_orphan into the orphanage and request missing_grandparent
         self.relay_transaction(peer, missing_parent_orphan["tx"])
@@ -407,7 +446,7 @@ class OrphanHandlingTest(BitcoinTestFramework):
 
         self.log.info("Test that an orphan with rejected parents, along with any descendants, cannot be retried with an alternate witness")
         parent_low_fee_nonsegwit = self.wallet_nonsegwit.create_self_transfer(fee_rate=0)
-        assert_equal(parent_low_fee_nonsegwit["txid"], parent_low_fee_nonsegwit["tx"].getwtxid())
+        self.make_txid_eq_wtxid(parent_low_fee_nonsegwit)
         child = self.wallet.create_self_transfer(utxo_to_spend=parent_low_fee_nonsegwit["new_utxo"])
         grandchild = self.wallet.create_self_transfer(utxo_to_spend=child["new_utxo"])
         assert child["txid"] != child["tx"].getwtxid()

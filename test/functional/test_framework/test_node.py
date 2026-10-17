@@ -27,9 +27,10 @@ from .authproxy import (
     JSONRPCException,
     serialization_fallback,
 )
+from .address import bech32_to_bytes
 from .descriptors import descsum_create
-from .messages import MAX_OP_RETURN_RELAY
-from .messages import NODE_P2P_V2
+from .messages import MAX_OP_RETURN_RELAY, NODE_P2P_V3
+from .segwit_addr import encode_segwit_address
 from .p2p import P2P_SERVICES, P2P_SUBVERSION
 from .util import (
     MAX_NODES,
@@ -77,7 +78,7 @@ class TestNode():
     To make things easier for the test writer, any unrecognised messages will
     be dispatched to the RPC connection."""
 
-    def __init__(self, i, datadir_path, *, chain, rpchost, timewait, timeout_factor, bitcoind, bitcoin_cli, coverage_dir, cwd, extra_conf=None, extra_args=None, use_cli=False, start_perf=False, use_valgrind=False, version=None, descriptors=False, v2transport=False, wallet_compiled=True):
+    def __init__(self, i, datadir_path, *, chain, rpchost, timewait, timeout_factor, bitcoind, bitcoin_cli, coverage_dir, cwd, extra_conf=None, extra_args=None, use_cli=False, start_perf=False, use_valgrind=False, version=None, descriptors=False, wallet_compiled=True):
         """
         Kwargs:
             start_perf (bool): If True, begin profiling the node with `perf` as soon as
@@ -150,16 +151,8 @@ class TestNode():
         if self.version_is_at_least(290100):
             self.args.append("-nologratelimit")
 
-        # Default behavior from global -v2transport flag is added to args to persist it over restarts.
-        # May be overwritten in individual tests, using extra_args.
-        self.default_to_v2 = v2transport
-        if self.version_is_at_least(260000):
-            # 26.0 and later support v2transport
-            if v2transport:
-                self.args.append("-v2transport=1")
-            else:
-                self.args.append("-v2transport=0")
-        # if v2transport is requested via global flag but not supported for node version, ignore it
+        # Encrypted P2P is v3 from genesis. -v2transport is not a node option.
+        self.default_to_v2 = True
 
         self.cli = TestNodeCLI(
             bitcoin_cli,
@@ -184,25 +177,30 @@ class TestNode():
 
     AddressKeyPair = collections.namedtuple('AddressKeyPair', ['address', 'key'])
     PRIV_KEYS = [
-            # address , privkey
-            AddressKeyPair('fJ46kJT8L69bf86DKiamosUscWRNe6Xzoc', 'a8Y9zSHr5MiVY3XG2TPPoMayo1i1jXLzueVTQcpE3h3gC1R2vHAd'),
-            AddressKeyPair('fS7SyfmKbpxgs7AhdfzYaPW7nmSKHRHaRh', 'a7gnNPZakggxpBMsrG6DZyfoTy4vakSHK1BEjgryG9W1xk7N5q8N'),
-            AddressKeyPair('fMQ8SdCfnaM9nWVexMp87avYD1vNjUPPuc', 'a6aby3yqNBeRWJq4aJqJpXcrSpAQ8W1eSGUPnxW7abAbVSJZxLDS'),
-            AddressKeyPair('fPuG4r6WrzctZwf1qD9vcGgqQ4nUEDLgyr', 'a8dEAzMHoC32peHYFnoQoq5SAGdLUQybaFsRjFK2Kuxop2iHMfhX'),
-            AddressKeyPair('fS8vrNfKGCZvgAarP3QtChEc9FiRZdfNNE', 'a2w73KZDw88cvwbuzNJ5hx2syhCHmZkZZpJvGcCXksvSq52HuAFz'),
-            AddressKeyPair('fbT99k2Kyo7paDXMe3Qpjkmq17SDh7E4ra', 'a3Jfd5d3XzB7hh8xRirYaWAiVmbDwWF3tCjdDnmgj4jC8uH9WppH'),
-            AddressKeyPair('fYbFeDfLWmduqLkrXH4ZZ924xMYrBAJFYX', 'a35j4kYYMfYz3sAKZPKWhoVPip3X93AaUcTtu51h3AqreGX4Lh3Q'),
-            AddressKeyPair('fUNHhqbHF4pNPwiNwTrGHuzZjCJnrhMWvc', 'a5FgGjm6pM9i76ACyQ42WtT5UvFNBPVHa5FQuzDMPMAzQVMY1q9M'),
-            AddressKeyPair('fP5TpXg5zrtBUkN7iXmcogWLqKAeFsd5Ky', 'a5XSjX8NFNBmTmG4jPDougwyS6S17qvFZxkHSwjAjPS6H8nbRpPJ'),
-            AddressKeyPair('fPf1Rds1PPUuT6YLLupV16rqoXJ5cdZCPR', 'ZznzUztcVMEjatTsUJBPUqJ2qpFvsC4p4X9SPeLwUz7HzJqi7Lx8'),
-            AddressKeyPair('fNqWXUxukSSdbQpU76ZXmz4BgXpoGpHhJD', 'a5qkAXud9Ht2me7X6QiH7jVS6hss3R7iQz8Pia3gsKBjFGXLSTwj'),
-            AddressKeyPair('fZ1zNfnkJPJ43Pk7pAJvtxbeBnqwRG4CSy', 'a2SLMeMvZGoEMzo4fY5N7vA1JJZeMb3stF7VSaBzGiuP8eWXaRTA'),
+            # witness v0 P2WPKH of the WIF (same secret as the former P2PKH)
+            AddressKeyPair('gfcnrt1q9dzkjgpkjn7fjlsn7tq2zwpmnctvw7sdfuydgp', 'a8Y9zSHr5MiVY3XG2TPPoMayo1i1jXLzueVTQcpE3h3gC1R2vHAd'),
+            AddressKeyPair('gfcnrt1qsw5g6ehh439vurfyhdh93d66hw0kf908ah6zh9', 'a7gnNPZakggxpBMsrG6DZyfoTy4vakSHK1BEjgryG9W1xk7N5q8N'),
+            AddressKeyPair('gfcnrt1qflmctwpzrhpqvv2v5yhx2ae6sakl7v8l9puzee', 'a6aby3yqNBeRWJq4aJqJpXcrSpAQ8W1eSGUPnxW7abAbVSJZxLDS'),
+            AddressKeyPair('gfcnrt1qdd4r8y8lhh0e0jek7ug8cpeek83725x670y8wh', 'a8dEAzMHoC32peHYFnoQoq5SAGdLUQybaFsRjFK2Kuxop2iHMfhX'),
+            AddressKeyPair('gfcnrt1qs0crerjvm56t8g00zrh07lvk3l0d9x5fqp3lje', 'a2w73KZDw88cvwbuzNJ5hx2syhCHmZkZZpJvGcCXksvSq52HuAFz'),
+            AddressKeyPair('gfcnrt1qagd377u5h5chj6fredav23muaqz80y9ypd62lu', 'a3Jfd5d3XzB7hh8xRirYaWAiVmbDwWF3tCjdDnmgj4jC8uH9WppH'),
+            AddressKeyPair('gfcnrt1qe2ahmcgfwycftemlafdmydq5urlfvpl446s0md', 'a35j4kYYMfYz3sAKZPKWhoVPip3X93AaUcTtu51h3AqreGX4Lh3Q'),
+            AddressKeyPair('gfcnrt1qn3n56lxdg436gn86sy2x3fevc75c4acfk7kayz', 'a5FgGjm6pM9i76ACyQ42WtT5UvFNBPVHa5FQuzDMPMAzQVMY1q9M'),
+            AddressKeyPair('gfcnrt1qvfsqhkskv3cuphypwhpy603yr9pex0dtjet5wa', 'a5XSjX8NFNBmTmG4jPDougwyS6S17qvFZxkHSwjAjPS6H8nbRpPJ'),
+            AddressKeyPair('gfcnrt1qdzuz0c5k0hghfrudrp3393uuyj4wtmj0xpwk9k', 'ZznzUztcVMEjatTsUJBPUqJ2qpFvsC4p4X9SPeLwUz7HzJqi7Lx8'),
+            AddressKeyPair('gfcnrt1qt778k4xg34gq0gmltjtucqejjgq7m4gw99etwp', 'a5qkAXud9Ht2me7X6QiH7jVS6hss3R7iQz8Pia3gsKBjFGXLSTwj'),
+            AddressKeyPair('gfcnrt1qea5j23wrgzrugzdcuqh7d582vwhx03qxu3da0k', 'a2SLMeMvZGoEMzo4fY5N7vA1JJZeMb3stF7VSaBzGiuP8eWXaRTA'),
     ]
 
     def get_deterministic_priv_key(self):
-        """Return a deterministic priv key in base58, that only depends on the node's index"""
+        """Return a deterministic priv key and a P2WPKH address for this node's chain."""
         assert len(self.PRIV_KEYS) == MAX_NODES
-        return self.PRIV_KEYS[self.index]
+        pair = self.PRIV_KEYS[self.index]
+        if self.chain == 'regtest':
+            return pair
+        hrp = 'tgfcn' if self.chain in ('test', 'signet', 'testnet') else 'gfcn'
+        ver, payload = bech32_to_bytes(pair.address)
+        return self.AddressKeyPair(encode_segwit_address(hrp, ver, bytes(payload)), pair.key)
 
     def _node_msg(self, msg: str) -> str:
         """Return a modified msg that identifies this node by its index as a debugging aid."""
@@ -245,7 +243,7 @@ class TestNode():
             extra_args.append(f"-bind=0.0.0.0:{p2p_port(self.index)}")
             extra_args.append(f"-bind=127.0.0.1:{tor_port(self.index)}=onion")
 
-        self.use_v2transport = "-v2transport=1" in extra_args or (self.default_to_v2 and "-v2transport=0" not in extra_args)
+        self.use_v2transport = True
 
         # Add a new stdout and stderr file each time bitcoind is started
         if stderr is None:
@@ -787,12 +785,8 @@ class TestNode():
         This method adds the p2p connection to the self.p2ps list and also
         returns the connection to the caller.
 
-        When self.use_v2transport is True, TestNode advertises NODE_P2P_V2 service flag
-
-        An inbound connection is made from TestNode <------ P2PConnection
-        - if TestNode doesn't advertise NODE_P2P_V2 service, P2PConnection sends version message and v1 P2P is followed
-        - if TestNode advertises NODE_P2P_V2 service, (and if P2PConnections supports v2 P2P)
-                P2PConnection sends ellswift bytes and v2 P2P is followed
+        Python EncryptedP2P speaks v3 application frames after BIP324.
+        supports_v2_p2p=False sends unencrypted v1, which the node rejects.
         """
         if 'dstport' not in kwargs:
             kwargs['dstport'] = p2p_port(self.index)
@@ -802,7 +796,7 @@ class TestNode():
             supports_v2_p2p = self.use_v2transport
 
         if self.use_v2transport:
-            kwargs['services'] = kwargs.get('services', P2P_SERVICES) | NODE_P2P_V2
+            kwargs['services'] = kwargs.get('services', P2P_SERVICES) | NODE_P2P_V3
         supports_v2_p2p = self.use_v2transport and supports_v2_p2p
         p2p_conn.peer_connect(**kwargs, send_version=send_version, net=self.chain, timeout_factor=self.timeout_factor, supports_v2_p2p=supports_v2_p2p)()
 
@@ -873,7 +867,7 @@ class TestNode():
             advertise_v2_p2p = self.use_v2transport
 
         if advertise_v2_p2p:
-            kwargs['services'] = kwargs.get('services', P2P_SERVICES) | NODE_P2P_V2
+            kwargs['services'] = kwargs.get('services', P2P_SERVICES) | NODE_P2P_V3
             assert self.use_v2transport  # only a v2 TestNode could make a v2 outbound connection
 
         # if P2PConnection is advertised to support v2 P2P when it doesn't actually support v2 P2P,

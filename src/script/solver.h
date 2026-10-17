@@ -32,6 +32,8 @@ enum class TxoutType {
     WITNESS_V0_KEYHASH,
     WITNESS_V1_TAPROOT,
     WITNESS_UNKNOWN, //!< Only for Witness versions not already defined above
+    CHECKMODERNSIG, //!< Dilithium single-key locking script
+    CHECKMODERNPOLICY, //!< Dilithium policy locking script
 };
 
 /** Get the name of a TxoutType as a string */

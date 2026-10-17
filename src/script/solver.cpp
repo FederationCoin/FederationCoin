@@ -5,6 +5,7 @@
 
 #include <pubkey.h>
 #include <script/interpreter.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/solver.h>
 #include <span.h>
@@ -29,6 +30,8 @@ std::string GetTxnOutputType(TxoutType t)
     case TxoutType::WITNESS_V0_SCRIPTHASH: return "witness_v0_scripthash";
     case TxoutType::WITNESS_V1_TAPROOT: return "witness_v1_taproot";
     case TxoutType::WITNESS_UNKNOWN: return "witness_unknown";
+    case TxoutType::CHECKMODERNSIG: return "checkmodernsig";
+    case TxoutType::CHECKMODERNPOLICY: return "checkmodernpolicy";
     } // no default case, so the compiler can warn about missing cases
     assert(false);
 }
@@ -141,6 +144,23 @@ std::optional<std::pair<int, std::vector<Span<const unsigned char>>>> MatchMulti
 TxoutType Solver(const CScript& scriptPubKey, std::vector<std::vector<unsigned char>>& vSolutionsRet)
 {
     vSolutionsRet.clear();
+
+    if (const auto single{MatchModernSingle(scriptPubKey)}; single && single->kind) {
+        vSolutionsRet.emplace_back(single->fingerprint.begin(), single->fingerprint.end());
+        vSolutionsRet.push_back({static_cast<unsigned char>(single->algorithm)});
+        vSolutionsRet.push_back({static_cast<unsigned char>(single->param)});
+        return TxoutType::CHECKMODERNSIG;
+    }
+    if (const auto policy{MatchModernPolicy(scriptPubKey)}; policy && policy->kind) {
+        vSolutionsRet.push_back({policy->threshold});
+        for (const uint256& hash : policy->hashes) {
+            vSolutionsRet.emplace_back(hash.begin(), hash.end());
+        }
+        vSolutionsRet.push_back({policy->n});
+        vSolutionsRet.push_back({static_cast<unsigned char>(policy->algorithm)});
+        vSolutionsRet.push_back({static_cast<unsigned char>(policy->param)});
+        return TxoutType::CHECKMODERNPOLICY;
+    }
 
     // Shortcut for pay-to-script-hash, which are more constrained than the other types:
     // it is always OP_HASH160 20 [20 byte hash] OP_EQUAL

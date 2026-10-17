@@ -6,6 +6,7 @@
 #define BITCOIN_TEST_UTIL_MINING_H
 
 #include <node/miner.h>
+#include <script/script.h>
 
 #include <memory>
 #include <string>
@@ -21,6 +22,11 @@ struct NodeContext;
 
 /** Create a blockchain, starting from genesis */
 std::vector<std::shared_ptr<CBlock>> CreateBlockChain(size_t total_height, const CChainParams& params);
+
+/** Dilithium 44 coinbase script. P2WSH and bare scripts are consensus-rejected.
+ *  `tag` selects a distinct program so a template can differ from mined outputs
+ *  (BIP30). */
+CScript FuzzPayableCoinbaseScript(uint8_t tag = 1);
 
 /** Returns the generated coin */
 COutPoint MineBlock(const node::NodeContext&,

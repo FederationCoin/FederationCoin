@@ -8,6 +8,7 @@
 
 #include <uint256.h>
 
+#include <array>
 #include <chrono>
 #include <limits>
 #include <map>
@@ -26,9 +27,10 @@ enum BuriedDeployment : int16_t {
     DEPLOYMENT_DERSIG,
     DEPLOYMENT_CSV,
     DEPLOYMENT_SEGWIT,
-    DEPLOYMENT_BLAKE2B,
 };
-constexpr bool ValidDeployment(BuriedDeployment dep) { return dep <= DEPLOYMENT_BLAKE2B; }
+/** True when dep is a Knots buried enumerator. The last enumerator is
+ *  DEPLOYMENT_SEGWIT. FederationCoin did not add a sixth buried deployment. */
+constexpr bool ValidDeployment(BuriedDeployment dep) { return dep <= DEPLOYMENT_SEGWIT; }
 
 enum DeploymentPos : uint16_t {
     DEPLOYMENT_TESTDUMMY,
@@ -37,6 +39,9 @@ enum DeploymentPos : uint16_t {
     MAX_VERSION_BITS_DEPLOYMENTS
 };
 constexpr bool ValidDeployment(DeploymentPos dep) { return dep < MAX_VERSION_BITS_DEPLOYMENTS; }
+
+/** Four frozen work kinds (header version bits 8–9). Same count as WorkKindTag. */
+static constexpr unsigned WORK_KIND_COUNT{4};
 
 /**
  * Struct for each individual consensus rule change using BIP9.
@@ -105,9 +110,6 @@ struct Params {
      * Note that segwit v0 script rules are enforced on all blocks except the
      * BIP 16 exception blocks. */
     int SegwitHeight;
-    /** Block height at which BLAKE2b hardfork becomes active */
-    int Blake2bHeight{std::numeric_limits<int>::max()};
-    uint8_t Blake2bTargetShift{20};
     /** Don't warn about unknown BIP 9 activations below this height.
      * This prevents us from warning about the CSV and segwit activations. */
     int MinBIP9WarningHeight;
@@ -121,10 +123,19 @@ struct Params {
     BIP9Deployment vDeployments[MAX_VERSION_BITS_DEPLOYMENTS];
     /** Proof of work parameters */
     uint256 powLimit;
+    /** Per-kind genesis hash target T0[k], kind cap, and testnet floor.
+     *  Shared S; T[k] = T0[k]/S. T0[k] = T0_ref * O_k * D_k (hash-cost then
+     *  knob discount; ops, not digest width). Presync compares recovered S,
+     *  not compact nBits. */
+    std::array<uint256, WORK_KIND_COUNT> powT0{};
+    std::array<uint256, WORK_KIND_COUNT> powLimitKind{};
+    std::array<uint256, WORK_KIND_COUNT> powFloor0{};
     bool fPowAllowMinDifficultyBlocks;
     /**
-     * If non-zero, testnet min-difficulty blocks use this compact target
-     * instead of powLimit. Testnet3/4: 0x1c03a830 (genesis and floor).
+     * Testnet3/4 Blake2b genesis compact (0x1c03a830). Identity tests read
+     * this. GetNextWorkRequired min-diff uses powFloor0[k]/S, not this field.
+     * Leave the field (parked Params). Wiring or deleting it is a restructure
+     * with no consensus/P2P function gain this late.
      */
     uint32_t nMinDifficultyBits{0};
     /**
@@ -165,25 +176,8 @@ struct Params {
             return CSVHeight;
         case DEPLOYMENT_SEGWIT:
             return SegwitHeight;
-        case DEPLOYMENT_BLAKE2B:
-            return Blake2bHeight;
         } // no default case, so the compiler can warn about missing cases
         return std::numeric_limits<int>::max();
-    }
-
-    bool IsBlake2bHeight(int height) const
-    {
-        return height >= Blake2bHeight;
-    }
-
-    /** RDTS activates at the BLAKE2b hardfork. There is no separate schedule
-     *  and no expiry. */
-    int RdtsActivationHeight() const { return Blake2bHeight; }
-
-    /** Whether the RDTS rules apply to a block at the given height. */
-    bool RdtsActiveAt(int height) const
-    {
-        return IsBlake2bHeight(height);
     }
 };
 

@@ -5,6 +5,8 @@
 #ifndef BITCOIN_CONSENSUS_MLDSA87_SPEND_H
 #define BITCOIN_CONSENSUS_MLDSA87_SPEND_H
 
+#include <consensus/mldsa_policy_slots.h>
+#include <script/script.h>
 #include <uint256.h>
 
 #include <array>
@@ -12,6 +14,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace Consensus {
@@ -27,19 +30,43 @@ struct MlDsa87Keypair {
     std::array<unsigned char, MLDSA87_SECRET_KEY_SIZE> secret{};
 };
 
+/** ML-DSA-87 kind constants for the shared fingerprint and slot templates. */
+struct MlDsa87Kind {
+    static constexpr std::size_t PUBKEY_SIZE{MLDSA87_PUBLIC_KEY_SIZE};
+    static constexpr std::size_t SIGNATURE_SIZE{MLDSA87_SIGNATURE_SIZE};
+    static constexpr std::size_t MAX_KEYS{MLDSA87_MAX_KEYS};
+    static constexpr std::string_view KEY_TAG{"FCN-MLDSA87-KEY"};
+    static bool Verify(std::span<const unsigned char> pubkey, std::span<const unsigned char> signature, std::span<const unsigned char> message);
+};
+
+// Length-prefix bytes are the tag length, not a mystery hex.
+static_assert(MlDsa87Kind::KEY_TAG.size() == 15);
+
+/** False when seed, pubkey, or signature has the wrong length. A wrong length
+ *  is rejected before a buffer is grown to fit it. */
 bool MlDsa87Keygen(std::span<const unsigned char> seed, MlDsa87Keypair& out);
 bool MlDsa87Sign(const MlDsa87Keypair& key, std::span<const unsigned char> message, std::span<unsigned char> signature);
+/** True when pubkey and signature are ML-DSA-87 sizes and verify under the
+ *  FIPS 204 context string FederationCoin. */
 bool MlDsa87Verify(std::span<const unsigned char> pubkey, std::span<const unsigned char> signature, std::span<const unsigned char> message);
 
+/** 32-byte tagged key fingerprint (KEY tag). Asserts a correct pubkey size. */
 uint256 MlDsa87KeyHash(std::span<const unsigned char> pubkey);
+/** Single-key KEY fingerprint. */
 uint256 MlDsa87SingleKeyProgram(std::span<const unsigned char> pubkey);
-std::optional<uint256> MlDsa87PolicyProgram(uint8_t threshold, std::span<const uint256> key_hashes);
+/** Policy locking script, or nullopt if n is not 1..12, t is not 1..n, or
+ *  hashes are not unique after uint256 sort. */
+std::optional<CScript> MlDsa87PolicyProgram(uint8_t threshold, std::span<const uint256> key_hashes);
 
+/** True when this two-item witness spends fingerprint as ML-DSA-87 single-key. */
 bool CheckSingleKey87Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
-bool CheckMultisig87Spend(const uint256& program, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
+/** True when this n-item witness (empty skip or pubkey‖sig) meets threshold. */
+bool CheckMultisig87Spend(uint8_t threshold, std::span<const uint256> hashes, const std::vector<std::vector<unsigned char>>& witness, std::span<const unsigned char> sighash);
 
-enum class MlDsa87SpendKind { Absent, Single, Multi };
-MlDsa87SpendKind MlDsa87SpendKindOf(const std::vector<std::vector<unsigned char>>& witness);
+using MlDsa87WitnessLayout = MlDsaWitnessLayout;
+/** Shape only: Single, Policy, or Neither. Validity is CheckSingleKey87Spend
+ *  / CheckMultisig87Spend. */
+MlDsa87WitnessLayout ClassifyMlDsa87Witness(const std::vector<std::vector<unsigned char>>& witness);
 
 } // namespace Consensus
 

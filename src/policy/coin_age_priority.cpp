@@ -6,6 +6,7 @@
 
 #include <coins.h>
 #include <common/args.h>
+#include <consensus/block_limits.h>
 #include <consensus/validation.h>
 #include <node/miner.h>
 #include <policy/policy.h>
@@ -154,7 +155,9 @@ bool BlockAssembler::TestForBlock(CTxMemPool::txiter iter)
         // If the block is so close to full that no more txs will fit
         // or if we've tried more than 50 times to fill remaining space
         // then flag that the block is finished
-        if (nBlockWeight > m_effective_max_weight - 400 || nBlockSigOpsCost > MAX_BLOCK_SIGOPS_COST - 8 || lastFewTxs > 50) {
+        const int64_t sigops_limit{Consensus::LimitsForCap(m_effective_max_weight).sigops_cost};
+        const bool sigops_tight{sigops_limit <= 8 || nBlockSigOpsCost > static_cast<uint64_t>(sigops_limit - 8)};
+        if (nBlockWeight > m_effective_max_weight - 400 || sigops_tight || lastFewTxs > 50) {
              blockFinished = true;
              return false;
         }

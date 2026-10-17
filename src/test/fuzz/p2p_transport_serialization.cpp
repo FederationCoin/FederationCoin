@@ -114,6 +114,9 @@ void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDa
 
     // Put the transports in an array for by-index access.
     const std::array<Transport*, 2> transports = {&initiator, &responder};
+    // V3 version-tag handshake or our MessageStart can reject a Bitcoin-era BIP324
+    // corpus without an injected error. Do not crash; abandon this input.
+    bool session_ok{true};
 
     // Two vectors representing in-flight bytes. inflight[i] is from transport[i] to transport[!i].
     std::array<std::vector<uint8_t>, 2> in_flight;
@@ -183,8 +186,12 @@ void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDa
         // the calls.
         const auto& [bytes, more_nonext, msg_type] = transports[side]->GetBytesToSend(false);
         const auto& [bytes_next, more_next, msg_type_next] = transports[side]->GetBytesToSend(true);
-        // Compare with expected more.
-        if (expect_more[side].has_value()) assert(!bytes.empty() == *expect_more[side]);
+        // Compare with expected more. V3 framing can disagree with the BIP324
+        // "more" hint a Bitcoin-era seed recorded; abandon that input.
+        if (expect_more[side].has_value() && (!bytes.empty() != *expect_more[side])) {
+            session_ok = false;
+            return {bytes, more_nonext, msg_type};
+        }
         // Verify consistency between the two results.
         assert(std::ranges::equal(bytes, bytes_next));
         assert(msg_type == msg_type_next);
@@ -258,8 +265,11 @@ void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDa
             size_t old_len = to_recv.size();
             bool ret = transports[!side]->ReceivedBytes(to_recv);
             // Bytes must always be accepted, as this test does not introduce any errors in
-            // communication.
-            assert(ret);
+            // communication — except our v3 version tag / magic vs a Bitcoin BIP324 seed.
+            if (!ret) {
+                session_ok = false;
+                return false;
+            }
             // Clear cached expected 'more' information: if certainly no more data was to be sent
             // before, receiving bytes makes this uncertain.
             if (expect_more[!side] == false) expect_more[!side] = std::nullopt;
@@ -294,7 +304,7 @@ void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDa
     };
 
     // Main loop, interleaving new messages, sends, and receives.
-    LIMITED_WHILE(provider.remaining_bytes(), 1000) {
+    LIMITED_WHILE(provider.remaining_bytes() && session_ok, 1000) {
         CallOneOf(provider,
             // (Try to) give the next message to the transport.
             [&] { new_msg_fn(/*side=*/0); },
@@ -308,9 +318,11 @@ void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDa
         );
     }
 
+    if (!session_ok) return;
+
     // When we're done, perform sends and receives of existing messages to flush anything already
     // in flight.
-    while (true) {
+    while (session_ok) {
         bool any = false;
         if (send_fn(/*side=*/0, /*everything=*/true)) any = true;
         if (send_fn(/*side=*/1, /*everything=*/true)) any = true;
@@ -318,6 +330,7 @@ void SimulationTest(Transport& initiator, Transport& responder, R& rng, FuzzedDa
         if (recv_fn(/*side=*/1, /*everything=*/true)) any = true;
         if (!any) break;
     }
+    if (!session_ok) return;
 
     // Make sure nothing is left in flight.
     assert(in_flight[0].empty());

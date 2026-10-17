@@ -304,7 +304,7 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
 
         assert template != new_template
 
-        self.log.info("Priority does not waive a base fee under 3 tokens per virtual byte")
+        self.log.info("Priority does not waive a base fee under floor(vsize / 12)")
         zero_fee = self.wallet.create_self_transfer(fee=0, fee_rate=0)
         self.nodes[0].prioritisetransaction(txid=zero_fee["txid"], fee_delta=int(COIN))
         assert_raises_rpc_error(-26, "bad-txns-min-fee", self.nodes[0].sendrawtransaction, zero_fee["hex"])

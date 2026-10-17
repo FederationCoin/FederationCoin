@@ -15,6 +15,7 @@ from test_framework.util import (
     assert_equal,
     assert_greater_than,
     assert_raises_rpc_error,
+    get_fee,
 )
 from test_framework.wallet import (
     MiniWallet,
@@ -212,9 +213,10 @@ class EphemeralDustTest(BitcoinTestFramework):
 
         res = self.nodes[0].submitpackage([dusty_tx["hex"], sweep_tx["hex"]])
         assert_equal(res["package_msg"], "transaction failed")
-        # Non-TRUC hits the relay floor before the consensus fee. The floor is 3 per vbyte.
+        # Non-TRUC hits the relay floor before the consensus fee.
         parent_vsize = dusty_tx["tx"].get_vsize()
-        assert_equal(res["tx-results"][dusty_tx["wtxid"]]["error"], f"min relay fee not met, 0 < {3 * parent_vsize}")
+        min_relay = int(get_fee(parent_vsize, self.nodes[0].getnetworkinfo()["relayfee"]) * COIN)
+        assert_equal(res["tx-results"][dusty_tx["wtxid"]]["error"], f"min relay fee not met, 0 < {min_relay}")
 
         assert_equal(self.nodes[0].getrawmempool(), [])
 

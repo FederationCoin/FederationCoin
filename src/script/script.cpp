@@ -150,6 +150,9 @@ std::string GetOpName(opcodetype opcode)
     // Opcode added by BIP 342 (Tapscript)
     case OP_CHECKSIGADD            : return "OP_CHECKSIGADD";
 
+    case OP_CHECKMODERNSIG         : return "OP_CHECKMODERNSIG";
+    case OP_CHECKMODERNPOLICY      : return "OP_CHECKMODERNPOLICY";
+
     case OP_INVALIDOPCODE          : return "OP_INVALIDOPCODE";
 
     default:

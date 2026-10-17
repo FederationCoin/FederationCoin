@@ -104,7 +104,10 @@ FUZZ_TARGET(key, .init = initialize_key)
         assert(pubkey.IsValid());
         assert(pubkey.IsFullyValid());
         assert(HexToPubKey(HexStr(pubkey)) == pubkey);
-        assert(GetAllDestinationsForKey(pubkey).size() == 3);
+        // Secp keys wrap as P2WPKH only (not Bitcoin's three output types).
+        const auto destinations = GetAllDestinationsForKey(pubkey);
+        assert(destinations.size() == 1);
+        assert(WitnessV0KeyHash{pubkey} == *std::get_if<WitnessV0KeyHash>(&destinations.front()));
     }
 
     {
@@ -152,12 +155,12 @@ FUZZ_TARGET(key, .init = initialize_key)
 
         TxoutType which_type_tx_pubkey;
         const bool is_standard_tx_pubkey = IsStandard(tx_pubkey_script, std::nullopt, which_type_tx_pubkey);
-        assert(is_standard_tx_pubkey);
+        assert(!is_standard_tx_pubkey);
         assert(which_type_tx_pubkey == TxoutType::PUBKEY);
 
         TxoutType which_type_tx_multisig;
         const bool is_standard_tx_multisig = IsStandard(tx_multisig_script, std::nullopt, which_type_tx_multisig);
-        assert(is_standard_tx_multisig);
+        assert(!is_standard_tx_multisig);
         assert(which_type_tx_multisig == TxoutType::MULTISIG);
 
         std::vector<std::vector<unsigned char>> v_solutions_ret_tx_pubkey;

@@ -1,0 +1,8 @@
+[submodule "src/crypto/mldsa44"]
+	path = src/crypto/mldsa44
+	url = ../mldsa44.git
+	branch = federationcoin
+[submodule "src/crypto/mldsa87"]
+	path = src/crypto/mldsa87
+	url = ../mldsa87.git
+	branch = federationcoin

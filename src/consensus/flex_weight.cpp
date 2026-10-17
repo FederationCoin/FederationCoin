@@ -4,80 +4,135 @@
 
 #include <consensus/flex_weight.h>
 
+#include <consensus/checked_arith.h>
+#include <consensus/spend_kind_weight.h>
+#include <util/check.h>
+
 #include <limits>
+#include <optional>
+#include <variant>
 
 namespace Consensus {
 namespace {
 
-/** 64x64 -> 128 using four 32x32 multiplies. Same on every target. */
-void Mul128(uint64_t a, uint64_t b, uint64_t& hi, uint64_t& lo)
+template <class... Arms>
+struct VisitArms : Arms... {
+    using Arms::operator()...;
+};
+template <class... Arms>
+VisitArms(Arms...) -> VisitArms<Arms...>;
+
+uint64_t CapAfterGrowResult(const GrowCapResult& grown, uint64_t cap)
+{
+    return std::visit(VisitArms{
+                          [](const Grew& grew) { return grew.cap; },
+                          [](const AtCeiling& ceiling) { return ceiling.cap; },
+                          [cap](MultiplyWouldOverflow) { return cap; },
+                      },
+                      grown);
+}
+
+} // namespace
+
+WideProduct Mul128(uint64_t a, uint64_t b)
 {
     const uint64_t ll{uint64_t{uint32_t(a)} * uint32_t(b)};
     const uint64_t lh{uint64_t{uint32_t(a)} * (b >> 32)};
     const uint64_t hl{(a >> 32) * uint32_t(b)};
     const uint64_t hh{(a >> 32) * (b >> 32)};
     const uint64_t mid34{(ll >> 32) + uint32_t(lh) + uint32_t(hl)};
-    hi = hh + (lh >> 32) + (hl >> 32) + (mid34 >> 32);
+    WideProduct out;
+    out.hi = hh + (lh >> 32) + (hl >> 32) + (mid34 >> 32);
     // Mask before the shift. mid34 can be up to ~3*2^32; a bare mid34<<32 is
     // not a representable uint64_t and Clang -fsanitize=integer rejects it.
-    lo = (uint64_t{uint32_t(mid34)} << 32) | uint32_t(ll);
+    out.lo = (uint64_t{uint32_t(mid34)} << 32) | uint32_t(ll);
+    return out;
 }
-
-} // namespace
 
 bool MulGe(uint64_t a, uint64_t b, uint64_t c, uint64_t d)
 {
-    uint64_t ab_hi{0};
-    uint64_t ab_lo{0};
-    uint64_t cd_hi{0};
-    uint64_t cd_lo{0};
-    Mul128(a, b, ab_hi, ab_lo);
-    Mul128(c, d, cd_hi, cd_lo);
-    return ab_hi > cd_hi || (ab_hi == cd_hi && ab_lo >= cd_lo);
+    const WideProduct ab{Mul128(a, b)};
+    const WideProduct cd{Mul128(c, d)};
+    return ab.hi > cd.hi || (ab.hi == cd.hi && ab.lo >= cd.lo);
 }
 
-uint64_t GrowCap(uint64_t cap)
+bool Saturated(uint64_t block_weight, uint64_t cap, int height)
 {
-    if (cap > std::numeric_limits<uint64_t>::max() / 3) return cap;
-    const uint64_t grown{(cap * 3) / 2};
-    if (grown > MAX_FLEX_BLOCK_WEIGHT) return cap;
-    return grown;
+    if (block_weight > cap) return false;
+    const std::optional<uint64_t> smallest{SmallestSimplePaymentWeight(height)};
+    if (!smallest) return false;
+    Assert(*smallest <= std::numeric_limits<uint64_t>::max() / 2);
+    uint64_t two_smallest{0};
+    if (!CheckedMul(*smallest, 2, two_smallest)) return false;
+    uint64_t hole{0};
+    if (!CheckedAdd(two_smallest, FULL_FIT_BUFFER_WEIGHT, hole)) return false;
+    return (cap - block_weight) < hole;
+}
+
+bool Slack(uint64_t block_weight, uint64_t cap)
+{
+    // block_weight * 5 < cap, as 128-bit products.
+    return !MulGe(block_weight, 5, cap, 1);
+}
+
+bool CountMeetsFourFifths(uint64_t count, int interval)
+{
+    if (interval <= 0) return false;
+    return MulGe(count, 5, static_cast<uint64_t>(interval), 4);
+}
+
+GrowCapResult GrowCap(uint64_t cap)
+{
+    constexpr uint64_t times_num_max{std::numeric_limits<uint64_t>::max() / GROW_CAP_NUM};
+    if (cap > times_num_max) return MultiplyWouldOverflow{};
+    // Floor toward zero. The * GROW_CAP_NUM is in range because of the check above.
+    const uint64_t grown{(cap * GROW_CAP_NUM) / GROW_CAP_DEN};
+    if (grown > MAX_FLEX_BLOCK_WEIGHT) return AtCeiling{cap};
+    return Grew{grown};
 }
 
 uint64_t ShrinkCap(uint64_t cap)
 {
+    // Floor toward zero. Divisor is the constant 2.
     const uint64_t halved{cap / 2};
     return halved < MIN_FLEX_BLOCK_WEIGHT ? MIN_FLEX_BLOCK_WEIGHT : halved;
 }
 
-bool ShouldGrow(int hot_windows)
+uint64_t DecideNextCap(uint64_t cap, uint64_t saturated_blocks, uint64_t slack_blocks, int interval)
 {
-    return hot_windows >= 13;
-}
-
-bool ShouldShrink(uint64_t epoch_weight, uint64_t cap, int interval)
-{
-    if (interval <= 0) return false;
-    if (cap <= MIN_FLEX_BLOCK_WEIGHT) return false;
-    // epoch_weight / (cap * interval) < 1/5  =>  epoch_weight * 5 < cap * interval
-    return !MulGe(epoch_weight, 5, cap, static_cast<uint64_t>(interval));
-}
-
-bool WindowIsHot(uint64_t window_weight, uint64_t cap, uint64_t window_blocks)
-{
-    if (window_blocks == 0) return false;
-    // window_weight / (cap * blocks) >= 4/5  =>  weight * 5 >= cap * blocks * 4
-    if (cap > std::numeric_limits<uint64_t>::max() / 4) {
-        return MulGe(window_weight, 5, cap, window_blocks * 4);
+    if (CountMeetsFourFifths(saturated_blocks, interval)) {
+        return CapAfterGrowResult(GrowCap(cap), cap);
     }
-    return MulGe(window_weight, 5, cap * 4, window_blocks);
+    if (CountMeetsFourFifths(slack_blocks, interval)) return ShrinkCap(cap);
+    return cap;
 }
 
-uint64_t DecideNextCap(uint64_t cap, int hot_windows, uint64_t epoch_weight, int interval)
+uint64_t ApplyGrowCapTimes(uint64_t cap, uint64_t times)
 {
-    if (ShouldGrow(hot_windows)) return GrowCap(cap);
-    if (ShouldShrink(epoch_weight, cap, interval)) return ShrinkCap(cap);
+    for (uint64_t step{0}; step < times; ++step) {
+        bool stop{false};
+        cap = std::visit(VisitArms{
+                             [](const Grew& grew) { return grew.cap; },
+                             [&](const AtCeiling& ceiling) {
+                                 stop = true;
+                                 return ceiling.cap;
+                             },
+                             [&](MultiplyWouldOverflow) {
+                                 stop = true;
+                                 return cap;
+                             },
+                         },
+                         GrowCap(cap));
+        if (stop) return cap;
+    }
     return cap;
+}
+
+uint64_t WorstCaseCapAtHeight(int height, int interval)
+{
+    if (height <= 0 || interval <= 0) return MIN_FLEX_BLOCK_WEIGHT;
+    // Floor toward zero: height and interval are both > 0 here.
+    return ApplyGrowCapTimes(MIN_FLEX_BLOCK_WEIGHT, static_cast<uint64_t>(height / interval));
 }
 
 } // namespace Consensus

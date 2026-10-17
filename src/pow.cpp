@@ -7,206 +7,98 @@
 
 #include <arith_uint256.h>
 #include <chain.h>
+#include <consensus/work/kind.h>
+#include <consensus/work/retarget.h>
 #include <primitives/block.h>
 #include <uint256.h>
 #include <util/check.h>
 
-/** Compact bits used for testnet min-difficulty blocks.
- *
- * When nMinDifficultyBits is set (testnet3 Blake2b floor), min-diff drops to
- * that floor rather than powLimit. Shared with the walk-back that skips
- * min-diff headers.
- */
-static unsigned int MinDifficultyNBits(const Consensus::Params& params)
-{
-    if (params.nMinDifficultyBits != 0) {
-        return params.nMinDifficultyBits;
-    }
-    return UintToArith256(params.powLimit).GetCompact();
-}
+#include <atomic>
+#include <limits>
+#include <list>
+#include <mutex>
+#include <thread>
+#include <vector>
 
-/** One-off target shift applied to the first block under a new PoW algorithm.
- *
- * Shared by GetNextWorkRequired and PermittedDifficultyTransition so the value
- * that gets produced and the value that gets accepted cannot drift apart.
- */
-static unsigned int ApplyBlake2bTargetShift(unsigned int nBits, const Consensus::Params& params)
+/** Do not ease past that kind's T0 floor (smaller target = harder). */
+static unsigned int ApplyMinDifficultyFloor(unsigned int nBits, size_t kind_index, const Consensus::Params& params)
 {
-    arith_uint256 bnNew;
-    bnNew.SetCompact(nBits);
-    const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
-    const unsigned int shift{params.Blake2bTargetShift};
-    if (bnNew > (bnPowLimit >> shift)) {
-        bnNew = bnPowLimit;
-    } else {
-        bnNew <<= shift;
-    }
-    return bnNew.GetCompact();
-}
-
-/** Do not ease past nMinDifficultyBits (smaller target = harder). */
-static unsigned int ApplyMinDifficultyFloor(unsigned int nBits, const Consensus::Params& params)
-{
-    if (params.nMinDifficultyBits == 0) {
-        return nBits;
-    }
+    if (kind_index >= Consensus::WORK_KIND_COUNT) return 0;
     arith_uint256 bn;
     bn.SetCompact(nBits);
-    arith_uint256 floor_target;
-    floor_target.SetCompact(params.nMinDifficultyBits);
+    const arith_uint256 floor_target{UintToArith256(params.powFloor0[kind_index])};
     if (bn > floor_target) {
-        return params.nMinDifficultyBits;
+        return floor_target.GetCompact();
     }
     return nBits;
 }
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params)
 {
-    unsigned int nMinDiffBits = MinDifficultyNBits(params);
+    const auto tag{Consensus::DecodeWorkKindTag(pblock->GetCompleteVersion())};
+    if (!tag) return 0;
+    const Consensus::WorkKindTag kind_tag{*tag};
+    const Consensus::WorkKind* kind{Consensus::LookupWorkKind(kind_tag)};
+    if (!kind) return 0;
+    const size_t kind_index{static_cast<size_t>(kind_tag)};
+    const uint256 S{Consensus::NextWorkScale(pindexLast, params)};
+    unsigned int nBits{kind->ExpectedNBits(S, params)};
 
-    unsigned int nBits;
-
-    // Only change once per difficulty adjustment interval
-    if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval() != 0)
-    {
-        if (params.fPowAllowMinDifficultyBlocks)
-        {
-            // Special difficulty rule for testnet:
-            // If the new block's timestamp is more than 2* 10 minutes
-            // then allow mining of a min-difficulty block.
-            if (pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing*2)
-                return nMinDiffBits;
-            else
-            {
-                // Look back to the last non-special-min-difficulty-rules-block
-                const CBlockIndex* pindex = pindexLast;
-                while (pindex->pprev && pindex->nHeight % params.DifficultyAdjustmentInterval() != 0 && pindex->nBits == nMinDiffBits)
-                    pindex = pindex->pprev;
-                nBits = pindex->nBits;
-            }
-        } else {
-            nBits = pindexLast->nBits;
-        }
-    } else {
-        // Go back by what we want to be 14 days worth of blocks
-        int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval()-1);
-        assert(nHeightFirst >= 0);
-        const CBlockIndex* pindexFirst = pindexLast->GetAncestor(nHeightFirst);
-        assert(pindexFirst);
-
-        nBits = CalculateNextWorkRequired(pindexLast, pindexFirst->GetBlockTime(), params);
+    // Testnet: Floor0[k]/S, then ApplyMinDifficultyFloor so gym is not
+    // clamped to Blake2b nMinDifficultyBits. Not a snap to genesis-easy
+    // (Bitcoin unstick). MAIN has this off. Changing it is a testnet
+    // consensus edit; wipe at MAIN. Skip (late, convenience only).
+    if (params.fPowAllowMinDifficultyBlocks &&
+        pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing * 2) {
+        arith_uint256 s{UintToArith256(S)};
+        if (s == 0) s = 1;
+        arith_uint256 floor{UintToArith256(params.powFloor0[kind_index])};
+        floor /= s;
+        if (floor == 0) floor = 1;
+        const arith_uint256 limit{UintToArith256(params.powLimitKind[kind_index])};
+        if (floor > limit) floor = limit;
+        nBits = floor.GetCompact();
     }
 
-    if (pindexLast->nHeight + 1 == params.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)) {
-        // Adjust the target for the first block mined under a new PoW algorithm.
-        nBits = ApplyBlake2bTargetShift(nBits, params);
-    }
-
-    return ApplyMinDifficultyFloor(nBits, params);
+    return ApplyMinDifficultyFloor(nBits, kind_index, params);
 }
 
-unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nFirstBlockTime, const Consensus::Params& params)
-{
-    if (params.fPowNoRetargeting)
-        return pindexLast->nBits;
-
-    // Limit adjustment step
-    int64_t nActualTimespan = pindexLast->GetBlockTime() - nFirstBlockTime;
-    if (nActualTimespan < params.nPowTargetTimespan/4)
-        nActualTimespan = params.nPowTargetTimespan/4;
-    if (nActualTimespan > params.nPowTargetTimespan*4)
-        nActualTimespan = params.nPowTargetTimespan*4;
-
-    // Retarget
-    const arith_uint256 bnPowLimit = UintToArith256(params.powLimit);
-    arith_uint256 bnNew;
-
-    // Special difficulty rule for Testnet4
-    if (params.enforce_BIP94) {
-        // Here we use the first block of the difficulty period. This way
-        // the real difficulty is always preserved in the first block as
-        // it is not allowed to use the min-difficulty exception.
-        int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval()-1);
-        const CBlockIndex* pindexFirst = pindexLast->GetAncestor(nHeightFirst);
-        bnNew.SetCompact(pindexFirst->nBits);
-    } else {
-        bnNew.SetCompact(pindexLast->nBits);
-    }
-
-    bnNew *= nActualTimespan;
-    bnNew /= params.nPowTargetTimespan;
-
-    if (bnNew > bnPowLimit)
-        bnNew = bnPowLimit;
-
-    if (params.nMinDifficultyBits != 0) {
-        arith_uint256 bnFloor;
-        bnFloor.SetCompact(params.nMinDifficultyBits);
-        if (bnNew > bnFloor) {
-            bnNew = bnFloor;
-        }
-    }
-
-    return bnNew.GetCompact();
-}
-
-// Check that on difficulty adjustments, the new difficulty does not increase
-// or decrease beyond the permitted limits.
-bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height, uint32_t old_nbits, uint32_t new_nbits)
+// Recover S from (kind, nBits, T0[k]). Off-window S must match. On-window S
+// moves by at most 4 (ScaleAfterWindow clamp). Mixed-kind equal S with
+// different compact is honest. Do not compare raw nBits.
+bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height,
+                                   uint32_t old_nbits, uint32_t old_complete_version,
+                                   uint32_t new_nbits, uint32_t new_complete_version)
 {
     if (params.fPowAllowMinDifficultyBlocks) return true;
+    if (params.fPowNoRetargeting) return true;
+    const int64_t interval{params.DifficultyAdjustmentInterval()};
+    if (interval <= 0) return false;
 
-    // Across a PoW-algorithm change, GetNextWorkRequired shifts the target once
-    // before returning it. Rebase the comparison onto the shifted target so the
-    // usual limits below apply to the change on top of it, rather than
-    // rejecting the shift itself.
-    if (height == params.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)) {
-        old_nbits = ApplyMinDifficultyFloor(ApplyBlake2bTargetShift(old_nbits, params), params);
-    }
+    const auto old_tag{Consensus::DecodeWorkKindTag(old_complete_version)};
+    const auto new_tag{Consensus::DecodeWorkKindTag(new_complete_version)};
+    if (!old_tag || !new_tag) return false;
+    const auto old_s{Consensus::ScaleFromNBits(old_nbits, static_cast<size_t>(*old_tag), params)};
+    const auto new_s{Consensus::ScaleFromNBits(new_nbits, static_cast<size_t>(*new_tag), params)};
+    if (!old_s || !new_s) return false;
 
-    if (height % params.DifficultyAdjustmentInterval() == 0) {
-        int64_t smallest_timespan = params.nPowTargetTimespan/4;
-        int64_t largest_timespan = params.nPowTargetTimespan*4;
+    const arith_uint256 old_scale{UintToArith256(*old_s)};
+    const arith_uint256 new_scale{UintToArith256(*new_s)};
+    if (old_scale == 0 || new_scale == 0) return false;
 
-        const arith_uint256 pow_limit = UintToArith256(params.powLimit);
-        arith_uint256 observed_new_target;
-        observed_new_target.SetCompact(new_nbits);
-
-        // Calculate the largest difficulty value possible:
-        arith_uint256 largest_difficulty_target;
-        largest_difficulty_target.SetCompact(old_nbits);
-        largest_difficulty_target *= largest_timespan;
-        largest_difficulty_target /= params.nPowTargetTimespan;
-
-        if (largest_difficulty_target > pow_limit) {
-            largest_difficulty_target = pow_limit;
+    if (height % interval == 0) {
+        static constexpr uint32_t kRetargetFactor{4};
+        const arith_uint256 max{~arith_uint256(0)};
+        if (new_scale > old_scale) {
+            if (old_scale > max / kRetargetFactor) return false;
+            if (new_scale > old_scale * kRetargetFactor) return false;
+        } else if (old_scale > new_scale) {
+            if (new_scale > max / kRetargetFactor) return false;
+            if (old_scale > new_scale * kRetargetFactor) return false;
         }
-
-        // Round and then compare this new calculated value to what is
-        // observed.
-        arith_uint256 maximum_new_target;
-        maximum_new_target.SetCompact(largest_difficulty_target.GetCompact());
-        if (maximum_new_target < observed_new_target) return false;
-
-        // Calculate the smallest difficulty value possible:
-        arith_uint256 smallest_difficulty_target;
-        smallest_difficulty_target.SetCompact(old_nbits);
-        smallest_difficulty_target *= smallest_timespan;
-        smallest_difficulty_target /= params.nPowTargetTimespan;
-
-        if (smallest_difficulty_target > pow_limit) {
-            smallest_difficulty_target = pow_limit;
-        }
-
-        // Round and then compare this new calculated value to what is
-        // observed.
-        arith_uint256 minimum_new_target;
-        minimum_new_target.SetCompact(smallest_difficulty_target.GetCompact());
-        if (minimum_new_target > observed_new_target) return false;
-    } else if (old_nbits != new_nbits) {
-        return false;
+        return true;
     }
-    return true;
+    return old_scale == new_scale;
 }
 
 // Bypasses the actual proof of work check during fuzz testing with a simplified validation checking whether
@@ -237,9 +129,84 @@ bool CheckProofOfWorkImpl(uint256 hash, unsigned int nBits, const Consensus::Par
     auto bnTarget{DeriveTarget(nBits, params.powLimit)};
     if (!bnTarget) return false;
 
-    // Check proof of work matches claimed amount
+    // Hash-only / fuzz. Header consensus is kind Check (digest < T). Do not
+    // unify the compare: no function hole, consensus edit, late.
     if (UintToArith256(hash) > bnTarget)
         return false;
 
     return true;
+}
+
+bool CheckProofOfWork(const CBlockHeader& header, const Consensus::Params& params)
+{
+    if constexpr (G_FUZZING) return CheckProofOfWork(header.GetHash(), header.nBits, params);
+    return Consensus::CheckWorkKindHeader(header, params);
+}
+
+bool CheckProofOfWorkBatch(std::span<const CBlockHeader> headers, const Consensus::Params& params)
+{
+    if (headers.empty()) return true;
+    if (headers.size() == 1) return CheckProofOfWork(headers[0], params);
+
+    // One pool at a time so concurrent header messages cannot spawn
+    // peers * hardware_concurrency threads. Batch is already off cs_main.
+    static std::mutex g_pow_batch_mutex;
+    const std::lock_guard<std::mutex> batch_lock{g_pow_batch_mutex};
+
+    std::atomic<bool> failed{false};
+    std::atomic<size_t> next{0};
+    unsigned workers{std::thread::hardware_concurrency()};
+    if (workers == 0) workers = 1;
+    if (workers > headers.size()) workers = static_cast<unsigned>(headers.size());
+
+    std::vector<std::thread> pool;
+    pool.reserve(workers);
+    for (unsigned t{0}; t < workers; ++t) {
+        pool.emplace_back([&] {
+            while (!failed.load(std::memory_order_relaxed)) {
+                const size_t i{next.fetch_add(1, std::memory_order_relaxed)};
+                if (i >= headers.size()) break;
+                if (!CheckProofOfWork(headers[i], params)) {
+                    failed.store(true, std::memory_order_relaxed);
+                    break;
+                }
+            }
+        });
+    }
+    for (std::thread& th : pool) th.join();
+    return !failed.load(std::memory_order_relaxed);
+}
+
+bool HeadersMatchExpectedNBits(std::span<const CBlockHeader> headers, const CBlockIndex* pindex_prev, const Consensus::Params& params)
+{
+    if (headers.empty()) return true;
+
+    std::list<CBlockIndex> dummy;
+    const CBlockIndex* prev{pindex_prev};
+    for (const CBlockHeader& header : headers) {
+        if (header.nBits != GetNextWorkRequired(prev, &header, params)) return false;
+        dummy.emplace_back(header);
+        CBlockIndex& idx{dummy.back()};
+        idx.pprev = const_cast<CBlockIndex*>(prev);
+        idx.nHeight = prev->nHeight + 1;
+        idx.nWorkScale = Consensus::NextWorkScale(prev, params);
+        if (params.fPowAllowMinDifficultyBlocks) {
+            const auto tag{Consensus::DecodeWorkKindTag(header.GetCompleteVersion())};
+            if (tag) {
+                const auto met{Consensus::ScaleFromNBits(header.nBits, static_cast<size_t>(*tag), params)};
+                if (met) idx.nWorkScale = *met;
+            }
+        }
+        prev = &idx;
+    }
+    return true;
+}
+
+bool GrindProofOfWork(CBlockHeader& header, const Consensus::Params& params)
+{
+    for (uint32_t tries{0}; tries < std::numeric_limits<uint32_t>::max(); ++tries) {
+        if (CheckProofOfWork(header, params)) return true;
+        ++header.nNonce;
+    }
+    return CheckProofOfWork(header, params);
 }

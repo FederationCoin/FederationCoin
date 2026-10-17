@@ -37,9 +37,9 @@ from test_framework.wallet import (
 
 
 class P2PBloomFilter(P2PInterface):
-    # This is a P2SH watch-only wallet
-    watch_script_pubkey = bytes.fromhex('a914ffffffffffffffffffffffffffffffffffffffff87')
-    # The initial filter (n=10, fp=0.000001) with just the above scriptPubKey added
+    # P2WPKH whose 20-byte program is all 0xff (P2SH outputs are nonstandard).
+    # The filter is the 20-byte push, which BIP37 matches inside the script.
+    watch_script_pubkey = bytes.fromhex('0014ffffffffffffffffffffffffffffffffffffffff')
     watch_filter_init = msg_filterload(
         data=
         b'@\x00\x08\x00\x80\x00\x00 \x00\xc0\x00 \x04\x00\x08$\x00\x04\x80\x00\x00 \x00\x00\x00\x00\x80\x00\x00@\x00\x02@ \x00',

@@ -45,6 +45,7 @@ KNOWN_VIOLATIONS = [
     "src/dbwrapper.cpp:.*vsnprintf",
     "src/test/fuzz/locale.cpp:.*setlocale",
     "src/test/util_tests.cpp:.*strtoll",
+    "src/test/manual/fp8_blackwell_kat.cpp:",  # dump tool: atoi/printf on stderr
     "src/wallet/bdb.cpp:.*DbEnv::strerror",  # False positive
     "src/util/syserror.cpp:.*strerror",      # Outside this function use `SysErrorString`
 ]

@@ -100,7 +100,7 @@ class RPCPackagesTest(BitcoinTestFramework):
         self.assert_testres_equal(self.independent_txns_hex, self.independent_txns_testres)
 
         self.log.info("Test an otherwise valid package with an extra garbage tx appended")
-        address = node.get_deterministic_priv_key().address
+        address = self.wallet.get_address()
         garbage_tx = node.createrawtransaction([{"txid": "00" * 32, "vout": 5}], {address: 1})
         tx = tx_from_hex(garbage_tx)
         # Only the txid and wtxids are returned because validation is incomplete for the independent txns.
@@ -498,7 +498,7 @@ class RPCPackagesTest(BitcoinTestFramework):
         # Relax the restrictions for both and send it; parent gets through as own subpackage
         pkg_result = node.submitpackage(chained_burn_hex, maxfeerate=minrate_btc_kvb_burn, maxburnamount=chained_txns_burn[1]["new_utxo"]["value"])
         assert "error" not in pkg_result["tx-results"][chained_txns_burn[0]["wtxid"]]
-        assert_equal(pkg_result["tx-results"][tx.getwtxid()]["error"], "scriptpubkey")
+        assert_equal(pkg_result["tx-results"][tx.getwtxid()]["error"], "bad-txns-vout-script")
         assert_equal(node.getrawmempool(), [chained_txns_burn[0]["txid"]])
 
 if __name__ == "__main__":

@@ -6,19 +6,32 @@
 
 #include <chainparams.h>
 #include <consensus/merkle.h>
+#include <consensus/mldsa44_spend.h>
 #include <consensus/validation.h>
+#include <script/modern_sig.h>
 #include <key_io.h>
 #include <node/context.h>
 #include <pow.h>
 #include <primitives/transaction.h>
-#include <test/util/script.h>
 #include <util/check.h>
 #include <validation.h>
 #include <validationinterface.h>
 #include <versionbits.h>
 
+#include <array>
+#include <cassert>
+
 using node::BlockAssembler;
 using node::NodeContext;
+
+CScript FuzzPayableCoinbaseScript(uint8_t tag)
+{
+    Consensus::MlDsa44Keypair coinbase_key;
+    std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> coinbase_seed{};
+    coinbase_seed[31] = tag == 0 ? 1 : tag;
+    assert(Consensus::MlDsa44Keygen(coinbase_seed, coinbase_key));
+    return BuildModernSingle(Consensus::MlDsa44SingleKeyProgram(coinbase_key.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_44);
+}
 
 COutPoint generatetoaddress(const NodeContext& node, const std::string& address)
 {
@@ -34,6 +47,11 @@ std::vector<std::shared_ptr<CBlock>> CreateBlockChain(size_t total_height, const
 {
     std::vector<std::shared_ptr<CBlock>> ret{total_height};
     auto time{params.GenesisBlock().nTime};
+    Consensus::MlDsa44Keypair coinbase_key;
+    std::array<unsigned char, Consensus::MLDSA44_SEED_SIZE> coinbase_seed{};
+    coinbase_seed[31] = 1;
+    assert(Consensus::MlDsa44Keygen(coinbase_seed, coinbase_key));
+    const CScript coinbase_script = BuildModernSingle(Consensus::MlDsa44SingleKeyProgram(coinbase_key.pubkey), ALGO_DILITHIUM, PARAM_DILITHIUM_44);
     for (size_t height{0}; height < total_height; ++height) {
         CBlock& block{*(ret.at(height) = std::make_shared<CBlock>())};
 
@@ -41,7 +59,7 @@ std::vector<std::shared_ptr<CBlock>> CreateBlockChain(size_t total_height, const
         coinbase_tx.vin.resize(1);
         coinbase_tx.vin[0].prevout.SetNull();
         coinbase_tx.vout.resize(1);
-        coinbase_tx.vout[0].scriptPubKey = P2WSH_OP_TRUE;
+        coinbase_tx.vout[0].scriptPubKey = coinbase_script;
         const int nHeight{static_cast<int>(height) + 1};
         const auto& consensus{params.GetConsensus()};
         coinbase_tx.vout[0].nValue = GetBlockSubsidy(nHeight, consensus);
@@ -49,16 +67,16 @@ std::vector<std::shared_ptr<CBlock>> CreateBlockChain(size_t total_height, const
         block.vtx = {MakeTransactionRef(std::move(coinbase_tx))};
 
         block.nVersion = VERSIONBITS_LAST_OLD_BLOCK_VERSION;
-        block.m_header_v2 = consensus.IsBlake2bHeight(nHeight);
-        block.m_height = block.m_header_v2 ? nHeight : 0;
-        block.m_txcount = block.m_header_v2 ? 1 : 0;
+        block.m_header_v2 = true;
+        block.m_height = nHeight;
+        block.m_txcount = 1;
         block.hashPrevBlock = (height >= 1 ? *ret.at(height - 1) : params.GenesisBlock()).GetHash();
         block.hashMerkleRoot = BlockMerkleRoot(block);
         block.nTime = ++time;
         block.nBits = params.GenesisBlock().nBits;
         block.nNonce = 0;
 
-        while (!CheckProofOfWork(block.GetHash(), block.nBits, params.GetConsensus())) {
+        while (!CheckProofOfWork(block, params.GetConsensus())) {
             ++block.nNonce;
             assert(block.nNonce);
         }
@@ -85,14 +103,14 @@ struct BlockValidationStateCatcher : public CValidationInterface {
 protected:
     void BlockChecked(const CBlock& block, const BlockValidationState& state) override
     {
-        if (block.GetHash() != m_hash) return;
+        if (block.GetBlockIdentity() != m_hash) return;
         m_state = state;
     }
 };
 
 COutPoint MineBlock(const NodeContext& node, std::shared_ptr<CBlock>& block)
 {
-    while (!CheckProofOfWork(block->GetHash(), block->nBits, Params().GetConsensus())) {
+    while (!CheckProofOfWork(*block, Params().GetConsensus())) {
         ++block->nNonce;
         assert(block->nNonce);
     }
@@ -100,7 +118,7 @@ COutPoint MineBlock(const NodeContext& node, std::shared_ptr<CBlock>& block)
     auto& chainman{*Assert(node.chainman)};
     const auto old_height = WITH_LOCK(chainman.GetMutex(), return chainman.ActiveHeight());
     bool new_block;
-    BlockValidationStateCatcher bvsc{block->GetHash()};
+    BlockValidationStateCatcher bvsc{block->GetBlockIdentity()};
     node.validation_signals->RegisterValidationInterface(&bvsc);
     const bool processed{chainman.ProcessNewBlock(block, true, true, &new_block)};
     const bool duplicate{!new_block && processed};

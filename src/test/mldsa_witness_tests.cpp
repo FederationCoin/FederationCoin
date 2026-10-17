@@ -2,8 +2,9 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <crypto/blake2b.h>
+#include <script/mldsa_merge.h>
 #include <script/script.h>
 #include <test/util/setup_common.h>
 #include <uint256.h>
@@ -29,6 +30,13 @@ static uint256 TaggedKeyHash(std::span<const unsigned char> pubkey)
     return uint256{Span<const unsigned char>{out.data(), out.size()}};
 }
 
+static std::vector<unsigned char> Concat(const Consensus::MlDsa44Keypair& key, std::span<const unsigned char> signature)
+{
+    std::vector<unsigned char> item(key.pubkey.begin(), key.pubkey.end());
+    item.insert(item.end(), signature.begin(), signature.end());
+    return item;
+}
+
 BOOST_AUTO_TEST_CASE(key_hash_uses_the_key_tag)
 {
     std::array<unsigned char, Consensus::MLDSA44_PUBLIC_KEY_SIZE> pubkey{};
@@ -49,15 +57,15 @@ BOOST_AUTO_TEST_CASE(extra_item_and_wrong_length_rejected)
     witness.emplace_back(pubkey.begin(), pubkey.end());
     witness.emplace_back(signature.begin(), signature.end());
     witness.push_back({0x50});
-    BOOST_CHECK(!Consensus::CheckSingleKeySpend(program, witness, sighash));
+    BOOST_CHECK(!Consensus::CheckSingleKey44Spend(program, witness, sighash));
 
     witness.pop_back();
     witness[0].pop_back();
-    BOOST_CHECK(!Consensus::CheckSingleKeySpend(program, witness, sighash));
+    BOOST_CHECK(!Consensus::CheckSingleKey44Spend(program, witness, sighash));
 
     witness[0].push_back(0);
     witness[1].push_back(0);
-    BOOST_CHECK(!Consensus::CheckSingleKeySpend(program, witness, sighash));
+    BOOST_CHECK(!Consensus::CheckSingleKey44Spend(program, witness, sighash));
 }
 
 BOOST_AUTO_TEST_CASE(single_key_spend_accepted)
@@ -74,7 +82,7 @@ BOOST_AUTO_TEST_CASE(single_key_spend_accepted)
     std::vector<std::vector<unsigned char>> witness;
     witness.emplace_back(key.pubkey.begin(), key.pubkey.end());
     witness.emplace_back(signature.begin(), signature.end());
-    BOOST_CHECK(Consensus::CheckSingleKeySpend(program, witness, sighash));
+    BOOST_CHECK(Consensus::CheckSingleKey44Spend(program, witness, sighash));
 }
 
 BOOST_AUTO_TEST_CASE(unrelated_hash_is_a_burn)
@@ -93,7 +101,7 @@ BOOST_AUTO_TEST_CASE(unrelated_hash_is_a_burn)
     std::vector<std::vector<unsigned char>> witness;
     witness.emplace_back(pubkey.begin(), pubkey.end());
     witness.emplace_back(signature.begin(), signature.end());
-    BOOST_CHECK(!Consensus::CheckSingleKeySpend(burn, witness, sighash));
+    BOOST_CHECK(!Consensus::CheckSingleKey44Spend(burn, witness, sighash));
 }
 
 BOOST_AUTO_TEST_CASE(merge_two_of_two_slots)
@@ -122,25 +130,24 @@ BOOST_AUTO_TEST_CASE(merge_two_of_two_slots)
     BOOST_REQUIRE(Consensus::MlDsa44Sign(second, sighash, sig_b));
 
     std::vector<std::vector<unsigned char>> partial_a;
-    partial_a.emplace_back(first.pubkey.begin(), first.pubkey.end());
-    partial_a.emplace_back(sig_a.begin(), sig_a.end());
-    partial_a.emplace_back(hash_b.begin(), hash_b.end());
+    partial_a.push_back(Concat(first, sig_a));
+    partial_a.emplace_back();
 
     std::vector<std::vector<unsigned char>> partial_b;
-    partial_b.emplace_back(hash_a.begin(), hash_a.end());
-    partial_b.emplace_back(second.pubkey.begin(), second.pubkey.end());
-    partial_b.emplace_back(sig_b.begin(), sig_b.end());
+    partial_b.emplace_back();
+    partial_b.push_back(Concat(second, sig_b));
 
     const auto merged{Consensus::MergeMlDsa44Witnesses({partial_a, partial_b}, sighash)};
     BOOST_REQUIRE(merged);
-    BOOST_CHECK(Consensus::CheckMultisigSpend(*program, *merged, sighash));
+    BOOST_CHECK(Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, *merged, sighash));
 
     const auto same_side{Consensus::MergeMlDsa44Witnesses({partial_a, partial_a}, sighash)};
     BOOST_REQUIRE(same_side);
-    BOOST_CHECK(!Consensus::CheckMultisigSpend(*program, *same_side, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, *same_side, sighash));
 
     std::vector<std::vector<unsigned char>> other = partial_b;
-    std::fill(other[0].begin(), other[0].end(), static_cast<unsigned char>(0x22));
+    BOOST_REQUIRE(!other[1].empty());
+    std::fill(other[1].begin(), other[1].end(), static_cast<unsigned char>(0x22));
     BOOST_CHECK(!Consensus::MergeMlDsa44Witnesses({partial_a, other}, sighash));
     BOOST_CHECK(!Consensus::MergeMlDsa44Witnesses({}, sighash));
 }

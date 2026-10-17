@@ -37,26 +37,16 @@ class RpcCreateMultiSigTest(BitcoinTestFramework):
     def assert_not_a_payment(self, address, redeem_script):
         node = self.nodes[0]
         script = address_to_scriptpubkey(address)
-        try:
-            sent = self.wallet.send_to(from_node=node, scriptPubKey=script, amount=30_000)
-        except JSONRPCException as exc:
-            assert exc.error["message"], exc.error
-            return
-        self.generate(node, 1)
-        spend = CTransaction()
-        spend.vin = [CTxIn(COutPoint(int(sent["txid"], 16), sent["sent_vout"]))]
-        spend.vout = [CTxOut(20_000, self.wallet.get_output_script())]
-        spend.wit.vtxinwit = [CTxInWitness()]
-        redeem = bytes.fromhex(redeem_script)
-        if script == script_to_p2wsh_script(redeem):
-            spend.wit.vtxinwit[0].scriptWitness.stack = [b"", redeem]
-        elif bytes(script)[:1] == bytes(CScript([OP_0]))[:1] and len(script) == 34:
-            spend.wit.vtxinwit[0].scriptWitness.stack = [b"", redeem]
-        else:
-            spend.vin[0].scriptSig = CScript([b"", redeem])
-        spend.rehash()
-        result = node.testmempoolaccept([spend.serialize().hex()])[0]
+        utxo = self.wallet.get_utxo(mark_as_spent=False)
+        tx = self.wallet.create_self_transfer(utxo_to_spend=utxo, fee_rate=0)["tx"]
+        pad = 30_000
+        assert tx.vout[0].nValue > pad
+        tx.vout[0].nValue -= pad
+        tx.vout.append(CTxOut(pad, script))
+        self.wallet.resign(tx)
+        result = node.testmempoolaccept([tx.serialize().hex()])[0]
         assert_equal(result["allowed"], False)
+        assert "bad-txns-vout-script" in result["reject-reason"], result
 
     def run_test(self):
         node = self.nodes[0]

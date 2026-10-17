@@ -5,80 +5,203 @@
 #include <arith_uint256.h>
 #include <chain.h>
 #include <chainparams.h>
+#include <consensus/work/kind.h>
+#include <consensus/work/retarget.h>
 #include <pow.h>
+#include <primitives/block.h>
 #include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <util/chaintype.h>
+
+#include <array>
+#include <vector>
 
 #include <boost/test/unit_test.hpp>
 
 BOOST_FIXTURE_TEST_SUITE(pow_tests, BasicTestingSetup)
 
-/* Test calculation of next difficulty target with no constraints applying */
-BOOST_AUTO_TEST_CASE(get_next_work)
+static CBlockHeader HeaderForKind(Consensus::WorkKindTag tag)
 {
-    const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
-    int64_t nLastRetargetTime = 1261130161; // Block #30240
-    CBlockIndex pindexLast;
-    pindexLast.nHeight = 31919;
-    pindexLast.nTime = 1262152739;  // Block #32255
-    pindexLast.nBits = 0x1d00ffff;
-
-    // Here (and below): expected_nbits is calculated in
-    // CalculateNextWorkRequired(); redoing the calculation here would be just
-    // reimplementing the same code that is written in pow.cpp. Rather than
-    // copy that code, we just hardcode the expected result.
-    unsigned int expected_nbits = 0x1d00d86aU;
-    BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, nLastRetargetTime, chainParams->GetConsensus()), expected_nbits);
-    BOOST_CHECK(PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, expected_nbits));
+    CBlockHeader header;
+    header.m_header_v2 = true;
+    header.nVersion = 1;
+    Consensus::ApplyWorkKindTag(header, tag);
+    return header;
 }
 
-/* Test the constraint on the upper bound for next work */
-BOOST_AUTO_TEST_CASE(get_next_work_pow_limit)
+/** Linked fake index chain. Times at spacing unless time_step is set. */
+static std::vector<CBlockIndex> MakeIndexChain(int count, int64_t genesis_time, int64_t time_step, const uint256& start_s)
 {
-    const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
-    int64_t nLastRetargetTime = 1231006505; // Block #0
-    CBlockIndex pindexLast;
-    pindexLast.nHeight = 2015;
-    pindexLast.nTime = 1233061996;  // Block #2015
-    pindexLast.nBits = UintToArith256(chainParams->GetConsensus().powLimit).GetCompact();
-    unsigned int expected_nbits = pindexLast.nBits;
-    BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, nLastRetargetTime, chainParams->GetConsensus()), expected_nbits);
-    BOOST_CHECK(PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, expected_nbits));
+    std::vector<CBlockIndex> blocks(count);
+    for (int i = 0; i < count; ++i) {
+        blocks[i].nHeight = i;
+        blocks[i].nTime = static_cast<unsigned int>(genesis_time + i * time_step);
+        blocks[i].nWorkScale = start_s;
+        blocks[i].pprev = i ? &blocks[i - 1] : nullptr;
+        if (i) blocks[i].BuildSkip();
+        blocks[i].nChainWork = i ? blocks[i - 1].nChainWork + GetBlockProof(blocks[i]) : GetBlockProof(blocks[i]);
+    }
+    return blocks;
 }
 
-/* Test the constraint on the lower bound for actual time taken */
-BOOST_AUTO_TEST_CASE(get_next_work_lower_limit_actual)
+BOOST_AUTO_TEST_CASE(work_scale_genesis_adds_one)
 {
-    const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
-    int64_t nLastRetargetTime = 1279008237; // Block #66528
-    CBlockIndex pindexLast;
-    pindexLast.nHeight = 68879;
-    pindexLast.nTime = 1279297671;  // Block #68543
-    pindexLast.nBits = 0x1c05a3f4;
-    unsigned int expected_nbits = 0x1c0168fdU;
-    BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, nLastRetargetTime, chainParams->GetConsensus()), expected_nbits);
-    BOOST_CHECK(PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, expected_nbits));
-    // Test that reducing nbits further would not be a PermittedDifficultyTransition.
-    unsigned int invalid_nbits = expected_nbits-1;
-    BOOST_CHECK(!PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, invalid_nbits));
+    CBlockIndex genesis;
+    genesis.nHeight = 0;
+    genesis.nWorkScale = Consensus::WorkScaleOne();
+    BOOST_CHECK_EQUAL(GetBlockProof(genesis), 1);
 }
 
-/* Test the constraint on the upper bound for actual time taken */
-BOOST_AUTO_TEST_CASE(get_next_work_upper_limit_actual)
+BOOST_AUTO_TEST_CASE(work_scale_s4_adds_four)
+{
+    CBlockIndex idx;
+    idx.nWorkScale = ArithToUint256(arith_uint256{4});
+    BOOST_CHECK_EQUAL(GetBlockProof(idx), 4);
+}
+
+BOOST_AUTO_TEST_CASE(scale_slow_window_stays_one)
+{
+    const auto s{Consensus::ScaleAfterWindow(uint256::ONE, 120, 480)};
+    BOOST_REQUIRE(s);
+    BOOST_CHECK_EQUAL(UintToArith256(*s), 1);
+}
+
+BOOST_AUTO_TEST_CASE(scale_times_four_and_div_four)
+{
+    const auto fast{Consensus::ScaleAfterWindow(uint256::ONE, 86400, 21600)};
+    BOOST_REQUIRE(fast);
+    BOOST_CHECK_EQUAL(UintToArith256(*fast), 4);
+    const auto slow{Consensus::ScaleAfterWindow(ArithToUint256(arith_uint256{4}), 86400, 345600)};
+    BOOST_REQUIRE(slow);
+    BOOST_CHECK_EQUAL(UintToArith256(*slow), 1);
+}
+
+BOOST_AUTO_TEST_CASE(scale_overflow_and_zero_inputs_are_nullopt)
+{
+    BOOST_CHECK(!Consensus::ScaleAfterWindow(uint256::ONE, 0, 120));
+    BOOST_CHECK(!Consensus::ScaleAfterWindow(uint256::ONE, 120, 0));
+    BOOST_CHECK(!Consensus::ScaleAfterWindow(uint256{}, 120, 120));
+    const arith_uint256 max{~arith_uint256(0)};
+    BOOST_CHECK(!Consensus::ScaleAfterWindow(ArithToUint256(max), 2, 1));
+}
+
+BOOST_AUTO_TEST_CASE(retarget_fast_window_multiplies_s)
+{
+    const auto chainParams = CreateChainParams(*m_node.args, ChainType::REGTEST);
+    Consensus::Params params = chainParams->GetConsensus();
+    params.fPowNoRetargeting = false;
+    BOOST_CHECK_EQUAL(params.DifficultyAdjustmentInterval(), 120);
+
+    // Heights 0..119. Fast timestamps (1s) so NextWorkScale at 119 clamps span to expected/4.
+    auto blocks = MakeIndexChain(120, 1'000'000, /*time_step=*/1, Consensus::WorkScaleOne());
+    const uint256 s{Consensus::NextWorkScale(&blocks[119], params)};
+    BOOST_CHECK_EQUAL(UintToArith256(s), 4);
+
+    // Off-boundary copy: height 118 -> next is 119, not a window end.
+    BOOST_CHECK_EQUAL(UintToArith256(Consensus::NextWorkScale(&blocks[118], params)), 1);
+
+    const unsigned nbits_s1{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(Consensus::WorkScaleOne(), params)};
+    const unsigned nbits_s4{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(s, params)};
+    BOOST_CHECK_NE(nbits_s1, nbits_s4);
+    for (size_t k{0}; k < Consensus::WORK_KIND_COUNT; ++k) {
+        BOOST_CHECK_EQUAL(Consensus::WorkKindAt(k)->ExpectedNBits(s, params), Consensus::CompactTargetForScale(s, params, k));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(retarget_slow_window_divides_s)
+{
+    const auto chainParams = CreateChainParams(*m_node.args, ChainType::REGTEST);
+    Consensus::Params params = chainParams->GetConsensus();
+    params.fPowNoRetargeting = false;
+    const uint256 s4{ArithToUint256(arith_uint256{4})};
+    // 120 blocks, 4*expected spacing so clamp to expected*4, S := 4 * expected / (expected*4) = 1.
+    const int64_t step{params.nPowTargetTimespan * 4 / 119};
+    auto blocks = MakeIndexChain(120, 1'000'000, step, s4);
+    const uint256 s{Consensus::NextWorkScale(&blocks[119], params)};
+    BOOST_CHECK_EQUAL(UintToArith256(s), 1);
+}
+
+BOOST_AUTO_TEST_CASE(mixed_kind_window_one_s)
+{
+    const auto chainParams = CreateChainParams(*m_node.args, ChainType::REGTEST);
+    Consensus::Params params = chainParams->GetConsensus();
+    params.fPowNoRetargeting = false;
+    params.fPowAllowMinDifficultyBlocks = false;
+    auto blocks = MakeIndexChain(120, 1'000'000, 1, Consensus::WorkScaleOne());
+    const uint256 s{Consensus::NextWorkScale(&blocks[119], params)};
+    BOOST_CHECK_EQUAL(UintToArith256(s), 4);
+    // Shared S; compact may differ when T0[k] differs. Recover S from each kind.
+    const unsigned b{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(s, params)};
+    const unsigned sha{Consensus::LookupWorkKind(Consensus::WorkKindTag::SHA256D)->ExpectedNBits(s, params)};
+    const unsigned fp8{Consensus::LookupWorkKind(Consensus::WorkKindTag::FP8_GYM)->ExpectedNBits(s, params)};
+    const unsigned p2{Consensus::LookupWorkKind(Consensus::WorkKindTag::POSEIDON2)->ExpectedNBits(s, params)};
+    const uint256 s4{ArithToUint256(arith_uint256{4})};
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(b, static_cast<size_t>(Consensus::WorkKindTag::BLAKE2B), params), s4);
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(sha, static_cast<size_t>(Consensus::WorkKindTag::SHA256D), params), s4);
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(fp8, static_cast<size_t>(Consensus::WorkKindTag::FP8_GYM), params), s4);
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(p2, static_cast<size_t>(Consensus::WorkKindTag::POSEIDON2), params), s4);
+    CBlockHeader h_sha{HeaderForKind(Consensus::WorkKindTag::SHA256D)};
+    BOOST_CHECK_EQUAL(GetNextWorkRequired(&blocks[119], &h_sha, params), sha);
+    CBlockHeader h_b{HeaderForKind(Consensus::WorkKindTag::BLAKE2B)};
+    BOOST_CHECK_EQUAL(GetNextWorkRequired(&blocks[119], &h_b, params), b);
+    const uint32_t vb{h_b.GetCompleteVersion()};
+    const uint32_t vsha{h_sha.GetCompleteVersion()};
+    CBlockHeader h_fp8{HeaderForKind(Consensus::WorkKindTag::FP8_GYM)};
+    const uint32_t vfp8{h_fp8.GetCompleteVersion()};
+    BOOST_CHECK(PermittedDifficultyTransition(params, 120, b, vb, b, vb));
+    BOOST_CHECK(PermittedDifficultyTransition(params, 121, b, vb, b, vb));
+    BOOST_CHECK(!PermittedDifficultyTransition(params, 121, b, vb, b + 1, vb));
+    BOOST_CHECK(PermittedDifficultyTransition(params, 121, b, vb, sha, vsha));
+    BOOST_CHECK(PermittedDifficultyTransition(params, 121, b, vb, fp8, vfp8));
+    // Regtest compact is encoding-max so T0[k] stays T0_ref. MAIN gym T0 is
+    // discounted; same S, different nBits, still a permitted transition.
+    const auto mainParams{CreateChainParams(*m_node.args, ChainType::MAIN)};
+    const Consensus::Params& mp{mainParams->GetConsensus()};
+    const unsigned mb{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(s4, mp)};
+    const unsigned mfp8{Consensus::LookupWorkKind(Consensus::WorkKindTag::FP8_GYM)->ExpectedNBits(s4, mp)};
+    BOOST_CHECK_NE(mb, mfp8);
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(mb, static_cast<size_t>(Consensus::WorkKindTag::BLAKE2B), mp), s4);
+    BOOST_CHECK_EQUAL(*Consensus::ScaleFromNBits(mfp8, static_cast<size_t>(Consensus::WorkKindTag::FP8_GYM), mp), s4);
+    BOOST_CHECK(PermittedDifficultyTransition(mp, 1, mb, vb, mfp8, vfp8));
+    BOOST_CHECK(!PermittedDifficultyTransition(mp, 1, mb, vb, mb + 1, vb));
+}
+
+BOOST_AUTO_TEST_CASE(halving_heights_do_not_move_s)
+{
+    const auto chainParams = CreateChainParams(*m_node.args, ChainType::REGTEST);
+    Consensus::Params params = chainParams->GetConsensus();
+    params.fPowNoRetargeting = false;
+    BOOST_CHECK_EQUAL(params.nSubsidyHalvingInterval, 160);
+    auto blocks = MakeIndexChain(162, 1'000'000, params.nPowTargetSpacing, Consensus::WorkScaleOne());
+    BOOST_CHECK_EQUAL(UintToArith256(Consensus::NextWorkScale(&blocks[158], params)), 1);
+    BOOST_CHECK_EQUAL(UintToArith256(Consensus::NextWorkScale(&blocks[159], params)), 1);
+    BOOST_CHECK_EQUAL(UintToArith256(Consensus::NextWorkScale(&blocks[160], params)), 1);
+    BOOST_CHECK_EQUAL(UintToArith256(Consensus::NextWorkScale(&blocks[119], params)), 1); // even spacing, S stays 1
+    for (int h : {119, 120, 121, 159, 160, 161}) {
+        for (size_t k{0}; k < Consensus::WORK_KIND_COUNT; ++k) {
+            BOOST_CHECK(Consensus::WorkKindAt(k)->EnabledAt(h));
+        }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(main_interval_and_halving_bounds)
 {
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
-    int64_t nLastRetargetTime = 1263163443; // NOTE: Not an actual block time
-    CBlockIndex pindexLast;
-    pindexLast.nHeight = 47039;
-    pindexLast.nTime = 1269211443;  // Block #46367
-    pindexLast.nBits = 0x1c387f6f;
-    unsigned int expected_nbits = 0x1d00e1fdU;
-    BOOST_CHECK_EQUAL(CalculateNextWorkRequired(&pindexLast, nLastRetargetTime, chainParams->GetConsensus()), expected_nbits);
-    BOOST_CHECK(PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, expected_nbits));
-    // Test that increasing nbits further would not be a PermittedDifficultyTransition.
-    unsigned int invalid_nbits = expected_nbits+1;
-    BOOST_CHECK(!PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, invalid_nbits));
+    const auto& params = chainParams->GetConsensus();
+    BOOST_CHECK_EQUAL(params.DifficultyAdjustmentInterval(), 1680);
+    BOOST_CHECK_EQUAL(params.nSubsidyHalvingInterval, 210000);
+    auto blocks = MakeIndexChain(1681, 1'000'000, 1, Consensus::WorkScaleOne());
+    Consensus::Params live = params;
+    live.fPowNoRetargeting = false;
+    const uint256 s{Consensus::NextWorkScale(&blocks[1679], live)};
+    BOOST_CHECK_EQUAL(UintToArith256(s), 4);
+    BOOST_CHECK_EQUAL(UintToArith256(Consensus::NextWorkScale(&blocks[1678], live)), 1);
+    for (int h : {209999, 210000, 210001}) {
+        for (size_t k{0}; k < Consensus::WORK_KIND_COUNT; ++k) {
+            BOOST_CHECK(Consensus::WorkKindAt(k)->EnabledAt(h));
+            (void)Consensus::CompactTargetForScale(s, params, k);
+        }
+    }
 }
 
 BOOST_AUTO_TEST_CASE(CheckProofOfWork_test_negative_target)
@@ -183,11 +306,11 @@ void sanity_check_chainparams(const ArgsManager& args, ChainType chain_type)
     BOOST_CHECK(!over);
     BOOST_CHECK(UintToArith256(consensus.powLimit) >= pow_compact);
 
-    // check max target * 4*nPowTargetTimespan doesn't overflow -- see pow.cpp:CalculateNextWorkRequired()
+    // ScaleAfterWindow multiplies S by expected timespan. Genesis S=1 fits.
     if (!consensus.fPowNoRetargeting) {
-        arith_uint256 targ_max{UintToArith256(uint256{"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"})};
-        targ_max /= consensus.nPowTargetTimespan*4;
-        BOOST_CHECK(UintToArith256(consensus.powLimit) < targ_max);
+        const arith_uint256 one{1};
+        const arith_uint256 max{~arith_uint256(0)};
+        BOOST_CHECK(one <= max / arith_uint256{static_cast<uint64_t>(consensus.nPowTargetTimespan)});
     }
 }
 
@@ -216,67 +339,98 @@ BOOST_AUTO_TEST_CASE(ChainParams_SIGNET_sanity)
     sanity_check_chainparams(*m_node.args, ChainType::SIGNET);
 }
 
-/* The one-off PoW-change target shift must be accepted by the headers-sync
- * anti-DoS gate, without loosening it in any other case. */
-BOOST_AUTO_TEST_CASE(powchange_permitted_difficulty_transition)
+BOOST_AUTO_TEST_CASE(permitted_difficulty_transition_gate)
 {
     const auto chainParams = CreateChainParams(*m_node.args, ChainType::MAIN);
-    Consensus::Params params = chainParams->GetConsensus();
+    const auto& params = chainParams->GetConsensus();
+    const uint32_t vb{HeaderForKind(Consensus::WorkKindTag::BLAKE2B).GetCompleteVersion()};
+    const uint32_t vfp8{HeaderForKind(Consensus::WorkKindTag::FP8_GYM).GetCompleteVersion()};
+    BOOST_CHECK(!PermittedDifficultyTransition(params, 1, 0x1e00ffff, vb, 0x1d00ffff, vb));
+    BOOST_CHECK(PermittedDifficultyTransition(params, 1, 0x1e00ffff, vb, 0x1e00ffff, vb));
+    const int64_t interval{params.DifficultyAdjustmentInterval()};
+    BOOST_CHECK(PermittedDifficultyTransition(params, interval, 0x1e00ffff, vb, 0x1e00ffff, vb));
+    BOOST_CHECK(!PermittedDifficultyTransition(params, interval, 0x1e00ffff, vb, 0x1c00ffff, vb));
+    const unsigned blake_s1{Consensus::LookupWorkKind(Consensus::WorkKindTag::BLAKE2B)->ExpectedNBits(Consensus::WorkScaleOne(), params)};
+    const unsigned fp8_s1{Consensus::LookupWorkKind(Consensus::WorkKindTag::FP8_GYM)->ExpectedNBits(Consensus::WorkScaleOne(), params)};
+    BOOST_CHECK_NE(blake_s1, fp8_s1);
+    BOOST_CHECK(PermittedDifficultyTransition(params, 1, blake_s1, vb, fp8_s1, vfp8));
+    const unsigned powlim{UintToArith256(params.powLimit).GetCompact()};
+    BOOST_CHECK(!PermittedDifficultyTransition(params, 1, blake_s1, vb, powlim, vb));
+    BOOST_CHECK(!PermittedDifficultyTransition(params, 1, fp8_s1, vfp8, powlim, vfp8));
+    BOOST_CHECK(!Consensus::ScaleFromNBits(powlim, static_cast<size_t>(Consensus::WorkKindTag::BLAKE2B), params));
+    BOOST_CHECK(!Consensus::ScaleFromNBits(powlim, static_cast<size_t>(Consensus::WorkKindTag::FP8_GYM), params));
+}
 
-    // The gate is only live on networks without min-difficulty blocks.
-    BOOST_CHECK(!params.fPowAllowMinDifficultyBlocks);
-
-    const uint32_t tip_nbits = 0x1702905c;
-    CBlockIndex pindexLast;
-    pindexLast.nHeight = 800000;
-    pindexLast.nBits = tip_nbits;
-    // 800001 is not a retarget boundary.
-    BOOST_CHECK((pindexLast.nHeight + 1) % params.DifficultyAdjustmentInterval() != 0);
-
-    CBlockHeader block;
-
-    // With the fork unset, behaviour is unchanged in both directions.
-    const unsigned int inert_nbits = GetNextWorkRequired(&pindexLast, &block, params);
-    BOOST_CHECK_EQUAL(inert_nbits, tip_nbits);
-    BOOST_CHECK(PermittedDifficultyTransition(params, pindexLast.nHeight + 1, tip_nbits, inert_nbits));
-
-    // Schedule the fork; the next block is at the Blake2bHeight.
-    params.Blake2bHeight = pindexLast.nHeight + 1;
-
-    const unsigned int fork_nbits = GetNextWorkRequired(&pindexLast, &block, params);
-    if (params.Blake2bTargetShift == 0) {
-        BOOST_CHECK_EQUAL(fork_nbits, tip_nbits);
-    } else {
-        BOOST_CHECK_NE(fork_nbits, tip_nbits);
+BOOST_AUTO_TEST_CASE(scale_from_nbits_round_trip_and_rejects_easier_than_t0)
+{
+    const std::array chains{ChainType::MAIN, ChainType::TESTNET};
+    for (const ChainType chain : chains) {
+        const auto params{CreateChainParams(*m_node.args, chain)->GetConsensus()};
+        for (size_t k{0}; k < Consensus::WORK_KIND_COUNT; ++k) {
+            const Consensus::WorkKind* kind{Consensus::WorkKindAt(k)};
+            BOOST_REQUIRE(kind);
+            const arith_uint256 t0{UintToArith256(params.powT0[k])};
+            const arith_uint256 cap{UintToArith256(params.powLimitKind[k])};
+            for (unsigned s{1}; s <= 32; ++s) {
+                const uint256 scale{ArithToUint256(arith_uint256{s})};
+                const unsigned nbits{kind->ExpectedNBits(scale, params)};
+                const auto rec{Consensus::ScaleFromNBits(nbits, k, params)};
+                BOOST_REQUIRE_MESSAGE(rec, "kind " << k << " S=" << s << " chain " << static_cast<int>(chain));
+                BOOST_CHECK_EQUAL(UintToArith256(*rec), s);
+            }
+            // T0+1 is usually the same compact as T0. Double the target so
+            // decode is actually easier, then require nullopt.
+            arith_uint256 easier{t0 << 1};
+            if (easier <= cap && easier > t0) {
+                bool neg{false};
+                bool ovf{false};
+                arith_uint256 decoded;
+                decoded.SetCompact(easier.GetCompact(), &neg, &ovf);
+                if (!neg && !ovf && decoded > t0) {
+                    BOOST_CHECK(!Consensus::ScaleFromNBits(easier.GetCompact(), k, params));
+                }
+            }
+            bool cap_neg{false};
+            bool cap_ovf{false};
+            arith_uint256 cap_decoded;
+            cap_decoded.SetCompact(cap.GetCompact(), &cap_neg, &cap_ovf);
+            if (!cap_neg && !cap_ovf && cap_decoded > t0) {
+                BOOST_CHECK(!Consensus::ScaleFromNBits(cap.GetCompact(), k, params));
+            }
+        }
     }
+}
 
-    // This is the call headerssync.cpp makes for every header in IBD. The
-    // shifted target is now accepted across the algorithm change.
-    BOOST_CHECK(PermittedDifficultyTransition(params, pindexLast.nHeight + 1, tip_nbits, fork_nbits));
+BOOST_AUTO_TEST_CASE(headers_match_expected_nbits)
+{
+    const auto chainParams = CreateChainParams(*m_node.args, ChainType::REGTEST);
+    const auto& params = chainParams->GetConsensus();
+    CBlockIndex genesis;
+    genesis.nHeight = 0;
+    genesis.nTime = 1'000'000;
+    genesis.nWorkScale = Consensus::WorkScaleOne();
+    genesis.nBits = 0x207fffff;
 
-    // ...but only that exact value: an extra 2^4 of slack is still rejected.
-    arith_uint256 too_easy;
-    too_easy.SetCompact(fork_nbits);
-    too_easy <<= 4;
-    BOOST_CHECK(!PermittedDifficultyTransition(params, pindexLast.nHeight + 1, tip_nbits, too_easy.GetCompact()));
+    CBlockHeader header{HeaderForKind(Consensus::WorkKindTag::BLAKE2B)};
+    header.nBits = GetNextWorkRequired(&genesis, &header, params);
+    BOOST_CHECK(HeadersMatchExpectedNBits({&header, 1}, &genesis, params));
+    header.nBits = 0x1d00ffff;
+    BOOST_CHECK(!HeadersMatchExpectedNBits({&header, 1}, &genesis, params));
+}
 
-    // ...and only when the algorithm actually changes. Claiming the fork nBits
-    // between two pre-fork blocks is rejected when those bits differ (shift > 0)
-    // and permitted when they are the same (shift 0).
-    params.Blake2bHeight = pindexLast.nHeight + 2;
-    BOOST_CHECK_EQUAL(PermittedDifficultyTransition(params, pindexLast.nHeight + 1, tip_nbits, fork_nbits),
-                      params.Blake2bTargetShift == 0);
-
-    // At a retarget boundary the shift is permitted on top of the 4x window,
-    // and values beyond that window are still rejected.
-    const int64_t boundary_height = 798000;
-    BOOST_CHECK_EQUAL(boundary_height % params.DifficultyAdjustmentInterval(), 0);
-    params.Blake2bHeight = boundary_height;
-    BOOST_CHECK(PermittedDifficultyTransition(params, boundary_height, tip_nbits, fork_nbits));
-    arith_uint256 beyond_window;
-    beyond_window.SetCompact(fork_nbits);
-    beyond_window <<= 3;
-    BOOST_CHECK(!PermittedDifficultyTransition(params, boundary_height, tip_nbits, beyond_window.GetCompact()));
+BOOST_AUTO_TEST_CASE(check_proof_of_work_batch_fail_fast)
+{
+    const auto chainParams = CreateChainParams(*m_node.args, ChainType::REGTEST);
+    const auto& params = chainParams->GetConsensus();
+    CBlockHeader ok{HeaderForKind(Consensus::WorkKindTag::BLAKE2B)};
+    ok.nBits = 0x207fffff;
+    BOOST_REQUIRE(GrindProofOfWork(ok, params));
+    CBlockHeader bad{ok};
+    bad.m_header_v2 = false;
+    std::vector<CBlockHeader> headers{ok, bad};
+    BOOST_CHECK(CheckProofOfWorkBatch({}, params));
+    BOOST_CHECK(CheckProofOfWorkBatch({&ok, 1}, params));
+    BOOST_CHECK(!CheckProofOfWorkBatch(headers, params));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

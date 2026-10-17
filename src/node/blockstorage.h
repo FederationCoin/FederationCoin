@@ -77,13 +77,17 @@ using kernel::BlockTreeDB;
 static const unsigned int BLOCKFILE_CHUNK_SIZE = 0x1000000; // 16 MiB
 /** The pre-allocation chunk size for rev?????.dat files (since 0.8) */
 static const unsigned int UNDOFILE_CHUNK_SIZE = 0x100000; // 1 MiB
-/** The maximum size of a blk?????.dat file (since 0.8) */
-static const unsigned int MAX_BLOCKFILE_SIZE = 0x8000000; // 128 MiB
+/** Preferred rotation window for a blk?????.dat file. Not a consensus
+ *  reject. A single legal block larger than this still stores. */
+static constexpr uint64_t MAX_BLOCKFILE_SIZE = 0x8000000; // 128 MiB
 
-/** Size of header written by WriteBlock before a serialized CBlock (8 bytes) */
-static constexpr uint32_t BLOCK_SERIALIZATION_HEADER_SIZE{std::tuple_size_v<MessageStartChars> + sizeof(unsigned int)};
+/** On-disk length after MessageStart. uint64 so a legal grown block fits. */
+using BlockDiskLength = uint64_t;
 
-/** Total overhead when writing undo data: header (8 bytes) plus checksum (32 bytes) */
+/** Size of header written by WriteBlock before a serialized CBlock (magic + 8-byte length) */
+static constexpr uint32_t BLOCK_SERIALIZATION_HEADER_SIZE{std::tuple_size_v<MessageStartChars> + sizeof(BlockDiskLength)};
+
+/** Total overhead when writing undo data: header plus checksum (32 bytes) */
 static constexpr uint32_t UNDO_DATA_DISK_OVERHEAD{BLOCK_SERIALIZATION_HEADER_SIZE + uint256::size()};
 
 // Because validation code takes pointers to the map's CBlockIndex objects, if
@@ -182,9 +186,9 @@ private:
      * The nAddSize argument passed to this function should include not just the size of the serialized CBlock, but also the size of
      * separator fields (BLOCK_SERIALIZATION_HEADER_SIZE).
      */
-    [[nodiscard]] FlatFilePos FindNextBlockPos(unsigned int nAddSize, unsigned int nHeight, uint64_t nTime);
+    [[nodiscard]] FlatFilePos FindNextBlockPos(uint64_t nAddSize, unsigned int nHeight, uint64_t nTime);
     [[nodiscard]] bool FlushChainstateBlockFile(int tip_height);
-    bool FindUndoPos(BlockValidationState& state, int nFile, FlatFilePos& pos, unsigned int nAddSize);
+    bool FindUndoPos(BlockValidationState& state, int nFile, FlatFilePos& pos, uint64_t nAddSize);
 
     AutoFile OpenUndoFile(const FlatFilePos& pos, bool fReadOnly = false) const;
 

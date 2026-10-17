@@ -39,7 +39,7 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         self.num_nodes = 2
         # whitelist peers to speed up tx relay / mempool sync
         self.noban_tx_relay = True
-        self.extra_args = [["-addresstype=secp"],
+        self.extra_args = [["-addresstype=bech32"],
                            ["-addresstype=bech32", "-keypool=5"]
                           ]
         self.setup_clean_chain = True
@@ -301,11 +301,11 @@ class ImportDescriptorsTest(BitcoinTestFramework):
         assert_equal(wpriv.getwalletinfo()['keypoolsize'], 0)
         assert_raises_rpc_error(-5, 'Unknown address type', wpriv.getnewaddress, '', 'p2sh-segwit')
         assert_equal(wpriv.getwalletinfo()['keypoolsize_hd_internal'], 21)
-        wpriv.getrawchangeaddress('secp')
+        wpriv.getrawchangeaddress('bech32')
 
         self.test_importdesc({**range_request, "range": [0, 20], "internal": False}, wallet=wpriv, success=True)
         assert_equal(wpriv.getwalletinfo()['keypoolsize'], 21)
-        wpriv.getnewaddress('', 'secp')
+        wpriv.getnewaddress('', 'bech32')
         assert_equal(wpriv.getwalletinfo()['keypoolsize_hd_internal'], 0)
         assert_raises_rpc_error(-5, 'Unknown address type', wpriv.getrawchangeaddress, 'p2sh-segwit')
 
@@ -342,8 +342,8 @@ class ImportDescriptorsTest(BitcoinTestFramework):
 
         assert_equal(w1.getwalletinfo()['keypoolsize'], 5 * 3)
         for i, expected_addr in enumerate(addresses):
-            received_addr = w1.getnewaddress('', 'secp')
-            assert_raises_rpc_error(-4, 'This wallet has no available keys', w1.getrawchangeaddress, 'secp')
+            received_addr = w1.getnewaddress('', 'bech32')
+            assert_raises_rpc_error(-4, 'This wallet has no available keys', w1.getrawchangeaddress, 'bech32')
             assert_equal(received_addr, expected_addr)
             bech32_addr_info = w1.getaddressinfo(received_addr)
             assert_equal(bech32_addr_info['desc'][:23], 'wpkh([80002067/0h/0h/{}]'.format(i))

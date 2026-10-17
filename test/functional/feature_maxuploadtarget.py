@@ -36,8 +36,9 @@ UPLOAD_TARGET_MB = 6400
 # Knots counted on a ~1MB block. These are those iteration counts.
 HISTORICAL_DOWNLOADS = 235
 NEW_BLOCK_DOWNLOADS = 800
-# OutboundTargetReached reserves (time left / 10 minutes) * this.
-MAX_BLOCK_SERIALIZED_SIZE = 32_000_000
+# OutboundTargetReached reserves (time left / 12 minutes) * one floor-sized
+# block. At the flex floor that is 2,400,000 bytes.
+MAX_BLOCK_SERIALIZED_SIZE = 2_400_000
 
 
 class TestP2PConn(P2PInterface):
@@ -131,17 +132,16 @@ class MaxUploadTest(BitcoinTestFramework):
         # Start the 24h cycle, then move forward inside it so the reserve
         # shrinks to `periods` of MAX_BLOCK_SERIALIZED_SIZE.
         self.nodes[0].setmocktime(cycle_start)
-        probe = self.nodes[0].add_p2p_connection(TestP2PConn(), supports_v2_p2p=False)
+        probe = self.nodes[0].add_p2p_connection(TestP2PConn())
         probe.sync_with_ping()
-        self.nodes[0].setmocktime(cycle_start + 24 * 60 * 60 - periods * 10 * 60)
+        self.nodes[0].setmocktime(cycle_start + 24 * 60 * 60 - periods * 12 * 60)
         self.nodes[0].disconnect_p2ps()
 
         # p2p_conns[0] requests old blocks, [1] requests the new block,
-        # [2] checks that the counters reset. v2 transport is left off:
-        # the Python ChaCha20 implementation is too slow for this many round trips.
+        # [2] checks that the counters reset. Application is v3; v1 is not offered.
         p2p_conns = []
         for _ in range(3):
-            p2p_conns.append(self.nodes[0].add_p2p_connection(TestP2PConn(), supports_v2_p2p=False))
+            p2p_conns.append(self.nodes[0].add_p2p_connection(TestP2PConn()))
         self.assert_uploadtarget_state(target_reached=False, serve_historical_blocks=True)
 
         getdata_request = msg_getdata()
@@ -200,7 +200,7 @@ class MaxUploadTest(BitcoinTestFramework):
         reset_start = cycle_start + 24 * 60 * 60 + 1
         self.nodes[0].setmocktime(reset_start)
         p2p_conns[2].sync_with_ping()
-        self.nodes[0].setmocktime(reset_start + 24 * 60 * 60 - periods * 10 * 60)
+        self.nodes[0].setmocktime(reset_start + 24 * 60 * 60 - periods * 12 * 60)
         p2p_conns[2].sync_with_ping()
         self.assert_uploadtarget_state(target_reached=False, serve_historical_blocks=True)
         p2p_conns[2].send_and_ping(getdata_request)
@@ -217,7 +217,7 @@ class MaxUploadTest(BitcoinTestFramework):
         self.assert_uploadtarget_state(target_reached=False, serve_historical_blocks=False)
 
         # Reconnect to self.nodes[0]
-        peer = self.nodes[0].add_p2p_connection(TestP2PConn(), supports_v2_p2p=False)
+        peer = self.nodes[0].add_p2p_connection(TestP2PConn())
 
         # Sending mempool message shouldn't disconnect peer, as total limit isn't reached yet
         peer.send_and_ping(msg_mempool())

@@ -329,6 +329,9 @@ enum ServiceFlags : uint64_t {
     // NODE_P2P_V2 means the node supports BIP324 transport
     NODE_P2P_V2 = (1 << 11),
 
+    // NODE_P2P_V3: FCN-P2P-v3 application frames after BIP324, from genesis.
+    NODE_P2P_V3 = (1 << 14),
+
     // NODE_UTREEXO means the node can provide utreexo inclusion proofs for new and otherwise available blocks
     NODE_UTREEXO = (1 << 12),
 
@@ -370,7 +373,7 @@ std::vector<std::string> serviceFlagsToStr(uint64_t flags);
  * should be updated appropriately to filter for nodes with
  * desired service flags (compatible with our new flags).
  */
-constexpr ServiceFlags SeedsServiceFlags() { return ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_REDUCED_DATA | NODE_BLAKE2B); }
+constexpr ServiceFlags SeedsServiceFlags() { return ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_BLAKE2B); }
 
 /**
  * Checks if a peer with the given service flags may be capable of having a

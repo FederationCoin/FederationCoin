@@ -2,10 +2,15 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <common/sighash_rules.h>
 #include <pubkey.h>
+#include <key.h>
 #include <key_io.h>
 #include <script/descriptor.h>
+#include <script/modern_sig.h>
+#include <script/script.h>
 #include <script/sign.h>
+#include <script/solver.h>
 #include <test/util/chain_encoding.h>
 #include <test/util/setup_common.h>
 #include <util/strencodings.h>
@@ -13,6 +18,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <array>
 #include <optional>
 #include <string>
 #include <vector>
@@ -210,8 +216,8 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
 
     // Check that the correct OutputType is inferred. wpkh() is the secp receive kind.
     if (prv.starts_with("wpkh(")) {
-        BOOST_CHECK(parse_priv->GetOutputType() == OutputType::SECP);
-        BOOST_CHECK(parse_pub->GetOutputType() == OutputType::SECP);
+        BOOST_CHECK(parse_priv->GetOutputType() == OutputType::BECH32);
+        BOOST_CHECK(parse_pub->GetOutputType() == OutputType::BECH32);
     } else {
         BOOST_CHECK(parse_priv->GetOutputType() == type);
         BOOST_CHECK(parse_pub->GetOutputType() == type);
@@ -402,10 +408,12 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
                     spend.vin.resize(1);
                     spend.vin[0].nSequence = spender_nsequence;
                     spend.vout.resize(1);
-                    std::vector<CTxOut> utxos(1);
+                    const CAmount amt{1};
+                    std::vector<CTxOut> utxos{CTxOut(amt, spks[n])};
                     PrecomputedTransactionData txdata;
                     txdata.Init(spend, std::move(utxos), /*force=*/true);
-                    MutableTransactionSignatureCreator creator{spend, 0, CAmount{0}, &txdata, SIGHASH_DEFAULT};
+                    MutableTransactionSignatureCreator creator{spend, 0, amt, &txdata, SIGHASH_ALL | SIGHASH_UNIFIED};
+                    creator.SetSighashRules(SighashRules::UNIFIED);
                     SignatureData sigdata;
                     // We assume there is no collision between the hashes (eg h1=SHA256(SHA256(x)) and h2=SHA256(x))
                     sigdata.sha256_preimages = preimages;
@@ -413,7 +421,24 @@ void DoCheck(std::string prv, std::string pub, const std::string& norm_pub, int 
                     sigdata.ripemd160_preimages = preimages;
                     sigdata.hash160_preimages = preimages;
                     const auto prod_sig_res = ProduceSignature(FlatSigningProvider{keys_priv}.Merge(FlatSigningProvider{script_provider}), creator, spks[n], sigdata);
-                    BOOST_CHECK_MESSAGE(prod_sig_res == !(flags & SIGNABLE_FAILS), prv);
+                    bool expect_ok = !(flags & SIGNABLE_FAILS);
+                    int witver{0};
+                    std::vector<unsigned char> witprog;
+                    auto is_v0_32 = [&](const CScript& s) {
+                        return s.IsWitnessProgram(witver, witprog) && witver == 0 && witprog.size() == 32;
+                    };
+                    if (is_v0_32(spks[n])) {
+                        expect_ok = false;
+                    } else if (spks[n].IsPayToScriptHash()) {
+                        std::vector<std::vector<unsigned char>> sols;
+                        CScript redeem;
+                        if (Solver(spks[n], sols) == TxoutType::SCRIPTHASH &&
+                            script_provider.GetCScript(CScriptID{uint160(sols[0])}, redeem) &&
+                            is_v0_32(redeem)) {
+                            expect_ok = false;
+                        }
+                    }
+                    BOOST_CHECK_MESSAGE(prod_sig_res == expect_ok, prv);
                 }
 
                 /* Infer a descriptor from the generated script, and verify its solvability and that it roundtrips. */
@@ -1109,6 +1134,163 @@ BOOST_AUTO_TEST_CASE(descriptor_test)
     CheckInferDescriptor("76a914a31725c74421fadc50d35520ab8751ed120af80588ac", "pkh(04c56fe4a92d401bcbf1b3dfbe4ac3dac5602ca155a3681497f02c1b9a733b92d704e2da6ec4162e4846af9236ef4171069ac8b7f8234a8405b6cadd96f34f5a31)", {}, {{"04c56fe4a92d401bcbf1b3dfbe4ac3dac5602ca155a3681497f02c1b9a733b92d704e2da6ec4162e4846af9236ef4171069ac8b7f8234a8405b6cadd96f34f5a31", ""}});
     // Infer pk() from p2pk with uncompressed key
     CheckInferDescriptor("4104032540df1d3c7070a8ab3a9cdd304dfc7fd1e6541369c53c4c3310b2537d91059afc8b8e7673eb812a32978dabb78c40f2e423f7757dca61d11838c7aeeb5220ac", "pk(04032540df1d3c7070a8ab3a9cdd304dfc7fd1e6541369c53c4c3310b2537d91059afc8b8e7673eb812a32978dabb78c40f2e423f7757dca61d11838c7aeeb5220)", {}, {{"04032540df1d3c7070a8ab3a9cdd304dfc7fd1e6541369c53c4c3310b2537d91059afc8b8e7673eb812a32978dabb78c40f2e423f7757dca61d11838c7aeeb5220", ""}});
+}
+
+BOOST_AUTO_TEST_CASE(mldsa_expand_is_public_and_cached)
+{
+    const CKey key{GenerateRandomKey()};
+    const std::string desc_str{"mldsa87(" + EncodeSecret(key) + ")"};
+    FlatSigningProvider keys;
+    std::string error;
+    auto parsed{Parse(desc_str, keys, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed.size(), 1U);
+
+    FlatSigningProvider out;
+    std::vector<CScript> scripts;
+    DescriptorCache cache;
+    BOOST_REQUIRE(parsed[0]->Expand(0, keys, scripts, out, &cache));
+    BOOST_REQUIRE_EQUAL(scripts.size(), 1U);
+    BOOST_CHECK(out.keys.empty());
+    BOOST_CHECK(out.mldsa_seeds.empty());
+
+    FlatSigningProvider priv;
+    parsed[0]->ExpandPrivate(0, keys, priv);
+    BOOST_CHECK_EQUAL(priv.keys.size(), 1U);
+    BOOST_REQUIRE_EQUAL(priv.mldsa_seeds.size(), 1U);
+
+    FlatSigningProvider from_cache;
+    std::vector<CScript> cached_scripts;
+    BOOST_REQUIRE(parsed[0]->ExpandFromCache(0, cache, cached_scripts, from_cache));
+    BOOST_CHECK(scripts == cached_scripts);
+    BOOST_CHECK(from_cache.keys.empty());
+    BOOST_CHECK(from_cache.mldsa_seeds.empty());
+
+    const std::string desc44{"mldsa(" + EncodeSecret(key) + ")"};
+    FlatSigningProvider keys44;
+    auto parsed44{Parse(desc44, keys44, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed44.size(), 1U);
+    FlatSigningProvider out44, cache_out44;
+    std::vector<CScript> scripts44, cached44;
+    DescriptorCache cache44;
+    BOOST_REQUIRE(parsed44[0]->Expand(0, keys44, scripts44, out44, &cache44));
+    BOOST_CHECK(out44.keys.empty());
+    BOOST_REQUIRE(parsed44[0]->ExpandFromCache(0, cache44, cached44, cache_out44));
+    BOOST_CHECK(scripts44 == cached44);
+}
+
+BOOST_AUTO_TEST_CASE(mldsapolicy_expand_and_exact_t)
+{
+    const CKey k1{GenerateRandomKey()};
+    const CKey k2{GenerateRandomKey()};
+    const CKey k3{GenerateRandomKey()};
+    std::string error;
+    FlatSigningProvider ignore;
+    BOOST_CHECK(Parse("mldsapolicy(2," + EncodeSecret(k1) + ")", ignore, error, /*require_checksum=*/false).empty());
+    BOOST_CHECK(Parse("mldsapolicy(0," + EncodeSecret(k1) + "," + EncodeSecret(k2) + ")", ignore, error, /*require_checksum=*/false).empty());
+
+    const std::string desc{"mldsapolicy(2," + EncodeSecret(k1) + "," + EncodeSecret(k2) + "," + EncodeSecret(k3) + ")"};
+    FlatSigningProvider keys;
+    auto parsed{Parse(desc, keys, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed.size(), 1U);
+    BOOST_CHECK_EQUAL(*parsed[0]->GetOutputType(), OutputType::DILITHIUM44);
+
+    FlatSigningProvider out;
+    std::vector<CScript> scripts;
+    DescriptorCache cache;
+    BOOST_REQUIRE(parsed[0]->Expand(0, keys, scripts, out, &cache));
+    BOOST_REQUIRE_EQUAL(scripts.size(), 1U);
+    BOOST_CHECK(out.mldsa_seeds.empty());
+    const auto policy{MatchModernPolicy(scripts[0])};
+    BOOST_REQUIRE(policy);
+    BOOST_REQUIRE(policy->kind);
+    BOOST_CHECK_EQUAL(policy->threshold, 2);
+    BOOST_CHECK_EQUAL(policy->hashes.size(), 3U);
+    BOOST_CHECK(IsKnownModernSigTemplate(scripts[0]));
+    FlatSigningProvider priv;
+    parsed[0]->ExpandPrivate(0, keys, priv);
+    BOOST_CHECK_EQUAL(priv.mldsa_seeds.size(), 3U);
+
+    FlatSigningProvider from_cache;
+    std::vector<CScript> cached_scripts;
+    BOOST_REQUIRE(parsed[0]->ExpandFromCache(0, cache, cached_scripts, from_cache));
+    BOOST_CHECK(scripts == cached_scripts);
+}
+
+BOOST_AUTO_TEST_CASE(mldsapolicy_kdf_per_slot_xprv)
+{
+    std::array<std::byte, 32> seed_a{};
+    std::array<std::byte, 32> seed_b{};
+    seed_a[0] = std::byte{0xa1};
+    seed_b[0] = std::byte{0xb2};
+    CExtKey a;
+    CExtKey b;
+    a.SetSeed(seed_a);
+    b.SetSeed(seed_b);
+    FlatSigningProvider keys;
+    keys.keys[a.key.GetPubKey().GetID()] = a.key;
+    keys.keys[b.key.GetPubKey().GetID()] = b.key;
+    keys.hd_seed.assign(32, 0x42);
+    std::string error;
+    const std::string desc{"mldsapolicy(1," + EncodeExtPubKey(a.Neuter()) + "/0/*," + EncodeExtPubKey(b.Neuter()) + "/0/*)"};
+    auto parsed{Parse(desc, keys, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed.size(), 1U);
+    FlatSigningProvider out;
+    std::vector<CScript> scripts;
+    BOOST_REQUIRE(parsed[0]->Expand(0, keys, scripts, out, nullptr));
+    BOOST_REQUIRE_EQUAL(scripts.size(), 1U);
+    const auto policy{MatchModernPolicy(scripts[0])};
+    BOOST_REQUIRE(policy);
+    BOOST_CHECK_EQUAL(policy->hashes.size(), 2U);
+    BOOST_CHECK(policy->hashes[0] != policy->hashes[1]);
+
+    FlatSigningProvider no_hd{keys};
+    no_hd.hd_seed.clear();
+    FlatSigningProvider out_no_hd;
+    std::vector<CScript> scripts_no_hd;
+    BOOST_REQUIRE(parsed[0]->Expand(0, no_hd, scripts_no_hd, out_no_hd, nullptr));
+    BOOST_CHECK(scripts == scripts_no_hd);
+
+    CExtKey c;
+    CExtKey d;
+    std::array<std::byte, 32> seed_c{};
+    std::array<std::byte, 32> seed_d{};
+    seed_c[0] = std::byte{0xc3};
+    seed_d[0] = std::byte{0xd4};
+    c.SetSeed(seed_c);
+    d.SetSeed(seed_d);
+    FlatSigningProvider other;
+    other.keys[c.key.GetPubKey().GetID()] = c.key;
+    other.keys[d.key.GetPubKey().GetID()] = d.key;
+    other.hd_seed.assign(32, 0x42);
+    const std::string desc_other{"mldsapolicy(1," + EncodeExtPubKey(c.Neuter()) + "/0/*," + EncodeExtPubKey(d.Neuter()) + "/0/*)"};
+    auto parsed_other{Parse(desc_other, other, error, /*require_checksum=*/false)};
+    BOOST_REQUIRE_EQUAL(parsed_other.size(), 1U);
+    FlatSigningProvider out_other;
+    std::vector<CScript> scripts_other;
+    BOOST_REQUIRE(parsed_other[0]->Expand(0, other, scripts_other, out_other, nullptr));
+    BOOST_REQUIRE_EQUAL(scripts_other.size(), 1U);
+    BOOST_CHECK(scripts[0] != scripts_other[0]);
+}
+
+BOOST_AUTO_TEST_CASE(mldsa_receive_and_change_diverge)
+{
+    const CKey seed_key{GenerateRandomKey()};
+    CExtKey master;
+    master.SetSeed(seed_key);
+    FlatSigningProvider keys;
+    keys.keys[master.key.GetPubKey().GetID()] = master.key;
+    std::string error;
+    auto recv = Parse("mldsa87(" + EncodeExtPubKey(master.Neuter()) + "/0/*)", keys, error, /*require_checksum=*/false);
+    auto change = Parse("mldsa87(" + EncodeExtPubKey(master.Neuter()) + "/1/*)", keys, error, /*require_checksum=*/false);
+    BOOST_REQUIRE_EQUAL(recv.size(), 1U);
+    BOOST_REQUIRE_EQUAL(change.size(), 1U);
+    FlatSigningProvider out_r, out_c;
+    std::vector<CScript> s_r, s_c;
+    BOOST_REQUIRE(recv[0]->Expand(0, keys, s_r, out_r, nullptr));
+    BOOST_REQUIRE(change[0]->Expand(0, keys, s_c, out_c, nullptr));
+    BOOST_REQUIRE_EQUAL(s_r.size(), 1U);
+    BOOST_REQUIRE_EQUAL(s_c.size(), 1U);
+    BOOST_CHECK(s_r[0] != s_c[0]);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

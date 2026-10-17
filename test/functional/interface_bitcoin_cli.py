@@ -98,7 +98,7 @@ class TestBitcoinCli(BitcoinTestFramework):
         self.log.info("Test -netinfo local services are moved to header if details are requested")
         det = self.nodes[0].cli('-netinfo', '1').send_cli().splitlines()
         self.log.debug(f"Test -netinfo 1 header output: {det[0]}")
-        assert re.match(rf"^{re.escape(self.config['environment']['CLIENT_NAME'])} client.+services nwl2?4B$", det[0])
+        assert re.match(rf"^{re.escape(self.config['environment']['CLIENT_NAME'])} client.+services nwl[23]?4B$", det[0])
         assert not any(line.startswith("Local services:") for line in det)
 
     def run_test(self):
@@ -278,8 +278,8 @@ class TestBitcoinCli(BitcoinTestFramework):
             rpcwallet3 = f'-rpcwallet={wallets[2]}'
             w1.walletpassphrase(password, self.rpc_timeout)
             w2.encryptwallet(password)
-            w1.sendtoaddress(w2.getnewaddress("", "secp"), Decimal(9))
-            w1.sendtoaddress(w3.getnewaddress("", "secp"), Decimal(31))
+            w1.sendtoaddress(w2.getnewaddress("", "bech32"), Decimal(9))
+            w1.sendtoaddress(w3.getnewaddress("", "bech32"), Decimal(31))
 
             # Mine a block to confirm; adds a block reward (50 BTC) to the default wallet.
             self.generate(self.nodes[0], 1)

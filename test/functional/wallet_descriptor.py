@@ -101,7 +101,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         assert addr_info['desc'].startswith('mldsa(')
         assert_equal(addr_info['hdkeypath'], 'm/44h/1h/0h/0/0')
 
-        addr = self.nodes[0].getnewaddress("", "secp")
+        addr = self.nodes[0].getnewaddress("", "bech32")
         addr_info = self.nodes[0].getaddressinfo(addr)
         assert addr_info['desc'].startswith('wpkh(')
         assert_equal(addr_info['hdkeypath'], 'm/84h/1h/0h/0/0')
@@ -143,7 +143,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         # Make sure things are disabled
         self.log.info("Test disabled RPCs")
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importprivkey, "a8Y9zSHr5MiVY3XG2TPPoMayo1i1jXLzueVTQcpE3h3gC1R2vHAd")
-        secp_info = send_wrpc.getaddressinfo(send_wrpc.getnewaddress("", "secp"))
+        secp_info = send_wrpc.getaddressinfo(send_wrpc.getnewaddress("", "bech32"))
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importpubkey, secp_info["pubkey"])
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.importmulti, [])
         assert_raises_rpc_error(-4, "Only legacy wallets are supported by this command", recv_wrpc.rpc.addmultisigaddress, 1, [recv_wrpc.getnewaddress()])
@@ -182,7 +182,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
                 send_wrpc.getnewaddress()
             except JSONRPCException as e:
                 assert_equal(e.error["code"], -12)
-                assert "Keypool ran out" in e.error["message"]
+                assert "Wallet locked" in e.error["message"] or "Keypool ran out" in e.error["message"]
                 break
 
         self.log.info("Test that unlock is needed when deriving only hardened keys in an encrypted wallet")
@@ -197,7 +197,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         for _ in range(100):
             send_wrpc.getnewaddress(address_type='bech32')
         # This should now error
-        assert_raises_rpc_error(-12, "Keypool ran out, please call keypoolrefill first", send_wrpc.getnewaddress, '', 'bech32')
+        assert_raises_rpc_error(-12, "Wallet locked", send_wrpc.getnewaddress, '', 'bech32')
 
         self.log.info("Test born encrypted wallets")
         self.nodes[0].createwallet('desc_enc', False, False, 'pass', False, True)
@@ -222,10 +222,10 @@ class WalletDescriptorTest(BitcoinTestFramework):
 
         addr_types = [('mldsa87', False, 'mldsa87(', '87h/1h/0h'),
                       ('mldsa44', False, 'mldsa(', '44h/1h/0h'),
-                      ('secp', False, 'wpkh(', '84h/1h/0h'),
+                      ('bech32', False, 'wpkh(', '84h/1h/0h'),
                       ('mldsa87', True, 'mldsa87(', '87h/1h/0h'),
                       ('mldsa44', True, 'mldsa(', '44h/1h/0h'),
-                      ('secp', True, 'wpkh(', '84h/1h/0h')]
+                      ('bech32', True, 'wpkh(', '84h/1h/0h')]
 
         for addr_type, internal, desc_prefix, deriv_path in addr_types:
             int_str = 'internal' if internal else 'external'
@@ -262,7 +262,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
                 'internal': internal
             }])
 
-            if addr_type == 'secp':
+            if addr_type == 'bech32':
                 for i in range(0, 10):
                     if internal:
                         exp_addr = exp_rpc.getrawchangeaddress(address_type=addr_type)

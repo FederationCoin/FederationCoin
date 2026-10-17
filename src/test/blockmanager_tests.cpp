@@ -6,11 +6,14 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <clientversion.h>
+#include <limits>
 #include <node/blockstorage.h>
 #include <node/context.h>
 #include <node/kernel_notifications.h>
+#include <script/script.h>
 #include <script/solver.h>
 #include <primitives/block.h>
+#include <serialize.h>
 #include <util/chaintype.h>
 #include <validation.h>
 
@@ -19,6 +22,7 @@
 #include <test/util/setup_common.h>
 
 using node::BLOCK_SERIALIZATION_HEADER_SIZE;
+using node::BlockDiskLength;
 using node::BlockManager;
 using node::KernelNotifications;
 using node::MAX_BLOCKFILE_SIZE;
@@ -43,17 +47,16 @@ BOOST_AUTO_TEST_CASE(blockmanager_find_block_pos)
     // simulate adding a genesis block normally
     BOOST_CHECK_EQUAL(blockman.WriteBlock(params->GenesisBlock(), 0).nPos, BLOCK_SERIALIZATION_HEADER_SIZE);
     // simulate what happens during reindex
-    // simulate a well-formed genesis block being found at offset 8 in the blk00000.dat file
-    // the block is found at offset 8 because there is an 8 byte serialization header
-    // consisting of 4 magic bytes + 4 length bytes before each block in a well-formed blk file.
+    // simulate a well-formed genesis block being found at offset 12 in the blk00000.dat file
+    // the block is found at offset 12 because there is a 12 byte serialization header
+    // consisting of 4 magic bytes + 8 length bytes before each block in a well-formed blk file.
     const FlatFilePos pos{0, BLOCK_SERIALIZATION_HEADER_SIZE};
     blockman.UpdateBlockInfo(params->GenesisBlock(), 0, pos);
     // now simulate what happens after reindex for the first new block processed
     // the actual block contents don't matter, just that it's a block.
     // verify that the write position is at offset 0x12d.
     // this is a check to make sure that https://github.com/bitcoin/bitcoin/issues/21379 does not recur
-    // 8 bytes (for serialization header) + 285 (for serialized genesis block) = 293
-    // add another 8 bytes for the second block's serialization header and we get 293 + 8 = 301
+    // 12 bytes (for serialization header) + genesis + 12 bytes for the second header
     FlatFilePos actual{blockman.WriteBlock(params->GenesisBlock(), 1)};
     BOOST_CHECK_EQUAL(actual.nPos, BLOCK_SERIALIZATION_HEADER_SIZE + ::GetSerializeSize(TX_WITH_WITNESS(params->GenesisBlock())) + BLOCK_SERIALIZATION_HEADER_SIZE);
 }
@@ -65,7 +68,7 @@ BOOST_FIXTURE_TEST_CASE(blockmanager_scan_unlink_already_pruned_files, TestChain
     auto& blockman = chainman->m_blockman;
     const CBlockIndex* old_tip{WITH_LOCK(chainman->GetMutex(), return chainman->ActiveChain().Tip())};
     WITH_LOCK(chainman->GetMutex(), blockman.GetBlockFileInfo(old_tip->GetBlockPos().nFile)->nSize = MAX_BLOCKFILE_SIZE);
-    CreateAndProcessBlock({}, GetScriptForDestination(PKHash(coinbaseKey.GetPubKey())));
+    CreateAndProcessBlock({}, GetScriptForDestination(WitnessV0KeyHash(coinbaseKey.GetPubKey())));
 
     // Prune the older block file, but don't unlink it
     int file_number;
@@ -215,6 +218,74 @@ BOOST_AUTO_TEST_CASE(blockmanager_flush_block_file)
     // Block 2 was not overwritten:
     blockman.ReadBlock(read_block, pos2);
     BOOST_CHECK_EQUAL(read_block.nVersion, 2);
+}
+
+BOOST_AUTO_TEST_CASE(blockmanager_uint64_disk_prefix)
+{
+    BOOST_CHECK_EQUAL(BLOCK_SERIALIZATION_HEADER_SIZE, 12U);
+    BOOST_CHECK_EQUAL(sizeof(BlockDiskLength), 8U);
+
+    const auto params{CreateChainParams(ArgsManager{}, ChainType::MAIN)};
+    KernelNotifications notifications{Assert(m_node.shutdown_request), m_node.exit_status, *Assert(m_node.warnings)};
+    const BlockManager::Options blockman_opts{
+        .chainparams = *params,
+        .blocks_dir = m_args.GetBlocksDirPath(),
+        .notifications = notifications,
+        .block_tree_db_params = DBParams{
+            .path = m_args.GetDataDirNet() / "blocks" / "index",
+            .cache_bytes = 0,
+        },
+    };
+    BlockManager blockman{*Assert(m_node.shutdown_signal), blockman_opts};
+
+    const CBlock& genesis{params->GenesisBlock()};
+    const FlatFilePos gen_pos{blockman.WriteBlock(genesis, 0)};
+    std::vector<uint8_t> gen_raw;
+    BOOST_REQUIRE(blockman.ReadRawBlock(gen_raw, gen_pos));
+    BOOST_CHECK_EQUAL(gen_raw.size(), ::GetSerializeSize(TX_WITH_WITNESS(genesis)));
+
+    CBlock large;
+    large.m_header_v2 = true;
+    CMutableTransaction large_tx;
+    large_tx.vin.resize(1);
+    large_tx.vin[0].prevout.SetNull();
+    large_tx.vin[0].scriptSig.resize(MAX_SIZE + 1);
+    large_tx.vout.emplace_back(0, CScript() << OP_TRUE);
+    large.vtx.push_back(MakeTransactionRef(std::move(large_tx)));
+    const uint64_t large_size{static_cast<uint64_t>(::GetSerializeSize(TX_WITH_WITNESS(large)))};
+    BOOST_REQUIRE_GT(large_size, MAX_SIZE);
+    const FlatFilePos large_pos{blockman.WriteBlock(large, 1)};
+    BOOST_REQUIRE(!large_pos.IsNull());
+    std::vector<uint8_t> large_raw;
+    BOOST_REQUIRE(blockman.ReadRawBlock(large_raw, large_pos));
+    BOOST_CHECK_EQUAL(large_raw.size(), large_size);
+
+    {
+        AutoFile file{blockman.OpenBlockFile(FlatFilePos{1, 0}, /*fReadOnly=*/false)};
+        BOOST_REQUIRE(!file.IsNull());
+        const BlockDiskLength huge{static_cast<BlockDiskLength>(std::numeric_limits<uint32_t>::max()) + 1};
+        file << params->MessageStart() << huge;
+        BOOST_REQUIRE_EQUAL(file.fclose(), 0);
+    }
+    std::vector<uint8_t> huge_raw;
+    BOOST_CHECK(!blockman.ReadRawBlock(huge_raw, FlatFilePos{1, BLOCK_SERIALIZATION_HEADER_SIZE}));
+    BOOST_CHECK_LT(huge_raw.size(), 1024U);
+}
+
+BOOST_FIXTURE_TEST_CASE(load_external_skips_short_length, TestingSetup)
+{
+    auto& chainman{*Assert(m_node.chainman)};
+    {
+        AutoFile out{chainman.m_blockman.OpenBlockFile(FlatFilePos{3, 0}, /*fReadOnly=*/false)};
+        BOOST_REQUIRE(!out.IsNull());
+        const BlockDiskLength nSize{100};
+        out << Params().MessageStart() << nSize;
+        std::vector<std::byte> pad(100, std::byte{0});
+        out.write(pad);
+        BOOST_REQUIRE_EQUAL(out.fclose(), 0);
+    }
+    AutoFile in{chainman.m_blockman.OpenBlockFile(FlatFilePos{3, 0}, /*fReadOnly=*/true)};
+    chainman.LoadExternalBlockFile(in);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

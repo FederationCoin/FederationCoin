@@ -39,7 +39,7 @@ const std::string ADDRESS_BCRT1_UNSPENDABLE = "bcrt1qqqqqqqqqqqqqqqqqqqqqqqqqqqq
 
 std::unique_ptr<CWallet> CreateSyncedWallet(interfaces::Chain& chain, CChain& cchain, const CKey& key);
 
-/** Descriptor wallet with Dilithium 87, Dilithium 44, and secp ScriptPubKeyMans. */
+/** Descriptor wallet with Dilithium 87, Dilithium 44, and SegWit ScriptPubKeyMans. */
 std::unique_ptr<CWallet> CreateProductWallet(interfaces::Chain& chain);
 CTxDestination ProductReceiveDest(CWallet& wallet, OutputType type);
 void SyncProductWallet(CWallet& wallet, CChain& cchain);

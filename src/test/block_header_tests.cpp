@@ -38,7 +38,7 @@ BOOST_AUTO_TEST_CASE(v2_test_vectors)
         BOOST_REQUIRE_EQUAL(extranonce.size(), header.m_extranonce.size());
         std::reverse_copy(extranonce.begin(), extranonce.end(), header.m_extranonce.begin());
         header.m_time_offset = fields["m_time_offset"].getInt<uint32_t>();
-        header.m_txcount = fields["m_txcount"].getInt<uint16_t>();
+        header.m_txcount = fields["m_txcount"].getInt<uint32_t>();
         header.m_flags = fields["m_flags"].getInt<uint8_t>();
         header.m_xor_key_mask_clear_bits = fields["m_xor_key_mask_clear_bits"].getInt<uint8_t>();
         const auto xor_key{ParseHex(fields["m_xor_key"].get_str())};
@@ -50,7 +50,7 @@ BOOST_AUTO_TEST_CASE(v2_test_vectors)
 
         DataStream encoded;
         encoded << header;
-        BOOST_CHECK_EQUAL(encoded.size(), 164U);
+        BOOST_CHECK_EQUAL(encoded.size(), BLOCK_HEADER_V2_SERIALIZED_SIZE);
         BOOST_CHECK_EQUAL(HexStr(encoded), test["serialized"].get_str());
         BOOST_CHECK_EQUAL(header.GetHash().GetHex(), test["block_hash"].get_str());
 

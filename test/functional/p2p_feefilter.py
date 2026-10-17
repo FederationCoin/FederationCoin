@@ -48,8 +48,8 @@ class FeeFilterTest(BitcoinTestFramework):
         self.num_nodes = 2
         # whitelist peers to speed up tx relay / mempool sync
         self.noban_tx_relay = True
-        # Relay floor sits above the consensus rate of 3 tokens per virtual
-        # byte so this test can still tell a relay filter from consensus.
+        # Relay floor sits above consensus floor(vsize / 12) so this test can
+        # still tell a relay filter from consensus.
         self.extra_args = [[
             "-minrelaytxfee=0.00004000",
             "-mintxfee=0.00004000"

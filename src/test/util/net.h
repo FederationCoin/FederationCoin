@@ -72,6 +72,7 @@ struct ConnmanTestMsg : public CConnman {
             delete node;
         }
         m_nodes.clear();
+        m_test_peer.clear();
     }
 
     void Handshake(CNode& node,
@@ -96,6 +97,12 @@ struct ConnmanTestMsg : public CConnman {
 
     CNode* ConnectNodePublic(PeerManager& peerman, const char* pszDest, ConnectionType conn_type)
         EXCLUSIVE_LOCKS_REQUIRED(!m_unused_i2p_sessions_mutex);
+
+    // BIP324 handshake, then v3 application. The C++ type is still V2Transport
+    // (Knots name). V1 and v2 application are rejected. ReceiveMsgFrom cannot
+    // loop a node's send cipher into its receive cipher.
+    void CompleteEncryptedHandshake(CNode& node) const;
+    mutable std::unordered_map<NodeId, std::unique_ptr<V2Transport>> m_test_peer;
 };
 
 constexpr ServiceFlags ALL_SERVICE_FLAGS[]{
@@ -106,6 +113,7 @@ constexpr ServiceFlags ALL_SERVICE_FLAGS[]{
     NODE_COMPACT_FILTERS,
     NODE_NETWORK_LIMITED,
     NODE_P2P_V2,
+    NODE_P2P_V3,
 };
 
 constexpr NetPermissionFlags ALL_NET_PERMISSION_FLAGS[]{

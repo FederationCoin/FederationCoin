@@ -42,7 +42,7 @@ class TxnMallTest(BitcoinTestFramework):
         return self.nodes[0].sendrawtransaction(tx['hex'])
 
     def run_test(self):
-        output_type = "secp" if self.options.segwit else "mldsa87"
+        output_type = "bech32" if self.options.segwit else "mldsa87"
 
         starting_balance = 1250
         for i in range(3):

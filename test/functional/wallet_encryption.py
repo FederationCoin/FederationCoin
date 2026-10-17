@@ -33,7 +33,7 @@ class WalletEncryptionTest(BitcoinTestFramework):
 
         # Make sure the wallet isn't encrypted first
         msg = "test message"
-        address = self.nodes[0].getnewaddress(address_type='secp')
+        address = self.nodes[0].getnewaddress(address_type='bech32')
         sig = self.nodes[0].signmessage(address, msg)
         assert self.nodes[0].verifymessage(address, sig, msg)
         assert_raises_rpc_error(-15, "Error: running with an unencrypted wallet, but walletpassphrase was called", self.nodes[0].walletpassphrase, 'ff', 1)
@@ -159,6 +159,25 @@ class WalletEncryptionTest(BitcoinTestFramework):
             with open(dumpfile_path, "r", encoding="utf-8") as f:
                 # Check there's nothing with an 'mkey' prefix
                 assert_equal(all([not line.startswith("046d6b6579") for line in f]), True)
+
+        self.log.info("Dilithium addresses stay ismine after encrypt, unload, and load")
+        node = self.nodes[0]
+        wallet_name = node.get_wallet_rpc(self.default_wallet_name).getwalletinfo()["walletname"]
+        passphrase = passphrase_with_nulls
+        addrs = {}
+        with WalletUnlock(node, passphrase):
+            for kind in ("mldsa87", "mldsa44", "bech32"):
+                addrs[kind] = node.getnewaddress(address_type=kind)
+        node.unloadwallet(wallet_name)
+        node.loadwallet(wallet_name)
+        for kind, addr in addrs.items():
+            info = node.getaddressinfo(addr)
+            assert_equal(info["ismine"], True)
+            self.generatetoaddress(node, 1, addr)
+            info = node.getaddressinfo(addr)
+            assert_equal(info["ismine"], True)
+        bals = node.getbalances()["mine"]
+        assert bals["trusted"] + bals["immature"] > 0, bals
 
 
 if __name__ == '__main__':

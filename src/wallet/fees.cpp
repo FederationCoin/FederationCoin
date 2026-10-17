@@ -5,8 +5,11 @@
 
 #include <wallet/fees.h>
 
+#include <consensus/settlement_fee.h>
 #include <wallet/coincontrol.h>
 #include <wallet/wallet.h>
+
+#include <algorithm>
 
 
 namespace wallet {
@@ -18,7 +21,8 @@ CAmount GetRequiredFee(const CWallet& wallet, unsigned int nTxBytes)
 
 CAmount GetMinimumFee(const CWallet& wallet, unsigned int nTxBytes, const CCoinControl& coin_control, FeeCalculation* feeCalc)
 {
-    return GetMinimumFeeRate(wallet, coin_control, feeCalc).GetFee(nTxBytes);
+    const CAmount by_rate{GetMinimumFeeRate(wallet, coin_control, feeCalc).GetFee(nTxBytes)};
+    return std::max(by_rate, MinimumFee(static_cast<int64_t>(nTxBytes)));
 }
 
 CFeeRate GetRequiredFeeRate(const CWallet& wallet)
@@ -76,6 +80,14 @@ CFeeRate GetMinimumFeeRate(const CWallet& wallet, const CCoinControl& coin_contr
     CFeeRate required_feerate = GetRequiredFeeRate(wallet);
     if (required_feerate > feerate_needed) {
         feerate_needed = required_feerate;
+        if (feeCalc) feeCalc->reason = FeeReason::REQUIRED;
+    }
+    // 84 sat/kvB is ceil(1000/12) so CFeeRate::GetFee(n) stays at or above floor(n/12)
+    // when the user did not name a fee rate. An explicit below-floor rate is refused
+    // after the transaction is sized, using MinimumFee(vsize).
+    const CFeeRate chain_floor{84};
+    if (!coin_control.m_feerate && feerate_needed < chain_floor) {
+        feerate_needed = chain_floor;
         if (feeCalc) feeCalc->reason = FeeReason::REQUIRED;
     }
     return feerate_needed;

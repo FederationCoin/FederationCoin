@@ -7,6 +7,8 @@
 #include <arith_uint256.h>
 #include <chain.h>
 #include <consensus/params.h>
+#include <consensus/work/kind.h>
+#include <consensus/work/retarget.h>
 #include <consensus/validation.h>
 #include <dbwrapper.h>
 #include <flatfile.h>
@@ -41,6 +43,7 @@
 #include <validation.h>
 
 #include <cstddef>
+#include <limits>
 #include <map>
 #include <optional>
 #include <ranges>
@@ -165,8 +168,14 @@ bool BlockTreeDB::LoadBlockIndexGuts(const Consensus::Params& consensusParams, s
                 static_cast<CompressedHeader&>(*pindexNew) = diskindex;
                 pindexNew->nStatus        = diskindex.nStatus;
                 pindexNew->nTx            = diskindex.nTx;
+                pindexNew->nFlexCap       = diskindex.nFlexCap;
+                pindexNew->nEpochWatermark = diskindex.nEpochWatermark;
+                pindexNew->nWorkScale     = diskindex.nWorkScale;
+                if (pindexNew->nWorkScale.IsNull()) {
+                    pindexNew->nWorkScale = Consensus::WorkScaleOne();
+                }
 
-                if (!CheckProofOfWork(pindexNew->GetBlockHash(), pindexNew->nBits, consensusParams)) {
+                if (!CheckProofOfWork(pindexNew->GetBlockHeader(), consensusParams)) {
                     LogError("%s: CheckProofOfWork failed: %s\n", __func__, pindexNew->ToString());
                     return false;
                 }
@@ -246,7 +255,7 @@ CBlockIndex* BlockManager::AddToBlockIndex(const CBlockHeader& block, CBlockInde
 {
     AssertLockHeld(cs_main);
 
-    auto [mi, inserted] = m_block_index.try_emplace(block.GetHash(), block);
+    auto [mi, inserted] = m_block_index.try_emplace(block.GetBlockIdentity(), block);
     if (!inserted) {
         return &mi->second;
     }
@@ -263,6 +272,15 @@ CBlockIndex* BlockManager::AddToBlockIndex(const CBlockHeader& block, CBlockInde
         pindexNew->pprev = &(*miPrev).second;
         pindexNew->nHeight = pindexNew->pprev->nHeight + 1;
         pindexNew->BuildSkip();
+    }
+    const Consensus::Params& consensus{GetConsensus()};
+    pindexNew->nWorkScale = Consensus::NextWorkScale(pindexNew->pprev, consensus);
+    if (consensus.fPowAllowMinDifficultyBlocks) {
+        const auto tag{Consensus::DecodeWorkKindTag(block.GetCompleteVersion())};
+        if (tag) {
+            const auto met{Consensus::ScaleFromNBits(block.nBits, static_cast<size_t>(*tag), consensus)};
+            if (met) pindexNew->nWorkScale = *met;
+        }
     }
     pindexNew->nTimeMax = (pindexNew->pprev ? std::max(pindexNew->pprev->nTimeMax, pindexNew->nTime) : pindexNew->nTime);
     pindexNew->nChainWork = (pindexNew->pprev ? pindexNew->pprev->nChainWork : 0) + GetBlockProof(*pindexNew);
@@ -933,7 +951,7 @@ fs::path BlockManager::GetBlockPosFilename(const FlatFilePos& pos) const
     return m_block_file_seq.FileName(pos);
 }
 
-FlatFilePos BlockManager::FindNextBlockPos(unsigned int nAddSize, unsigned int nHeight, uint64_t nTime)
+FlatFilePos BlockManager::FindNextBlockPos(uint64_t nAddSize, unsigned int nHeight, uint64_t nTime)
 {
     LOCK(cs_LastBlockFile);
 
@@ -954,17 +972,19 @@ FlatFilePos BlockManager::FindNextBlockPos(unsigned int nAddSize, unsigned int n
     }
 
     bool finalize_undo = false;
-    unsigned int max_blockfile_size{MAX_BLOCKFILE_SIZE};
-    // Use smaller blockfiles in test-only -fastprune mode - but avoid
-    // the possibility of having a block not fit into the block file.
+    uint64_t max_blockfile_size{MAX_BLOCKFILE_SIZE};
+    // -fastprune uses 64kiB files. A single blob larger than the rotation
+    // window (or that 64kiB) still stores: grow this file to nAddSize + 1.
     if (m_opts.fast_prune) {
         max_blockfile_size = 0x10000; // 64kiB
-        if (nAddSize >= max_blockfile_size) {
-            // dynamically adjust the blockfile size to be larger than the added size
-            max_blockfile_size = nAddSize + 1;
-        }
     }
-    assert(nAddSize < max_blockfile_size);
+    if (nAddSize >= max_blockfile_size) {
+        if (nAddSize == std::numeric_limits<uint64_t>::max()) {
+            m_opts.notifications.fatalError(_("Block is too large to store on this platform."));
+            return {};
+        }
+        max_blockfile_size = nAddSize + 1;
+    }
 
     while (m_blockfile_info[nFile].nSize + nAddSize >= max_blockfile_size) {
         // when the undo file is keeping up with the block file, we want to flush it explicitly
@@ -1009,8 +1029,12 @@ FlatFilePos BlockManager::FindNextBlockPos(unsigned int nAddSize, unsigned int n
     m_blockfile_info[nFile].AddBlock(nHeight, nTime);
     m_blockfile_info[nFile].nSize += nAddSize;
 
+    if (nAddSize > std::numeric_limits<size_t>::max()) {
+        m_opts.notifications.fatalError(_("Block is too large to store on this platform."));
+        return {};
+    }
     bool out_of_space;
-    size_t bytes_allocated = m_block_file_seq.Allocate(pos, nAddSize, out_of_space);
+    size_t bytes_allocated = m_block_file_seq.Allocate(pos, static_cast<size_t>(nAddSize), out_of_space);
     if (out_of_space) {
         m_opts.notifications.fatalError(_("Disk space is too low!"));
         return {};
@@ -1035,7 +1059,7 @@ void BlockManager::UpdateBlockInfo(const CBlock& block, unsigned int nHeight, co
     }
 
     // Update the file information with the current block.
-    const unsigned int added_size = ::GetSerializeSize(TX_WITH_WITNESS(block));
+    const uint64_t added_size = ::GetSerializeSize(TX_WITH_WITNESS(block));
     const int nFile = pos.nFile;
     if (static_cast<int>(m_blockfile_info.size()) <= nFile) {
         m_blockfile_info.resize(nFile + 1);
@@ -1045,7 +1069,7 @@ void BlockManager::UpdateBlockInfo(const CBlock& block, unsigned int nHeight, co
     m_dirty_fileinfo.insert(nFile);
 }
 
-bool BlockManager::FindUndoPos(BlockValidationState& state, int nFile, FlatFilePos& pos, unsigned int nAddSize)
+bool BlockManager::FindUndoPos(BlockValidationState& state, int nFile, FlatFilePos& pos, uint64_t nAddSize)
 {
     pos.nFile = nFile;
 
@@ -1055,8 +1079,11 @@ bool BlockManager::FindUndoPos(BlockValidationState& state, int nFile, FlatFileP
     m_blockfile_info[nFile].nUndoSize += nAddSize;
     m_dirty_fileinfo.insert(nFile);
 
+    if (nAddSize > std::numeric_limits<size_t>::max()) {
+        return FatalError(m_opts.notifications, state, _("Undo data is too large to store on this platform."));
+    }
     bool out_of_space;
-    size_t bytes_allocated = m_undo_file_seq.Allocate(pos, nAddSize, out_of_space);
+    size_t bytes_allocated = m_undo_file_seq.Allocate(pos, static_cast<size_t>(nAddSize), out_of_space);
     if (out_of_space) {
         return FatalError(m_opts.notifications, state, _("Disk space is too low!"));
     }
@@ -1076,7 +1103,7 @@ bool BlockManager::WriteBlockUndo(const CBlockUndo& blockundo, BlockValidationSt
     // Write undo information to disk
     if (block.GetUndoPos().IsNull()) {
         FlatFilePos pos;
-        const auto blockundo_size{static_cast<uint32_t>(GetSerializeSize(blockundo))};
+        const auto blockundo_size{static_cast<BlockDiskLength>(GetSerializeSize(blockundo))};
         if (!FindUndoPos(state, block.nFile, pos, blockundo_size + UNDO_DATA_DISK_OVERHEAD)) {
             LogError("FindUndoPos failed for %s while writing block undo", pos.ToString());
             return false;
@@ -1154,10 +1181,10 @@ bool BlockManager::ReadBlock(CBlock& block, const FlatFilePos& pos, const std::o
         return false;
     }
 
-    const auto block_hash{block.GetHash()};
+    const auto block_hash{block.GetBlockIdentity()};
 
     // Check the header
-    if (!CheckProofOfWork(block_hash, block.nBits, GetConsensus())) {
+    if (!CheckProofOfWork(block, GetConsensus())) {
         LogError("%s: Errors in block header at %s\n", __func__, pos.ToString());
         return false;
     }
@@ -1205,7 +1232,7 @@ bool BlockManager::ReadRawBlock(std::vector<uint8_t>& block, const FlatFilePos& 
 
     try {
         MessageStartChars blk_start;
-        unsigned int blk_size;
+        BlockDiskLength blk_size{0};
 
         filein >> blk_start >> blk_size;
 
@@ -1216,13 +1243,22 @@ bool BlockManager::ReadRawBlock(std::vector<uint8_t>& block, const FlatFilePos& 
             return false;
         }
 
-        if (blk_size > MAX_SIZE) {
-            LogError("%s: Block data is larger than maximum deserialization size for %s: %s versus %s\n", __func__, pos.ToString(),
-                         blk_size, MAX_SIZE);
+        const int64_t after_header{filein.tell()};
+        filein.seek(0, SEEK_END);
+        const int64_t file_end{filein.tell()};
+        filein.seek(after_header, SEEK_SET);
+        if (file_end < after_header || blk_size > static_cast<uint64_t>(file_end - after_header)) {
+            LogError("%s: Block length %llu exceeds remaining file bytes for %s\n", __func__,
+                         static_cast<unsigned long long>(blk_size), pos.ToString());
+            return false;
+        }
+        if (blk_size > std::numeric_limits<size_t>::max()) {
+            LogError("%s: Block length %llu exceeds size_t for %s\n", __func__,
+                         static_cast<unsigned long long>(blk_size), pos.ToString());
             return false;
         }
 
-        block.resize(blk_size); // Zeroing of memory is intentional here
+        block.resize(static_cast<size_t>(blk_size)); // Zeroing of memory is intentional here
         filein.read(MakeWritableByteSpan(block));
     } catch (const std::exception& e) {
         LogError("%s: Read from block file failed: %s for %s\n", __func__, e.what(), pos.ToString());
@@ -1234,7 +1270,7 @@ bool BlockManager::ReadRawBlock(std::vector<uint8_t>& block, const FlatFilePos& 
 
 FlatFilePos BlockManager::WriteBlock(const CBlock& block, int nHeight)
 {
-    const unsigned int block_size{static_cast<unsigned int>(GetSerializeSize(TX_WITH_WITNESS(block)))};
+    const BlockDiskLength block_size{static_cast<BlockDiskLength>(GetSerializeSize(TX_WITH_WITNESS(block)))};
     FlatFilePos pos{FindNextBlockPos(block_size + BLOCK_SERIALIZATION_HEADER_SIZE, nHeight, block.GetBlockTime())};
     if (pos.IsNull()) {
         LogError("FindNextBlockPos failed for %s while writing block", pos.ToString());

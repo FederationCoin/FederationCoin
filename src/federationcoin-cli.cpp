@@ -477,6 +477,8 @@ private:
                 str += 'l';
             } else if (s == "P2P_V2") {
                 str += '2';
+            } else if (s == "P2P_V3") {
+                str += '3';
             } else if (s == "UTREEXO") {
                 str += 't';
             } else if (s == "UTREEXO_ARCHIVE") {
@@ -765,6 +767,7 @@ public:
         "           \"c\" - COMPACT_FILTERS: peer can handle basic block filter requests (see BIPs 157 and 158)\n"
         "           \"l\" - NETWORK_LIMITED: peer limited to serving only the last 288 blocks (~2 days)\n"
         "           \"2\" - P2P_V2: peer supports version 2 P2P transport protocol, as defined in BIP 324\n"
+        "           \"3\" - P2P_V3: peer supports FCN-P2P-v3 application frames after the BIP 324 handshake\n"
         "           \"t\" - UTREEXO peer can handle Utreexo proof requests for blocks it serves\n"
         "           \"T\" - UTREEXO_ARCHIVE peer can handle Utreexo proof requests for all  historical blocks\n"
         "           \"y\" - UTREEXO_TMP? peer can handle Utreexo proof requests\n"

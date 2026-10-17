@@ -4,8 +4,11 @@
 
 #include <key.h>
 #include <key_io.h>
+#include <outputtype.h>
+#include <script/modern_sig.h>
 #include <test/util/setup_common.h>
 #include <script/solver.h>
+#include <wallet/crypter.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/wallet.h>
 #include <wallet/test/util.h>
@@ -167,7 +170,7 @@ BOOST_AUTO_TEST_CASE(Descriptor_IsKeyActive)
         wallet.m_keypool_size = 10;
         wallet.SetupDescriptorScriptPubKeyMans();
     }
-    DescriptorScriptPubKeyMan* spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(wallet.GetScriptPubKeyMan(OutputType::SECP, /*internal=*/false));
+    DescriptorScriptPubKeyMan* spkm = dynamic_cast<DescriptorScriptPubKeyMan*>(wallet.GetScriptPubKeyMan(OutputType::BECH32, /*internal=*/false));
 
     // Start off with 10 pre-generated keys, 1 script each
     auto scripts1 = spkm->GetScriptPubKeys();
@@ -179,7 +182,7 @@ BOOST_AUTO_TEST_CASE(Descriptor_IsKeyActive)
     }
 
     // Requesting single key from spkm should not deactivate key
-    auto dest1 = spkm->GetNewDestination(OutputType::SECP);
+    auto dest1 = spkm->GetNewDestination(OutputType::BECH32);
     CScript script = GetScriptForDestination(dest1.value());
     BOOST_CHECK(spkm->IsKeyActive(script));
 
@@ -230,6 +233,54 @@ BOOST_AUTO_TEST_CASE(Descriptor_IsKeyActive)
         }
     }
     BOOST_CHECK_EQUAL(num_script_keys_not_found, 16);
+}
+
+BOOST_FIXTURE_TEST_CASE(dilithium_locked_providers_have_no_keys, TestingSetup)
+{
+    auto wallet{CreateProductWallet(*m_node.chain)};
+    SecureString pass;
+    pass = "test-passphrase";
+    BOOST_REQUIRE(wallet->EncryptWallet(pass));
+    BOOST_REQUIRE(wallet->Unlock(pass));
+    const CTxDestination dest87{ProductReceiveDest(*wallet, OutputType::DILITHIUM87)};
+    const CTxDestination dest44{ProductReceiveDest(*wallet, OutputType::DILITHIUM44)};
+    wallet->Lock();
+    for (const auto& dest : {dest87, dest44}) {
+        const CScript script{GetScriptForDestination(dest)};
+        const auto parsed{MatchModernSingle(script)};
+        BOOST_REQUIRE(parsed);
+        std::vector<unsigned char> seed;
+        {
+            LOCK(wallet->cs_wallet);
+            const auto mans{wallet->GetScriptPubKeyMans(script)};
+            BOOST_REQUIRE_EQUAL(mans.size(), 1U);
+            auto* spkm{dynamic_cast<DescriptorScriptPubKeyMan*>(*mans.begin())};
+            BOOST_REQUIRE(spkm);
+            auto pub{spkm->GetSigningProviderForScript(script, /*include_private=*/false)};
+            BOOST_REQUIRE(pub);
+            BOOST_CHECK(pub->keys.empty());
+            BOOST_CHECK(!pub->GetMldsaSeed(parsed->fingerprint, seed));
+            auto priv_locked{spkm->GetSigningProviderForScript(script, /*include_private=*/true)};
+            BOOST_REQUIRE(priv_locked);
+            BOOST_CHECK(!priv_locked->GetMldsaSeed(parsed->fingerprint, seed));
+        }
+    }
+    BOOST_REQUIRE(wallet->Unlock(pass));
+    for (const auto& dest : {dest87, dest44}) {
+        const CScript script{GetScriptForDestination(dest)};
+        const auto parsed{MatchModernSingle(script)};
+        BOOST_REQUIRE(parsed);
+        LOCK(wallet->cs_wallet);
+        const auto mans{wallet->GetScriptPubKeyMans(script)};
+        BOOST_REQUIRE_EQUAL(mans.size(), 1U);
+        auto* spkm{dynamic_cast<DescriptorScriptPubKeyMan*>(*mans.begin())};
+        BOOST_REQUIRE(spkm);
+        auto priv{spkm->GetSigningProviderForScript(script, /*include_private=*/true)};
+        BOOST_REQUIRE(priv);
+        std::vector<unsigned char> seed;
+        BOOST_CHECK(priv->GetMldsaSeed(parsed->fingerprint, seed));
+        BOOST_CHECK_EQUAL(seed.size(), 32U);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

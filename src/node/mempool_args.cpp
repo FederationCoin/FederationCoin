@@ -158,7 +158,6 @@ util::Result<void> ApplyArgsManOptions(const ArgsManager& argsman, const CChainP
         }
     }
 
-    static_assert(DEFAULT_MIN_RELAY_TX_FEE == DEFAULT_INCREMENTAL_RELAY_FEE);
     if (argsman.IsArgSet("-minrelaytxfee")) {
         if (std::optional<CAmount> min_relay_feerate = ParseMoney(argsman.GetArg("-minrelaytxfee", ""))) {
             // High fee check is done afterward in CWallet::Create()
@@ -166,7 +165,7 @@ util::Result<void> ApplyArgsManOptions(const ArgsManager& argsman, const CChainP
         } else {
             return util::Error{AmountErrMsg("minrelaytxfee", argsman.GetArg("-minrelaytxfee", ""))};
         }
-    } else if (mempool_opts.incremental_relay_feerate > mempool_opts.min_relay_feerate) {
+    } else if (argsman.IsArgSet("-incrementalrelayfee") && mempool_opts.incremental_relay_feerate > mempool_opts.min_relay_feerate) {
         // Allow only setting incremental fee to control both
         mempool_opts.min_relay_feerate = mempool_opts.incremental_relay_feerate;
         LogPrintf("Increasing minrelaytxfee to %s to match incrementalrelayfee\n", mempool_opts.min_relay_feerate.ToString());

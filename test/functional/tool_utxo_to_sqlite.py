@@ -85,7 +85,7 @@ class UtxoToSqliteTest(BitcoinTestFramework):
                 wallet.send_to(from_node=node, scriptPubKey=script, amount=1, fee=20000)
                 raise AssertionError(f"{description} should have been rejected")
             except Exception as e:
-                assert 'bad-txns-vout-script-toolarge' in str(e), \
+                assert 'bad-txns-vout-script' in str(e), \
                     f"{description} rejected with wrong error: {e}"
                 self.log.info(f"  ✓ {description} correctly rejected")
 
@@ -94,12 +94,8 @@ class UtxoToSqliteTest(BitcoinTestFramework):
             key.generate(compressed=True)
             pubkey = key.get_pubkey().get_bytes()
 
-            # Only include output scripts that comply with MAX_OUTPUT_SCRIPT_SIZE=34
             output_scripts = (
-                key_to_p2pkh_script(pubkey),                        # 25 bytes
-                script_to_p2sh_script(key_to_p2pkh_script(pubkey)), # 23 bytes
                 key_to_p2wpkh_script(pubkey),                       # 22 bytes
-                script_to_p2wsh_script(key_to_p2pkh_script(pubkey)),# 34 bytes
             )
 
             # create outputs and mine them in a block

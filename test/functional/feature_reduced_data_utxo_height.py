@@ -63,9 +63,7 @@ class ReducedDataUTXOHeightTest(BitcoinTestFramework):
         self.num_nodes = 1
         self.setup_clean_chain = True
         # Activate RDTS at the BLAKE2b fork height, with a far-future expiry
-        self.extra_args = [[
-            f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}',
-        ]]
+        self.extra_args = [[]]
 
     def create_p2wsh_funding_and_spending_tx(self, wallet, node, witness_element_size):
         """Create a P2WSH output, then a transaction spending it with custom witness size.
@@ -118,7 +116,7 @@ class ReducedDataUTXOHeightTest(BitcoinTestFramework):
         block_time = tip_header['time'] + 1
         coinbase = create_coinbase(height)
         block = create_block(int(tip, 16), coinbase, ntime=block_time, txlist=txs,
-                             height=height, header_v2=height >= ACTIVATION_HEIGHT)
+                             height=height, header_v2=True)
         add_witness_commitment(block)
         block.solve()
         return block
@@ -225,9 +223,9 @@ class ReducedDataUTXOHeightTest(BitcoinTestFramework):
         # Try to mine block with old_spending_tx (has 300-byte witness element)
         block = self.create_test_block([old_spending_tx])
         result = node.submitblock(block.serialize().hex())
-        assert result is None, f"Expected success, got: {result}"
+        assert result is not None and 'Push value size limit exceeded' in result, f"Expected rejection, got: {result}"
 
-        self.log.info(f"✓ SUCCESS: Old UTXO with {VIOLATION_SIZE}-byte witness element was ACCEPTED (correctly exempt)")
+        self.log.info(f"✓ SUCCESS: Old UTXO with {VIOLATION_SIZE}-byte witness element was REJECTED (no grandfathering)")
 
         # ======================================================================
         # Test 5: Spend NEW UTXO with oversized witness - should be REJECTED
@@ -372,55 +370,40 @@ class ReducedDataUTXOHeightTest(BitcoinTestFramework):
         node.reconsiderblock(current_tip2)
 
         # ======================================================================
-        # Test 8: cache state must not survive activation-boundary reorg
+        # Test 8: a 300-byte push is rejected on every branch
         # ======================================================================
-        self.log.info("Test 8: script-execution cache must not survive boundary-context flip")
+        self.log.info("Test 8: violating spend is rejected after a reorg to a sibling branch")
 
         def rewind_to(height):
-            # Height-based loop: invalidating one tip can switch to an alternate branch at same height.
             while node.getblockcount() > height:
                 node.invalidateblock(node.getbestblockhash())
             assert_equal(node.getblockcount(), height)
 
-        branch_point = ACTIVATION_HEIGHT - 2  # 430
+        branch_point = ACTIVATION_HEIGHT - 2
         rewind_to(branch_point)
 
-        # spend_tx has a 300-byte witness element: valid only with pre-activation exemption.
         funding_tx, spend_tx = self.create_p2wsh_funding_and_spending_tx(wallet, node, VIOLATION_SIZE)
 
-        # Branch A: funding at 431 (exempt).
         block = self.create_test_block([funding_tx])
         assert_equal(node.submitblock(block.serialize().hex()), None)
-        assert_equal(node.getblockcount(), ACTIVATION_HEIGHT - 1)
+        attack_a = self.create_test_block([spend_tx])
+        result = node.submitblock(attack_a.serialize().hex())
+        assert result is not None and 'Push value size limit exceeded' in result, \
+            f"Expected rejection on branch A, got: {result}"
 
-        self.restart_node(0, extra_args=[f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}', '-par=1'])  # Use single-threaded validation to maximize chance of hitting cache-related issues.
-
-        # Validate-only block at height 432. This calls TestBlockValidity(fJustCheck=true),
-        # which populates the tx-wide script-execution cache under STRICT flags, even though
-        # the spend is only valid here due to the per-input "pre-activation UTXO" exemption.
-        self.generateblock(node, output=wallet.get_address(), transactions=[spend_tx.serialize().hex()], submit=False, sync_fun=self.no_op)
-
-        assert_equal(node.getblockcount(), ACTIVATION_HEIGHT - 1)
-
-        # Reorg to branch point; cache state is intentionally retained across reorg.
         rewind_to(branch_point)
-
-        # Branch B: funding at 432 (non-exempt).
-        # Make this empty block unique to avoid duplicate-invalid when rebuilding branch B.
         block = self.create_test_block([])
         block.nTime += 1
         block.solve()
-        assert_equal(node.submitblock(block.serialize().hex()), None)  # 431
+        assert_equal(node.submitblock(block.serialize().hex()), None)
         block = self.create_test_block([funding_tx])
-        assert_equal(node.submitblock(block.serialize().hex()), None)  # 432
-
-        # Same spend is now non-exempt and must be rejected.
-        attack_block = self.create_test_block([spend_tx])  # 433
-        result = node.submitblock(attack_block.serialize().hex())
+        assert_equal(node.submitblock(block.serialize().hex()), None)
+        attack_b = self.create_test_block([spend_tx])
+        result = node.submitblock(attack_b.serialize().hex())
         assert result is not None and 'Push value size limit exceeded' in result, \
-            f"Expected rejection after boundary-crossing reorg, got: {result}"
+            f"Expected rejection on branch B, got: {result}"
 
-        self.log.info("✓ SUCCESS: Cache poisoning via activation-boundary reorg correctly prevented")
+        self.log.info("✓ SUCCESS: violating spend rejected on both branches")
 
         # ======================================================================
         # Test 9: UTXO created at exactly ACTIVATION_HEIGHT - 1 is EXEMPT
@@ -436,8 +419,8 @@ class ReducedDataUTXOHeightTest(BitcoinTestFramework):
         self.mine_blocks(5)  # cross the fork; rules now apply to new coins
         block = self.create_test_block([edge_spending_tx])
         result = node.submitblock(block.serialize().hex())
-        assert result is None, f"Expected success, got: {result}"
-        self.log.info(f"✓ SUCCESS: UTXO at height {ACTIVATION_HEIGHT - 1} (last pre-fork block) is EXEMPT")
+        assert result is not None and 'Push value size limit exceeded' in result, f"Expected rejection, got: {result}"
+        self.log.info(f"✓ SUCCESS: UTXO at height {ACTIVATION_HEIGHT - 1} is SUBJECT (no grandfathering)")
 
         # ======================================================================
         # Test 10: -reindex replays the whole chain, including grandfathered
@@ -446,8 +429,7 @@ class ReducedDataUTXOHeightTest(BitcoinTestFramework):
         self.log.info("Test 10: -reindex reproduces identical grandfathering verdicts")
         node.reconsiderblock(activation_tip)
         tip_before_reindex = node.getbestblockhash()
-        self.restart_node(0, extra_args=[
-            f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}', '-reindex'])
+        self.restart_node(0, extra_args=['-reindex'])
         self.wait_until(lambda: node.getbestblockhash() == tip_before_reindex, timeout=60)
         self.log.info("✓ SUCCESS: -reindex reconnected the chain with exempt spends intact")
 

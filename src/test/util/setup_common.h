@@ -9,7 +9,7 @@
 #include <common/pcp.h>
 #include <kernel/caches.h>
 #include <kernel/context.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <key.h>
 #include <node/caches.h>
 #include <node/context.h> // IWYU pragma: export
@@ -165,7 +165,7 @@ struct TestChain100Setup : public TestingSetup {
     //! Mine a series of new blocks on the active chain.
     void mineBlocks(int num_blocks);
 
-    /** Witness v0 program for coinbase_mldsa. The only spendable coinbase lock. */
+    /** CHECKMODERNSIG locking script for coinbase_mldsa. The only spendable coinbase lock. */
     CScript MldsaScriptPubKey() const;
 
     /**

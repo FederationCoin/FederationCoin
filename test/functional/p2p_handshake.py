@@ -16,7 +16,7 @@ from test_framework.messages import (
     NODE_NETWORK,
     NODE_NETWORK_LIMITED,
     NODE_NONE,
-    NODE_P2P_V2,
+    NODE_P2P_V3,
     NODE_WITNESS,
     msg_version,
 )
@@ -57,7 +57,7 @@ class P2PHandshakeTest(BitcoinTestFramework):
         peer = node.add_outbound_p2p_connection(
             P2PInterface(), p2p_idx=0, wait_for_disconnect=wait_for_disconnect,
             connection_type=connection_type, services=services,
-            supports_v2_p2p=self.options.v2transport, advertise_v2_p2p=self.options.v2transport)
+            supports_v2_p2p=True, advertise_v2_p2p=True)
         if not wait_for_disconnect:
             # check that connection is alive past the version handshake and disconnect manually
             peer.sync_with_ping()
@@ -71,8 +71,7 @@ class P2PHandshakeTest(BitcoinTestFramework):
            outbound connection types where the desirable service flags check is done."""
         CONNECTION_TYPES = ["outbound-full-relay", "block-relay-only", "addr-fetch"]
         for conn_type, services in itertools.product(CONNECTION_TYPES, service_flag_tests):
-            if self.options.v2transport:
-                services |= NODE_P2P_V2
+            services |= NODE_P2P_V3
             expected_result = "disconnect" if expect_disconnect else "connect"
             self.log.info(f'    - services 0x{services:08x}, type "{conn_type}" [{expected_result}]')
             if expect_disconnect:
@@ -116,18 +115,16 @@ class P2PHandshakeTest(BitcoinTestFramework):
         # Connect first 2 stale peers and keep them connected. A stale peer may
         # well advertise NODE_REDUCED_DATA (eg an unupgraded Knots node); what
         # makes it stale is the missing NODE_BLAKE2B.
-        stale_services = NODE_NETWORK | NODE_WITNESS | NODE_REDUCED_DATA
-        if self.options.v2transport:
-            stale_services |= NODE_P2P_V2
+        stale_services = NODE_NETWORK | NODE_WITNESS | NODE_REDUCED_DATA | NODE_P2P_V3
         peer1 = node.add_outbound_p2p_connection(
             P2PInterface(), p2p_idx=0, wait_for_disconnect=False,
             connection_type="outbound-full-relay", services=stale_services,
-            supports_v2_p2p=self.options.v2transport, advertise_v2_p2p=self.options.v2transport)
+            supports_v2_p2p=True, advertise_v2_p2p=True)
         peer1.sync_with_ping()
         peer2 = node.add_outbound_p2p_connection(
             P2PInterface(), p2p_idx=1, wait_for_disconnect=False,
             connection_type="outbound-full-relay", services=stale_services,
-            supports_v2_p2p=self.options.v2transport, advertise_v2_p2p=self.options.v2transport)
+            supports_v2_p2p=True, advertise_v2_p2p=True)
         peer2.sync_with_ping()
         assert len(node.getpeerinfo()) == 2
         # Third stale peer should be rejected
@@ -135,7 +132,7 @@ class P2PHandshakeTest(BitcoinTestFramework):
             node.add_outbound_p2p_connection(
                 P2PInterface(), p2p_idx=2, wait_for_disconnect=True,
                 connection_type="outbound-full-relay", services=stale_services,
-                supports_v2_p2p=self.options.v2transport, advertise_v2_p2p=self.options.v2transport)
+                supports_v2_p2p=True, advertise_v2_p2p=True)
         # Clean up - disconnect the 2 stale peers
         peer1.peer_disconnect()
         peer2.peer_disconnect()
@@ -163,7 +160,7 @@ class P2PHandshakeTest(BitcoinTestFramework):
         self.log.info("Check that connecting to ourself leads to immediate disconnect")
         with node.assert_debug_log(["connected to self", "disconnecting"]):
             node_listen_addr = f"127.0.0.1:{p2p_port(0)}"
-            node.addconnection(node_listen_addr, "outbound-full-relay", self.options.v2transport)
+            node.addconnection(node_listen_addr, "outbound-full-relay", True)
             self.wait_until(lambda: len(node.getpeerinfo()) == 0)
 
         self.log.info("Check that peer's announced starting height is remembered")

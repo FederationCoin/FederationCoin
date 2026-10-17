@@ -30,7 +30,7 @@ class WalletLabelsTest(BitcoinTestFramework):
 
     def invalid_label_name_test(self):
         node = self.nodes[0]
-        address = node.getnewaddress("", "secp")
+        address = node.getnewaddress("", "bech32")
         pubkey = node.getaddressinfo(address)['pubkey']
         rpc_calls = [
             [node.getnewaddress],

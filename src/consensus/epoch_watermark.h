@@ -8,55 +8,90 @@
 #include <consensus/flex_weight.h>
 #include <serialize.h>
 
-#include <array>
 #include <cstdint>
+#include <limits>
 
 namespace Consensus {
 
+/** How full this block is against the live cap. Epic 21 WindowIsHot was a
+ *  1/16-slice average; epic 27 deleted slices. Fullness is leftover weight
+ *  that cannot fit two simplest payments plus FULL_FIT_BUFFER_WEIGHT
+ *  (Saturated). Slack is block_weight * 5 < cap. Neither is in between.
+ *  Saturated is not the uint32 clamp below. */
+enum class BlockFill : uint8_t {
+    Saturated,
+    Slack,
+    Neither,
+};
+
+inline BlockFill ClassifyBlockFill(uint64_t weight, uint64_t cap, int height)
+{
+    if (Saturated(weight, cap, height)) return BlockFill::Saturated;
+    if (Slack(weight, cap)) return BlockFill::Slack;
+    return BlockFill::Neither;
+}
+
+/** True if this count is still below uint32 max. The clamp is wrap-avoidance,
+ *  not Saturated(). */
+inline void IncrementCountWithoutWrapping(uint32_t& count)
+{
+    if (count < std::numeric_limits<uint32_t>::max()) ++count;
+}
+
+inline void CountSaturated(uint32_t& saturated_blocks)
+{
+    IncrementCountWithoutWrapping(saturated_blocks);
+}
+
+inline void CountSlack(uint32_t& slack_blocks)
+{
+    IncrementCountWithoutWrapping(slack_blocks);
+}
+
+inline void CountNeither() {}
+
+/** Running saturated-block count, slack-block count, and the decision those
+ *  counts make at a subsidy-interval boundary. Saturated: leftover weight
+ *  cannot fit two more simplest payments plus the 64-weight buffer. Slack:
+ *  block_weight * 5 < cap. Stored on the block index. A datadir written with
+ *  the old 16-window arrays will not load. Disk order is saturated then slack
+ *  (same two-uint32 layout as the former pegged-then-slack fields). */
 struct EpochWatermark {
-    std::array<uint64_t, FLEX_WINDOW_COUNT> window_weight{};
-    std::array<uint32_t, FLEX_WINDOW_COUNT> window_blocks{};
+    uint32_t saturated_blocks{0};
+    uint32_t slack_blocks{0};
 
     SERIALIZE_METHODS(EpochWatermark, obj)
     {
-        for (int i{0}; i < FLEX_WINDOW_COUNT; ++i) {
-            READWRITE(obj.window_weight[i]);
-            READWRITE(obj.window_blocks[i]);
-        }
+        READWRITE(obj.saturated_blocks);
+        READWRITE(obj.slack_blocks);
     }
 
     void Clear()
     {
-        window_weight.fill(0);
-        window_blocks.fill(0);
+        saturated_blocks = 0;
+        slack_blocks = 0;
     }
 
-    void AddBlock(uint64_t weight, int height, int interval)
+    /** Count this block against cap at height. Classify once, then visit.
+     *  IncrementCountWithoutWrapping is the uint32 clamp, not Saturated. */
+    void AddBlock(uint64_t weight, uint64_t cap, int height)
     {
-        const int idx{FlexWindowIndex(height, interval)};
-        window_weight[idx] += weight;
-        window_blocks[idx] += 1;
-    }
-
-    int HotWindows(uint64_t cap) const
-    {
-        int hot{0};
-        for (int i{0}; i < FLEX_WINDOW_COUNT; ++i) {
-            if (WindowIsHot(window_weight[i], cap, window_blocks[i])) ++hot;
+        switch (ClassifyBlockFill(weight, cap, height)) {
+        case BlockFill::Saturated:
+            CountSaturated(saturated_blocks);
+            break;
+        case BlockFill::Slack:
+            CountSlack(slack_blocks);
+            break;
+        case BlockFill::Neither:
+            CountNeither();
+            break;
         }
-        return hot;
-    }
-
-    uint64_t TotalWeight() const
-    {
-        uint64_t sum{0};
-        for (uint64_t w : window_weight) sum += w;
-        return sum;
     }
 
     uint64_t CapAfter(uint64_t cap, int interval) const
     {
-        return DecideNextCap(cap, HotWindows(cap), TotalWeight(), interval);
+        return DecideNextCap(cap, saturated_blocks, slack_blocks, interval);
     }
 };
 

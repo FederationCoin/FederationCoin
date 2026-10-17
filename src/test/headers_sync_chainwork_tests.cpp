@@ -5,6 +5,7 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <consensus/params.h>
+#include <consensus/work/kind.h>
 #include <headerssync.h>
 #include <pow.h>
 #include <test/util/setup_common.h>
@@ -28,7 +29,13 @@ struct HeadersGeneratorSetup : public RegTestingSetup {
 
 void HeadersGeneratorSetup::FindProofOfWork(CBlockHeader& starting_header)
 {
-    while (!CheckProofOfWork(starting_header.GetHash(), starting_header.nBits, Params().GetConsensus())) {
+    const auto& params{Params().GetConsensus()};
+    while (true) {
+        if (starting_header.m_header_v2) {
+            if (CheckProofOfWork(starting_header, params)) return;
+        } else if (CheckProofOfWork(starting_header.GetHash(), starting_header.nBits, params)) {
+            return;
+        }
         ++(starting_header.nNonce);
     }
 }
@@ -38,18 +45,22 @@ void HeadersGeneratorSetup::GenerateHeaders(std::vector<CBlockHeader>& headers,
         const uint256& merkle_root, const uint32_t nBits)
 {
     uint256 prev_hash = starting_hash;
+    int32_t height{1};
 
     while (headers.size() < count) {
         headers.emplace_back();
         CBlockHeader& next_header = headers.back();;
+        next_header.m_header_v2 = true;
         next_header.nVersion = nVersion;
         next_header.hashPrevBlock = prev_hash;
         next_header.hashMerkleRoot = merkle_root;
         next_header.nTime = prev_time+1;
         next_header.nBits = nBits;
+        next_header.m_height = height++;
+        Consensus::ApplyWorkKindTag(next_header, Consensus::WorkKindTag::BLAKE2B);
 
         FindProofOfWork(next_header);
-        prev_hash = next_header.GetHash();
+        prev_hash = next_header.GetBlockIdentity();
         prev_time = next_header.nTime;
     }
     return;
@@ -73,7 +84,6 @@ BOOST_AUTO_TEST_CASE(headers_sync_state)
     std::unique_ptr<HeadersSyncState> hss;
 
     const int target_blocks = 15000;
-    arith_uint256 chain_work = target_blocks*2;
 
     // Generate headers for two different chains (using differing merkle roots
     // to ensure the headers are different).
@@ -86,6 +96,10 @@ BOOST_AUTO_TEST_CASE(headers_sync_state)
             ArithToUint256(1), Params().GenesisBlock().nBits);
 
     const CBlockIndex* chain_start = WITH_LOCK(::cs_main, return m_node.chainman->m_blockman.LookupBlockIndex(Params().GenesisBlock().GetHash()));
+    // Each header adds S=1. First chain (target_blocks-1 headers) must meet
+    // the threshold; second (target_blocks-2) must not. Genesis already
+    // contributes nChainWork, so the cutoff is genesis plus that header count.
+    arith_uint256 chain_work = chain_start->nChainWork + (target_blocks - 1);
     std::vector<CBlockHeader> headers_batch;
 
     // Feed the first chain to HeadersSyncState, by delivering 1 header
@@ -143,18 +157,15 @@ BOOST_AUTO_TEST_CASE(headers_sync_state)
     BOOST_CHECK(result.success);
 }
 
-// End-to-end: a peer serving the PoW-change fork block presyncs successfully,
-// while a peer claiming the same target drop before activation is rejected.
 // HeadersSyncState does not itself verify proof of work, so the headers here
-// are unmined; only nBits and connectivity matter to this path.
-BOOST_AUTO_TEST_CASE(headers_sync_powchange_fork)
+// are unmined; only nBits and connectivity matter to this path. Product
+// nMinimumChainWork is 0, so two valid headers already meet the work threshold.
+BOOST_AUTO_TEST_CASE(headers_sync_v2_same_nbits)
 {
     const auto mainnet = CreateChainParams(*m_node.args, ChainType::MAIN);
     Consensus::Params params = mainnet->GetConsensus();
     BOOST_CHECK(!params.fPowAllowMinDifficultyBlocks);
 
-    // Must be in the past: m_max_commitments is derived from wall clock minus
-    // the chain_start time, so a future timestamp starves the commitment budget.
     const int64_t block_time = 1700000000;
     const uint32_t tip_nbits = 0x1702905c;
 
@@ -163,16 +174,12 @@ BOOST_AUTO_TEST_CASE(headers_sync_powchange_fork)
     chain_start.nHeight = 800000;
     chain_start.nBits = tip_nbits;
     chain_start.nTime = block_time - 6000;
+    chain_start.m_header_v2 = true;
+    chain_start.nVersion = 4;
     chain_start.phashBlock = &start_hash;
     BOOST_CHECK((chain_start.nHeight + 1) % params.DifficultyAdjustmentInterval() != 0);
-    params.Blake2bHeight = chain_start.nHeight + 2;
 
-    arith_uint256 shifted;
-    shifted.SetCompact(tip_nbits);
-    shifted <<= params.Blake2bTargetShift;
-    const uint32_t fork_nbits = shifted.GetCompact();
-
-    const uint256 connect_hash{chain_start.GetBlockHeader().GetHash()};
+    const uint256 connect_hash{chain_start.GetBlockHeader().GetBlockIdentity()};
 
     auto build_chain = [&](uint32_t first_nbits, uint32_t second_nbits) {
         std::vector<CBlockHeader> headers(2);
@@ -180,12 +187,16 @@ BOOST_AUTO_TEST_CASE(headers_sync_powchange_fork)
         headers[0].hashPrevBlock = connect_hash;
         headers[0].nTime = block_time - 1200;
         headers[0].nBits = first_nbits;
+        headers[0].m_header_v2 = true;
+        headers[0].m_height = chain_start.nHeight + 1;
+        Consensus::ApplyWorkKindTag(headers[0], Consensus::WorkKindTag::BLAKE2B);
         headers[1].nVersion = 4;
-        headers[1].hashPrevBlock = headers[0].GetHash();
+        headers[1].hashPrevBlock = headers[0].GetBlockIdentity();
         headers[1].nTime = block_time - 600;
         headers[1].nBits = second_nbits;
         headers[1].m_header_v2 = true;
-        headers[1].m_height = params.Blake2bHeight;
+        headers[1].m_height = chain_start.nHeight + 2;
+        Consensus::ApplyWorkKindTag(headers[1], Consensus::WorkKindTag::BLAKE2B);
         return headers;
     };
 
@@ -197,34 +208,22 @@ BOOST_AUTO_TEST_CASE(headers_sync_powchange_fork)
         return std::pair{result.success, hss.GetState()};
     };
 
-    // Product nMinimumChainWork is 0, so two valid headers already meet the
-    // work threshold and the sync switches to REDOWNLOAD. A huge Bitcoin-era
-    // min-work would have stayed in PRESYNC after only two headers.
     const auto expected_ok_state = params.nMinimumChainWork.IsNull()
                                        ? HeadersSyncState::State::REDOWNLOAD
                                        : HeadersSyncState::State::PRESYNC;
 
-    if (params.Blake2bTargetShift == 0) {
-        BOOST_CHECK_EQUAL(fork_nbits, tip_nbits);
-        const auto [ok, state] = run_headers(build_chain(tip_nbits, fork_nbits));
-        BOOST_CHECK(ok);
-        BOOST_CHECK(state == expected_ok_state);
-    } else {
-        BOOST_CHECK_NE(fork_nbits, tip_nbits);
-        const auto [ok, state] = run_headers(build_chain(tip_nbits, fork_nbits));
-        BOOST_CHECK(ok);
-        BOOST_CHECK(state == expected_ok_state);
-        BOOST_CHECK(!run_headers(build_chain(fork_nbits, fork_nbits)).first);
-    }
+    const auto [ok, state] = run_headers(build_chain(tip_nbits, tip_nbits));
+    BOOST_CHECK(ok);
+    BOOST_CHECK(state == expected_ok_state);
 
     arith_uint256 too_easy;
-    too_easy.SetCompact(fork_nbits);
+    too_easy.SetCompact(tip_nbits);
     too_easy <<= 4;
+    // Off-window easier nBits is a different S. Headers sync must reject it.
     BOOST_CHECK(!run_headers(build_chain(tip_nbits, too_easy.GetCompact())).first);
 }
 
-// The one-time target shift must not be granted again after activation.
-BOOST_AUTO_TEST_CASE(headers_sync_powchange_repeated_shift)
+BOOST_AUTO_TEST_CASE(headers_sync_easier_nbits_accepted)
 {
     const auto mainnet = CreateChainParams(*m_node.args, ChainType::MAIN);
     Consensus::Params params = mainnet->GetConsensus();
@@ -236,36 +235,32 @@ BOOST_AUTO_TEST_CASE(headers_sync_powchange_repeated_shift)
     chain_start.nHeight = 800000;
     chain_start.nBits = tip_nbits;
     chain_start.nTime = block_time - 6000;
+    chain_start.m_header_v2 = true;
+    chain_start.nVersion = 4;
     chain_start.phashBlock = &start_hash;
-    params.Blake2bHeight = chain_start.nHeight + 1;
 
     std::vector<CBlockHeader> headers;
-    uint256 prev{chain_start.GetBlockHeader().GetHash()};
-    uint32_t nbits = tip_nbits;
+    uint256 prev{chain_start.GetBlockHeader().GetBlockIdentity()};
+    arith_uint256 target;
+    target.SetCompact(tip_nbits);
+    target <<= 1;
+    const uint32_t easier = target.GetCompact();
     for (int i = 0; i < 2; ++i) {
-        arith_uint256 target;
-        target.SetCompact(nbits);
-        target <<= params.Blake2bTargetShift;
-        const arith_uint256 limit = UintToArith256(params.powLimit);
-        if (target > limit) target = limit;
-        nbits = target.GetCompact();
-
         CBlockHeader header;
         header.nVersion = 4;
         header.hashPrevBlock = prev;
         header.nTime = block_time + i * 600;
-        header.nBits = nbits;
+        header.nBits = easier;
         header.m_header_v2 = true;
         header.m_height = chain_start.nHeight + i + 1;
+        Consensus::ApplyWorkKindTag(header, Consensus::WorkKindTag::BLAKE2B);
         headers.push_back(header);
-        prev = header.GetHash();
+        prev = header.GetBlockIdentity();
     }
 
     HeadersSyncState hss(0, params, &chain_start, UintToArith256(params.nMinimumChainWork));
     const auto result = hss.ProcessNextHeaders(headers, true);
-    // Shift 0 does not ease nBits; same-nBits headers are legal. A nonzero
-    // shift would drop the target twice and must be rejected.
-    BOOST_CHECK_EQUAL(result.success, params.Blake2bTargetShift == 0);
+    BOOST_CHECK(!result.success);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

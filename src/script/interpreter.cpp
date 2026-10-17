@@ -5,10 +5,13 @@
 
 #include <script/interpreter.h>
 
+#include <cstring>
+#include <consensus/secp_spend.h>
 #include <crypto/ripemd160.h>
 #include <crypto/sha1.h>
 #include <crypto/sha256.h>
 #include <pubkey.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <uint256.h>
 
@@ -58,6 +61,86 @@ static inline void popstack(std::vector<valtype>& stack)
     if (stack.empty())
         throw std::runtime_error("popstack(): stack empty");
     stack.pop_back();
+}
+
+/** CHECKMODERNSIG / CHECKMODERNPOLICY: lookup (algo, param), then kind.verify.
+ *  Witness items were copied onto the stack before EvalScript; this does not
+ *  go through ExecuteWitnessScript (520-byte cap). Kind owns element sizes. */
+static bool EvalCheckModern(opcodetype opcode, std::vector<valtype>& stack, const BaseSignatureChecker& checker, bool fRequireMinimal, ScriptError* serror)
+{
+    if (stack.size() < 2) return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+    int32_t param{0};
+    int32_t algorithm{0};
+    try {
+        param = CScriptNum(stacktop(-1), fRequireMinimal).getint();
+        algorithm = CScriptNum(stacktop(-2), fRequireMinimal).getint();
+    } catch (const scriptnum_error&) {
+        return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
+    }
+    popstack(stack);
+    popstack(stack);
+    const ModernSigKind* kind{LookupModernSigKind(algorithm, param)};
+    if (!kind) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+    uint256 sighash;
+    if (!checker.GetUnifiedSighash(sighash)) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+    const std::span<const unsigned char> message{sighash.begin(), 32};
+
+    if (opcode == OP_CHECKMODERNSIG) {
+        if (stack.size() < 3) return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+        const valtype& fingerprint_v{stacktop(-1)};
+        const valtype& signature{stacktop(-2)};
+        const valtype& pubkey{stacktop(-3)};
+        if (fingerprint_v.size() != 32) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        if (pubkey.size() > kind->MaxStackElement() || signature.size() > kind->MaxStackElement()) {
+            return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+        }
+        const uint256 fingerprint{Span<const unsigned char>{fingerprint_v.data(), fingerprint_v.size()}};
+        const std::vector<std::vector<unsigned char>> witness{pubkey, signature};
+        const bool ok{kind->VerifySingle(fingerprint, witness, message)};
+        popstack(stack);
+        popstack(stack);
+        popstack(stack);
+        stack.push_back(ok ? valtype(1, 1) : valtype());
+        if (!ok) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        return true;
+    }
+
+    if (stack.empty()) return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+    int32_t n{0};
+    try {
+        n = CScriptNum(stacktop(-1), fRequireMinimal).getint();
+    } catch (const scriptnum_error&) {
+        return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
+    }
+    popstack(stack);
+    if (n < 1 || static_cast<uint32_t>(n) > kind->MaxKeys()) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+    if (stack.size() < static_cast<size_t>(n) + 1) return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+    std::vector<uint256> hashes;
+    hashes.reserve(static_cast<size_t>(n));
+    for (int i{0}; i < n; ++i) {
+        const valtype& item{stacktop(-1)};
+        if (item.size() != 32) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        hashes.insert(hashes.begin(), uint256{Span<const unsigned char>{item.data(), item.size()}});
+        popstack(stack);
+    }
+    int32_t threshold{0};
+    try {
+        threshold = CScriptNum(stacktop(-1), fRequireMinimal).getint();
+    } catch (const scriptnum_error&) {
+        return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
+    }
+    popstack(stack);
+    if (threshold < 1 || threshold > n) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+    if (stack.size() < static_cast<size_t>(n)) return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+    std::vector<std::vector<unsigned char>> witness(stack.end() - n, stack.end());
+    for (const auto& item : witness) {
+        if (item.size() > kind->MaxStackElement()) return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+    }
+    const bool ok{kind->VerifyPolicy(static_cast<uint8_t>(threshold), hashes, witness, message)};
+    for (int i{0}; i < n; ++i) popstack(stack);
+    stack.push_back(ok ? valtype(1, 1) : valtype());
+    if (!ok) return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+    return true;
 }
 
 bool static IsCompressedOrUncompressedPubKey(const valtype &vchPubKey) {
@@ -117,9 +200,9 @@ bool static IsValidSignatureEncoding(const std::vector<unsigned char> &sig) {
     // * sighash: 1-byte value indicating what data is hashed (not part of the DER
     //   signature)
 
-    // Minimum and maximum size constraints.
-    if (sig.size() < 9) return false;
-    if (sig.size() > 73) return false;
+    // Minimum and maximum size constraints. BIP66 DER plus one sighash byte.
+    if (sig.size() < Consensus::BIP66_DER_SIGHASH_SIZE_MIN) return false;
+    if (sig.size() > Consensus::BIP66_DER_SIGHASH_SIZE_MAX) return false;
 
     // A signature is of type 0x30 (compound).
     if (sig[0] != 0x30) return false;
@@ -1237,6 +1320,14 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
+                case OP_CHECKMODERNSIG:
+                case OP_CHECKMODERNPOLICY:
+                {
+                    if (sigversion != SigVersion::WITNESS_V0) return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                    if (!EvalCheckModern(opcode, stack, checker, fRequireMinimal, serror)) return false;
+                }
+                break;
+
                 default:
                     return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
             }
@@ -1859,7 +1950,7 @@ bool GenericTransactionSignatureChecker<T>::CheckECDSASignature(const std::vecto
     int nHashType = vchSig.back();
     vchSig.pop_back();
 
-    if (m_require_sighash_all && nHashType != SIGHASH_ALL) {
+    if (m_require_sighash_all && (nHashType & ~SIGHASH_UNIFIED) != SIGHASH_ALL) {
         return false;
     }
 
@@ -1867,22 +1958,13 @@ bool GenericTransactionSignatureChecker<T>::CheckECDSASignature(const std::vecto
     if (sigversion == SigVersion::WITNESS_V0 && amount < 0) return HandleMissingData(m_mdb);
 
     uint256 sighash;
-    // The spender opts in per signature, via the hash type byte. Before
-    // activation the bit carries no meaning and the legacy message applies, so
-    // such a signature simply does not verify yet.
-    if (sighash_rules == SighashRules::UNIFIED && (nHashType & SIGHASH_UNIFIED)) {
-        // No midstate cache here. The per-transaction aggregates are
-        // precomputed, so cost is the fixed preimage plus the scriptCode
-        // rather than the whole transaction: linear in the number of inputs
-        // overall, which is what closes CVE-2013-2292. Repeated signatures
-        // over one large scriptCode still rehash it, giving up the Knots
-        // midstate cache for that case; the bound is no worse than BIP143
-        // without it.
-        if (!this->txdata) return HandleMissingData(m_mdb);
-        if (!SignatureHashUnified(sighash, scriptCode, *txTo, nIn, nHashType, sigversion, *this->txdata, nullptr, m_mdb)) return false;
-    } else {
-        sighash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, this->txdata, &m_sighash_cache);
-    }
+    // UNIFIED is genesis. A hashtype without 0x20 is not a legacy fallback;
+    // that hasher is closed. The bit still has to be present so a signature
+    // is not valid under two messages.
+    if (sighash_rules != SighashRules::UNIFIED) return false;
+    if ((nHashType & SIGHASH_UNIFIED) == 0) return false;
+    if (!this->txdata) return HandleMissingData(m_mdb);
+    if (!SignatureHashUnified(sighash, CScript{}, *txTo, nIn, nHashType, sigversion, *this->txdata, nullptr, m_mdb)) return false;
 
     if (!VerifyECDSASignature(vchSig, pubkey, sighash))
         return false;
@@ -1907,7 +1989,7 @@ bool GenericTransactionSignatureChecker<T>::CheckSchnorrSignature(Span<const uns
     uint8_t hashtype = SIGHASH_DEFAULT;
     if (sig.size() == 65) {
         hashtype = SpanPopBack(sig);
-        if (m_require_sighash_all && hashtype != SIGHASH_ALL) {
+        if (m_require_sighash_all && (hashtype & ~SIGHASH_UNIFIED) != SIGHASH_ALL) {
             return set_error(serror, SCRIPT_ERR_SIG_HASHTYPE);
         }
         if (hashtype == SIGHASH_DEFAULT) return set_error(serror, SCRIPT_ERR_SCHNORR_SIG_HASHTYPE);
@@ -2014,9 +2096,29 @@ bool GenericTransactionSignatureChecker<T>::CheckSequence(const CScriptNum& nSeq
     return true;
 }
 
+template <class T>
+bool GenericTransactionSignatureChecker<T>::EvalWitnessV0(const std::vector<unsigned char>& program, const CScriptWitness& witness) const
+{
+    if (!txTo || !txdata) return false;
+    CScript scriptPubKey;
+    scriptPubKey << OP_0 << program;
+    return Consensus::CheckWitnessV0Spend(txTo->vin[nIn].scriptSig, scriptPubKey, witness, *txTo, nIn, *txdata);
+}
+
+template <class T>
+bool GenericTransactionSignatureChecker<T>::GetUnifiedSighash(uint256& hash_out) const
+{
+    if (!txTo || !txdata) return false;
+    return SignatureHashUnified(hash_out, CScript{}, *txTo, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, *txdata, nullptr, m_mdb);
+}
+
 // explicit instantiation
-// Explicit instantiation: sign.cpp calls this, and relying on it being
-// instantiated as a side effect of a call elsewhere in this file is fragile.
+// Explicit instantiation: sign.cpp and the script tests call these, and
+// relying on them being instantiated as a side effect of a call elsewhere
+// in this file is fragile. UNIFIED is genesis, so CheckECDSASignature no
+// longer instantiates the BIP143 hasher as a side effect.
+template uint256 SignatureHash<CTransaction>(const CScript&, const CTransaction&, unsigned int, int32_t, const CAmount&, SigVersion, const PrecomputedTransactionData*, SigHashCache*);
+template uint256 SignatureHash<CMutableTransaction>(const CScript&, const CMutableTransaction&, unsigned int, int32_t, const CAmount&, SigVersion, const PrecomputedTransactionData*, SigHashCache*);
 template bool SignatureHashUnified(uint256&, const CScript&, const CTransaction&, unsigned int, int32_t, SigVersion, const PrecomputedTransactionData&, const ScriptExecutionData*, MissingDataBehavior);
 template bool SignatureHashUnified(uint256&, const CScript&, const CMutableTransaction&, unsigned int, int32_t, SigVersion, const PrecomputedTransactionData&, const ScriptExecutionData*, MissingDataBehavior);
 
@@ -2116,29 +2218,16 @@ static bool VerifyWitnessProgram(const CScriptWitness& witness, int witversion, 
     ScriptExecutionData execdata;
 
     if (witversion == 0) {
-        if (program.size() == WITNESS_V0_SCRIPTHASH_SIZE) {
-            // BIP141 P2WSH: 32-byte witness v0 program (which encodes SHA256(script))
-            if (stack.size() == 0) {
-                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WITNESS_EMPTY);
-            }
-            const valtype& script_bytes = SpanPopBack(stack);
-            exec_script = CScript(script_bytes.begin(), script_bytes.end());
-            uint256 hash_exec_script;
-            CSHA256().Write(exec_script.data(), exec_script.size()).Finalize(hash_exec_script.begin());
-            if (memcmp(hash_exec_script.begin(), program.data(), 32)) {
-                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH);
-            }
-            return ExecuteWitnessScript(stack, exec_script, flags, SigVersion::WITNESS_V0, checker, execdata, serror);
-        } else if (program.size() == WITNESS_V0_KEYHASH_SIZE) {
-            // BIP141 P2WPKH: 20-byte witness v0 program (which encodes Hash160(pubkey))
-            if (stack.size() != 2) {
-                return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_MISMATCH); // 2 items in witness
-            }
-            exec_script << OP_DUP << OP_HASH160 << program << OP_EQUALVERIFY << OP_CHECKSIG;
-            return ExecuteWitnessScript(stack, exec_script, flags, SigVersion::WITNESS_V0, checker, execdata, serror);
-        } else {
+        if (program.size() != WITNESS_V0_KEYHASH_SIZE && program.size() != WITNESS_V0_SCRIPTHASH_SIZE) {
             return set_error(serror, SCRIPT_ERR_WITNESS_PROGRAM_WRONG_LENGTH);
         }
+        if (!(flags & SCRIPT_VERIFY_UNIFIED_SIGHASH)) {
+            return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        }
+        if (!checker.EvalWitnessV0(program, witness)) {
+            return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        }
+        return set_success(serror);
     } else if (witversion == 1 && program.size() == WITNESS_V1_TAPROOT_SIZE && !is_p2sh) {
         // BIP341 Taproot: 32-byte non-P2SH witness v1 program (which encodes a P2C-tweaked pubkey)
         // FederationCoin parks Taproot (NEVER_ACTIVE). Bitcoin Core returns
@@ -2215,6 +2304,39 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
 
     if ((flags & SCRIPT_VERIFY_SIGPUSHONLY) != 0 && !scriptSig.IsPushOnly()) {
         return set_error(serror, SCRIPT_ERR_SIG_PUSHONLY);
+    }
+
+    // Dilithium locking scripts are not BIP 141 witness programs. Copy the
+    // witness onto the stack (kind-owned size cap) and execute the script.
+    // Do not ExecuteWitnessScript (global 520-byte element cap).
+    if ((flags & SCRIPT_VERIFY_WITNESS) && IsModernSigTemplate(scriptPubKey)) {
+        if (scriptSig.size() != 0) {
+            return set_error(serror, SCRIPT_ERR_WITNESS_MALLEATED);
+        }
+        if (!(flags & SCRIPT_VERIFY_UNIFIED_SIGHASH)) {
+            return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        }
+        const auto parsed{ParseModernSig(scriptPubKey)};
+        const ModernSigKind* kind{parsed ? std::visit([](const auto& p) { return p.kind; }, *parsed) : nullptr};
+        if (!kind) {
+            return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        }
+        for (const valtype& item : witness->stack) {
+            if (item.size() > kind->MaxStackElement()) {
+                return set_error(serror, SCRIPT_ERR_PUSH_SIZE);
+            }
+        }
+        std::vector<valtype> modern_stack{witness->stack};
+        if (!EvalScript(modern_stack, scriptPubKey, flags, checker, SigVersion::WITNESS_V0, serror)) {
+            return false;
+        }
+        if (modern_stack.size() != 1) {
+            return set_error(serror, SCRIPT_ERR_CLEANSTACK);
+        }
+        if (!CastToBool(modern_stack.back())) {
+            return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        }
+        return set_success(serror);
     }
 
     // scriptSig and scriptPubKey must be evaluated sequentially on the same stack
@@ -2339,16 +2461,15 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, const C
     return set_success(serror);
 }
 
-size_t static WitnessSigOps(int witversion, const std::vector<unsigned char>& witprogram, const CScriptWitness& witness)
+size_t static WitnessSigOps(int witversion, const std::vector<unsigned char>& witprogram, const CScriptWitness&)
 {
     if (witversion == 0) {
         if (witprogram.size() == WITNESS_V0_KEYHASH_SIZE)
             return 1;
-
-        if (witprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE && witness.stack.size() > 0) {
-            CScript subscript(witness.stack.back().begin(), witness.stack.back().end());
-            return subscript.GetSigOpCount(true);
-        }
+        // Dilithium v0/32 and unmatched 32-byte programs are not Bitcoin
+        // script. Do not parse pubkey||sig as a subscript.
+        if (witprogram.size() == WITNESS_V0_SCRIPTHASH_SIZE)
+            return 0;
     }
 
     // Future flags may be implemented here.
@@ -2385,3 +2506,30 @@ size_t CountWitnessSigOps(const CScript& scriptSig, const CScript& scriptPubKey,
 
     return 0;
 }
+
+namespace Consensus {
+
+template <class T>
+bool CheckWitnessV0Spend(const CScript& scriptSig, const CScript& scriptPubKey, const CScriptWitness& witness, const T& tx, unsigned int nIn, const PrecomputedTransactionData& txdata)
+{
+    // Empty scriptSig for native v0 is SCRIPT_ERR_WITNESS_MALLEATED in
+    // VerifyScript. This checker does not duplicate that rule: P2SH-wrapped
+    // v0 carries the redeem script in scriptSig.
+    (void)scriptSig;
+    int witness_version{0};
+    std::vector<unsigned char> witness_program;
+    if (!scriptPubKey.IsWitnessProgram(witness_version, witness_program) || witness_version != 0) return false;
+    uint256 sighash;
+    if (!SignatureHashUnified(sighash, CScript{}, tx, nIn, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata)) return false;
+    const std::span<const unsigned char> message{sighash.begin(), 32};
+    if (witness_program.size() == WITNESS_V0_KEYHASH_SIZE) {
+        return CheckSecpSingleKeySpend(uint160{Span<const unsigned char>{witness_program.data(), witness_program.size()}}, witness.stack, message);
+    }
+    // Unmatched v0/32 is EVAL_FALSE (not P2WSH, not Dilithium).
+    return false;
+}
+
+template bool CheckWitnessV0Spend(const CScript&, const CScript&, const CScriptWitness&, const CTransaction&, unsigned int, const PrecomputedTransactionData&);
+template bool CheckWitnessV0Spend(const CScript&, const CScript&, const CScriptWitness&, const CMutableTransaction&, unsigned int, const PrecomputedTransactionData&);
+
+} // namespace Consensus

@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chainparams.h>
+#include <clientversion.h>
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
 #include <kernel/coinstats.h>
@@ -24,7 +25,8 @@ FUZZ_TARGET(utxo_total_supply)
 {
     SeedRandomStateForTest(SeedRand::ZEROS);
     FuzzedDataProvider fuzzed_data_provider(buffer.data(), buffer.size());
-    const auto mock_time{ConsumeTime(fuzzed_data_provider, /*min=*/1296688602)}; // regtest genesis block timestamp
+    const auto genesis_time{static_cast<int64_t>(CreateChainParams(ArgsManager{}, ChainType::REGTEST)->GenesisBlock().nTime)};
+    const auto mock_time{ConsumeTime(fuzzed_data_provider, /*min=*/genesis_time, /*max=*/DEFAULT_SOFTWARE_EXPIRY - 1)};
     /** The testing setup that creates a chainman only (no chainstate) */
     ChainTestingSetup test_setup{
         ChainType::REGTEST,
@@ -45,14 +47,14 @@ FUZZ_TARGET(utxo_total_supply)
         return chainman.ActiveHeight();
     };
     BlockAssembler::Options options;
-    options.coinbase_output_script = CScript() << OP_FALSE;
+    options.coinbase_output_script = FuzzPayableCoinbaseScript(1);
     const auto PrepareNextBlock = [&]() {
-        // Use OP_FALSE to avoid BIP30 check from hitting early
+        // Template uses tag 1 so TestBlockValidity does not BIP30 against
+        // tag-2 scripts already on disk. Swap to tag 2 before mining.
         auto block = PrepareBlock(node, options);
-        // Replace OP_FALSE with OP_TRUE
         {
             CMutableTransaction tx{*block->vtx.back()};
-            tx.vout.at(0).scriptPubKey = CScript{} << OP_TRUE;
+            tx.vout.at(0).scriptPubKey = FuzzPayableCoinbaseScript(2);
             block->vtx.back() = MakeTransactionRef(tx);
         }
         return block;

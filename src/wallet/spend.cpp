@@ -3,10 +3,12 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <algorithm>
+#include <addresstype.h>
 #include <common/args.h>
 #include <common/messages.h>
 #include <common/system.h>
 #include <consensus/amount.h>
+#include <consensus/settlement_fee.h>
 #include <consensus/mldsa87_spend.h>
 #include <consensus/validation.h>
 #include <interfaces/chain.h>
@@ -15,9 +17,12 @@
 #include <policy/policy.h>
 #include <primitives/transaction.h>
 #include <script/descriptor.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/signingprovider.h>
 #include <script/solver.h>
+#include <span.h>
+#include <uint256.h>
 #include <util/check.h>
 #include <util/moneystr.h>
 #include <util/rbf.h>
@@ -45,30 +50,34 @@ TRACEPOINT_SEMAPHORE(coin_selection, aps_create_tx_internal);
 namespace wallet {
 static constexpr size_t OUTPUT_GROUP_MAX_ENTRIES{100};
 
-/** Worst-case Dilithium 87 witness input when InferDescriptor cannot attach a descriptor. */
-static int64_t Dilithium87MaxInputWeight()
-{
-    const int64_t pk = Consensus::MLDSA87_PUBLIC_KEY_SIZE;
-    const int64_t sig = Consensus::MLDSA87_SIGNATURE_SIZE;
-    const int64_t sat = GetSizeOfCompactSize(pk) + pk + GetSizeOfCompactSize(sig) + sig;
-    return (32 + 4 + 4 + 1) * WITNESS_SCALE_FACTOR + GetSizeOfCompactSize(2) + sat;
-}
-
 static bool IsDilithiumWitnessV0(const CScript& script)
 {
-    int witver = 0;
-    std::vector<unsigned char> program;
-    return script.IsWitnessProgram(witver, program) && witver == 0 && program.size() == 32;
+    return IsModernSigTemplate(script);
 }
 
-/** Input weight when InferDescriptor is not solvable (Address/Raw). */
+/** Input weight from the script shape. Dilithium single and policy use the
+ *  kind's MaxSatisfactionWeight, not a nested-P2WPKH dummy. */
 static std::optional<int64_t> ScriptShapedInputWeight(const CScript& script, bool tx_is_segwit)
 {
-    int witver = 0;
-    std::vector<unsigned char> program;
-    if (script.IsWitnessProgram(witver, program) && witver == 0 && program.size() == 32) {
-        return Dilithium87MaxInputWeight();
+    const auto add_input = [&](int64_t sat_bytes, int64_t elems) -> int64_t {
+        const int64_t scriptsig_len{1};
+        const int64_t witstack_len{GetSizeOfCompactSize(elems)};
+        return (32 + 4 + 4 + scriptsig_len) * WITNESS_SCALE_FACTOR + witstack_len + sat_bytes;
+    };
+    if (const auto parsed{MatchModernSingle(script)}; parsed && parsed->kind) {
+        const int64_t pk{static_cast<int64_t>(parsed->kind->PubkeySize())};
+        const int64_t sig{static_cast<int64_t>(parsed->kind->SignatureSize())};
+        const int64_t sat{GetSizeOfCompactSize(pk) + pk + GetSizeOfCompactSize(sig) + sig};
+        return add_input(sat, 2);
     }
+    if (const auto parsed{MatchModernPolicy(script)}; parsed && parsed->kind) {
+        const int64_t pk{static_cast<int64_t>(parsed->kind->PubkeySize())};
+        const int64_t sig{static_cast<int64_t>(parsed->kind->SignatureSize())};
+        const int64_t item{pk + sig};
+        const int64_t sat{static_cast<int64_t>(parsed->hashes.size()) * (GetSizeOfCompactSize(item) + item)};
+        return add_input(sat, parsed->hashes.size());
+    }
+    (void)tx_is_segwit;
     return std::nullopt;
 }
 
@@ -148,7 +157,13 @@ static std::unique_ptr<Descriptor> GetDescriptor(const CWallet* wallet, const CC
         providers.AddProvider(spkman->GetSolvingProvider(script_pubkey));
     }
     if (coin_control) {
-        providers.AddProvider(std::make_unique<FlatSigningProvider>(coin_control->m_external_provider));
+        FlatSigningProvider ext{coin_control->m_external_provider};
+        if (const auto parsed{MatchModernSingle(script_pubkey)}; parsed && parsed->kind) {
+            for (const auto& rec : ext.mldsa_pending) {
+                ext.mldsa_programs.emplace(parsed->fingerprint, rec);
+            }
+        }
+        providers.AddProvider(std::make_unique<FlatSigningProvider>(std::move(ext)));
     }
     return InferDescriptor(script_pubkey, providers);
 }
@@ -290,10 +305,10 @@ static OutputType GetOutputType(TxoutType type, bool is_from_p2sh)
             return OutputType::BECH32M;
         case TxoutType::WITNESS_V0_KEYHASH:
             if (is_from_p2sh) return OutputType::P2SH_SEGWIT;
-            return OutputType::SECP;
+            return OutputType::BECH32;
         case TxoutType::WITNESS_V0_SCRIPTHASH:
             if (is_from_p2sh) return OutputType::P2SH_SEGWIT;
-            return OutputType::DILITHIUM87;
+            return OutputType::UNKNOWN;
         case TxoutType::SCRIPTHASH:
         case TxoutType::PUBKEYHASH:
             return OutputType::LEGACY;
@@ -302,10 +317,10 @@ static OutputType GetOutputType(TxoutType type, bool is_from_p2sh)
     }
 }
 
-/** 32-byte witness v0 is Dilithium 87 or 44. InferDescriptor or the owning SPM names the kind. */
+/** Dilithium locking scripts. InferDescriptor or the owning SPM names the kind. */
 static OutputType OutputTypeForCoin(const CWallet& wallet, const CTxOut& output, TxoutType type, bool is_from_p2sh, const SigningProvider* provider)
 {
-    if (type == TxoutType::WITNESS_V0_SCRIPTHASH && !is_from_p2sh) {
+    if ((type == TxoutType::CHECKMODERNSIG || type == TxoutType::CHECKMODERNPOLICY) && !is_from_p2sh) {
         if (provider) {
             if (const auto desc = InferDescriptor(output.scriptPubKey, *provider)) {
                 if (const auto typ = desc->GetOutputType()) {
@@ -363,7 +378,13 @@ util::Result<PreSelectedInputs> FetchSelectedInputs(const CWallet& wallet, const
         }
 
         if (input_bytes == -1) {
-            input_bytes = CalculateMaximumSignedInputSize(txout, outpoint, &coin_control.m_external_provider, can_grind_r, &coin_control);
+            FlatSigningProvider bound{coin_control.m_external_provider};
+            if (const auto parsed{MatchModernSingle(txout.scriptPubKey)}; parsed && parsed->kind) {
+                for (const auto& rec : bound.mldsa_pending) {
+                    bound.mldsa_programs.emplace(parsed->fingerprint, rec);
+                }
+            }
+            input_bytes = CalculateMaximumSignedInputSize(txout, outpoint, &bound, can_grind_r, &coin_control);
         }
 
         if (input_bytes == -1) {
@@ -838,6 +859,8 @@ util::Result<SelectionResult> ChooseSelectionResult(interfaces::Chain& chain, co
         if (!combined_bump_fee.has_value()) {
             return util::Error{_("Failed to calculate bump fees, because unconfirmed UTXOs depend on an enormous cluster of unconfirmed transactions.")};
         }
+        // Positive when overlap lowered the combined bump; negative when
+        // MinimumFee remainders raised it. Wallet bump is sum minus this.
         CAmount bump_fee_overestimate = summed_bump_fees - combined_bump_fee.value();
         if (bump_fee_overestimate) {
             result.SetBumpFeeDiscount(bump_fee_overestimate);
@@ -1184,10 +1207,32 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
 
     // Get size of spending the change output
     int change_spend_size = CalculateMaximumSignedInputSize(change_prototype_txout, &wallet, /*coin_control=*/nullptr);
-    // If the wallet doesn't know how to sign change output, assume p2sh-p2wpkh
-    // as lower-bound to allow BnB to do it's thing
     if (change_spend_size == -1) {
-        coin_selection_params.change_spend_size = DUMMY_NESTED_P2WPKH_INPUT_SIZE;
+        if (const auto shaped{ScriptShapedInputWeight(scriptChange, /*tx_is_segwit=*/true)}) {
+            coin_selection_params.change_spend_size = static_cast<int>(GetVirtualTransactionSize(*shaped, 0, 0));
+        } else {
+            CScript dummy_change;
+            switch (wallet.m_default_address_type) {
+            case OutputType::DILITHIUM87:
+                dummy_change = BuildModernSingle(uint256::ZERO, ALGO_DILITHIUM, PARAM_DILITHIUM_87);
+                break;
+            case OutputType::DILITHIUM44:
+                dummy_change = BuildModernSingle(uint256::ZERO, ALGO_DILITHIUM, PARAM_DILITHIUM_44);
+                break;
+            case OutputType::BECH32:
+                dummy_change = GetScriptForDestination(WitnessV0KeyHash(uint160{}));
+                break;
+            default:
+                dummy_change = GetScriptForDestination(WitnessV0KeyHash(uint160{}));
+                break;
+            }
+            if (const auto dummy_shaped{ScriptShapedInputWeight(dummy_change, /*tx_is_segwit=*/true)}) {
+                coin_selection_params.change_spend_size = static_cast<int>(GetVirtualTransactionSize(*dummy_shaped, 0, 0));
+            } else {
+                coin_selection_params.change_spend_size = GetVirtualTransactionSize(
+                    (32 + 4 + 4 + 1) * WITNESS_SCALE_FACTOR + GetSizeOfCompactSize(2) + 107, 0, 0);
+            }
+        }
     } else {
         coin_selection_params.change_spend_size = change_spend_size;
     }
@@ -1431,6 +1476,10 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
         (!sign && tx_sizes.weight > MAX_STANDARD_TX_WEIGHT))
     {
         return util::Error{_("Transaction too large")};
+    }
+
+    if (!FeeMeetsMinimumRate(current_fee, static_cast<int64_t>(nBytes))) {
+        return util::Error{strprintf(_("The chain has a minimum fee of 1 token per 12 vB, totaling %d tokens for your transaction."), MinimumFee(static_cast<int64_t>(nBytes)))};
     }
 
     if (current_fee > wallet.m_default_max_tx_fee) {

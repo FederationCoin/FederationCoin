@@ -71,9 +71,9 @@ class SignMessagesWithPrivTest(BitcoinTestFramework):
         signature = 'J036ky29d5FwS0K46di8ssfP+UbVEghDoexR2GGv+WX+WQHVnTWiUTOSjazS3+aIx92qsnE0m/WK2uflxI47BhQ='
         assert self.nodes[0].verifymessage('gfcnrt1q00cc7f4m04f5mjdcm9g6c5y2a3wnvfvfkxv98u', signature, message)
 
-        self.log.info('test that verifying Sparrow p2wpkh ("BIP322 Simple") succeeds')
+        self.log.info('test that verifying a Bitcoin-era BIP322 Simple proof fails')
         signature = 'AkcwRAIgCu7IrN3jCvBdp5myPZHCKiOW5o3EToYG2xgPbjiw6JsCIFwaZMcYQj9FmWcNtZk3qTp2UDBm77cbFmxQ3WVnVxrCASEDonFDI6fuQ05yUfeQIsOs599XHZnpaTxaqD13g4sXYRY='
-        assert self.nodes[0].verifymessage('gfcnrt1q00cc7f4m04f5mjdcm9g6c5y2a3wnvfvfkxv98u', signature, message)
+        assert not self.nodes[0].verifymessage('gfcnrt1q00cc7f4m04f5mjdcm9g6c5y2a3wnvfvfkxv98u', signature, message)
 
         self.log.info('test that verifying Sparrow p2tr ("BIP322 Simple") is rejected')
         signature = 'AUFdYU3dZCSmTxWnl5ja/Jo096VAaKtdaYs8b4ikF2iuQ2fiy7YSFHBWcD40a1oBKTVWUrXqOC0pXoDjTFKqM/ObAQ=='

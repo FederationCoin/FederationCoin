@@ -452,7 +452,7 @@ BOOST_FIXTURE_TEST_CASE(version3_tests, RegTestingSetup)
     }
 
     // Tx spending TRUC cannot be too large in virtual size.
-    // 200 placeholder inputs puts vsize above TRUC_CHILD_MAX_VSIZE (5000).
+    // 200 placeholder inputs puts vsize above TRUC_CHILD_MAX_VSIZE.
     auto many_inputs{random_outpoints(200)};
     many_inputs.emplace_back(mempool_tx_v3->GetHash(), 0);
     {
@@ -471,8 +471,10 @@ BOOST_FIXTURE_TEST_CASE(version3_tests, RegTestingSetup)
     }
 
     // Tx spending TRUC cannot have too many sigops.
-    // 55 CHECKMULTISIG inputs put the sigop-adjusted vsize above 5000.
-    auto multisig_outpoints{random_outpoints(55)};
+    // Enough CHECKMULTISIG inputs that sigop-adjusted vsize exceeds TRUC_CHILD_MAX_VSIZE
+    // while BIP141 vsize stays under it.
+    const size_t n_sigop_inputs{static_cast<size_t>(TRUC_CHILD_MAX_VSIZE / (MAX_PUBKEYS_PER_MULTISIG * DEFAULT_BYTES_PER_SIGOP / WITNESS_SCALE_FACTOR)) + 1};
+    auto multisig_outpoints{random_outpoints(n_sigop_inputs)};
     multisig_outpoints.emplace_back(mempool_tx_v3->GetHash(), 0);
     auto keys{random_keys(2)};
     CScript script_multisig;

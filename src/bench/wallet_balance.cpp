@@ -2,13 +2,14 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <addresstype.h>
 #include <bench/bench.h>
 #include <interfaces/chain.h>
 #include <kernel/chainparams.h>
+#include <key_io.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
 #include <sync.h>
-#include <test/util/chain_encoding.h>
 #include <test/util/mining.h>
 #include <test/util/setup_common.h>
 #include <uint256.h>
@@ -29,7 +30,9 @@ static void WalletBalance(benchmark::Bench& bench, const bool set_dirty, const b
 {
     const auto test_setup = MakeNoLogFileContext<const TestingSetup>();
 
-    const auto ADDRESS_WATCHONLY = RecodeKeyOrAddressForActiveChain(ADDRESS_BCRT1_UNSPENDABLE);
+    // P2WPKH of 20 zero bytes. The old bcrt1q… unspendable was P2WSH (v0/32),
+    // which CheckOutputSizes rejects.
+    const std::string ADDRESS_WATCHONLY{EncodeDestination(WitnessV0KeyHash(uint160{}))};
 
     // Set clock to genesis block, so the descriptors/keys creation time don't interfere with the blocks scanning process.
     // The reason is 'generatetoaddress', which creates a chain with deterministic timestamps in the past.

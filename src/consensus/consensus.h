@@ -9,14 +9,6 @@
 #include <cstdlib>
 #include <stdint.h>
 
-/** P2P/disk buffer. Consensus weight is the live flex cap, not this number. */
-static const uint64_t MAX_BLOCK_SERIALIZED_SIZE = 32000000;
-/** Heritage BIP141 constant. Live block weight is the flex cap. */
-static const uint64_t MAX_BLOCK_WEIGHT = 4000000;
-/** Floor of the flex cap. Reduced-data rules do not sunset. */
-static const uint64_t REDUCED_DATA_MAX_BLOCK_WEIGHT = 2400000;
-/** The maximum allowed number of signature check operations in a block (network rule) */
-static const int64_t MAX_BLOCK_SIGOPS_COST = 80000;
 /** Coinbase transaction outputs can only be spent after this number of new blocks (network rule) */
 static const int COINBASE_MATURITY = 100;
 
@@ -37,7 +29,8 @@ static constexpr unsigned int LOCKTIME_VERIFY_SEQUENCE = (1 << 0);
 static constexpr int64_t MAX_TIMEWARP = 600;
 
 static constexpr unsigned int MAX_OUTPUT_SCRIPT_SIZE{34};
-static constexpr unsigned int MAX_OUTPUT_DATA_SIZE{83};
+/** Coinbase witness commitment is 38 bytes. Do not go below that. */
+static constexpr unsigned int MAX_OUTPUT_DATA_SIZE{38};
 /** Coinbase scriptSig on every block: height, 6-byte tag, gateway ids, extranonce. */
 static constexpr unsigned int MAX_COINBASE_SCRIPTSIG_SIZE{48};
 

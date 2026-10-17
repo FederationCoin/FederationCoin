@@ -65,8 +65,11 @@ static void SignTransactionSingleInput(benchmark::Bench& bench, InputType input_
         const CScript& prev_spk = prev_spks[(iter++) % prev_spks.size()];
         coins[prevout] = Coin(CTxOut(10000, prev_spk), /*nHeightIn=*/100, /*fCoinBaseIn=*/false);
         std::map<int, bilingual_str> input_errors;
-        bool complete = SignTransaction(tx, &keystore, coins, SIGHASH_ALL, input_errors,
-                                        /*inputs_amount_sum=*/nullptr, /*sighash_rules=*/SighashRules::LEGACY);
+        const bool unified_v0 = input_type == InputType::P2WPKH;
+        bool complete = SignTransaction(tx, &keystore, coins,
+                                        unified_v0 ? (SIGHASH_ALL | SIGHASH_UNIFIED) : SIGHASH_ALL, input_errors,
+                                        /*inputs_amount_sum=*/nullptr,
+                                        unified_v0 ? SighashRules::UNIFIED : SighashRules::LEGACY);
         assert(complete);
     });
 }

@@ -17,7 +17,6 @@
 #include <chainparamsbase.h>
 #include <clientversion.h>
 #include <common/args.h>
-#include <common/sighash_rules.h>
 #include <common/pcp.h>
 #include <common/system.h>
 #include <consensus/amount.h>
@@ -502,7 +501,6 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
                              kernel::DEFAULT_XOR_BLOCKSDIR),
                    ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
     argsman.AddArg("-fastprune", "Use smaller block files and lower minimum prune height for testing purposes", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
-    SetupSighashRulesArgs(argsman);
 #if HAVE_SYSTEM
     argsman.AddArg("-blocknotify=<cmd>", "Execute command when the best block changes (%s in cmd is replaced by block hash)", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
 #endif
@@ -589,7 +587,6 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-i2psam=<ip:port>", "I2P SAM proxy to reach I2P peers and accept I2P connections (default: none)", ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
     argsman.AddArg("-i2pacceptincoming", strprintf("Whether to accept inbound I2P connections (default: %i). Ignored if -i2psam is not set. Listening for inbound I2P connections is done through the SAM proxy, not by binding to a local address and port.", DEFAULT_I2P_ACCEPT_INCOMING), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
     argsman.AddArg("-onlynet=<net>", "Make automatic outbound connections only to network <net> (" + Join(GetNetworkNames(), ", ") + "). Inbound and manual connections are not affected by this option. It can be specified multiple times to allow multiple networks.", ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
-    argsman.AddArg("-v2transport", strprintf("Support v2 transport (default: %u)", DEFAULT_V2_TRANSPORT), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
     argsman.AddArg("-v2onlyclearnet", strprintf("Ensure all outbound IPv4/IPv6 peers use encrypted network traffic (default: %u). Using this option requires -listen=0 and takes valuable listening capacity away from the network. Enable this option only if passive network observers like ISPs, firewalls, etc. pose a threat and unencrypted network traffic must be avoided. Note: Encryption protects message contents but does not obscure that you are running a FederationCoin node. Observers can still identify node activity from your outbound connection attempts to the default P2P port or by analysing traffic patterns.", DEFAULT_V2_ONLY_CLEARNET), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CONNECTION);
     argsman.AddArg("-peerbloomfilters", strprintf("Support filtering of blocks and transactions with bloom filters (default: %s)", DEFAULT_PEERBLOOMFILTERS ? "1" : "localhost only"), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
     argsman.AddArg("-peerblockfilters", strprintf("Serve compact block filters to peers per BIP 157 (default: %u)", DEFAULT_PEERBLOCKFILTERS), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
@@ -724,7 +721,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-acceptstalefeeestimates", strprintf("Read fee estimates even if they are stale (%sdefault: %u) fee estimates are considered stale if they are %s hours old", "regtest only; ", DEFAULT_ACCEPT_STALE_FEE_ESTIMATES, Ticks<std::chrono::hours>(MAX_FILE_AGE)), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-bytespersigop", strprintf("Equivalent bytes per sigop in transactions for relay and mining (default: %u)", DEFAULT_BYTES_PER_SIGOP), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-bytespersigopstrict", strprintf("Minimum bytes per sigop in transactions we relay and mine (default: %u)", DEFAULT_BYTES_PER_SIGOP_STRICT), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
-    argsman.AddArg("-datacarrier", strprintf("Relay and mine data carrier transactions (default: %u)", DEFAULT_ACCEPT_DATACARRIER), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+    argsman.AddArg("-datacarrier", "User OP_RETURN outputs are always rejected.", ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-datacarriercost", strprintf("Treat extra data in transactions as at least N vbytes per actual byte (default: %s)", DEFAULT_WEIGHT_PER_DATA_BYTE / 4.0), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-datacarrierfullcount", strprintf("Apply datacarriersize limit to all known datacarrier methods (default: %u)", DEFAULT_DATACARRIER_FULLCOUNT), ArgsManager::ALLOW_ANY | (DEFAULT_DATACARRIER_FULLCOUNT ? uint32_t{ArgsManager::DEBUG_ONLY} : 0), OptionsCategory::NODE_RELAY);
     argsman.AddArg("-datacarriersize",
@@ -868,8 +865,9 @@ void InitParameterInteraction(ArgsManager& args)
         }
         args.SoftSetArg("-incrementalrelayfee", FormatMoney(CORE_INCREMENTAL_RELAY_FEE));
         if (!args.IsArgSet("-minrelaytxfee")) {
-            // Consensus requires 3 tokens per virtual byte. A higher
-            // incremental relay fee raises the relay floor with it.
+            // Product default minrelay is 0; consensus MinimumFee is the floor.
+            // -corepolicy keeps minrelay at least the Core incremental so RBF
+            // has a relay floor. Operator -minrelaytxfee still wins.
             args.ForceSetArg("-minrelaytxfee", FormatMoney(std::max<CAmount>(DEFAULT_MIN_RELAY_TX_FEE, incremental)));
         }
         args.SoftSetArg("-blockmintxfee", FormatMoney(DEFAULT_BLOCK_MIN_TX_FEE));
@@ -891,8 +889,8 @@ void InitParameterInteraction(ArgsManager& args)
         args.SoftSetArg("-permitephemeral", "anchor,send,dust");
         args.SoftSetArg("-spkreuse", "allow");
         args.SoftSetArg("-blockprioritysize", "0");
-        args.SoftSetArg("-blockmaxsize", strprintf("%u", MAX_BLOCK_SERIALIZED_SIZE));
-        args.SoftSetArg("-blockmaxweight", strprintf("%u", MAX_BLOCK_SERIALIZED_SIZE));
+        args.SoftSetArg("-blockmaxsize", strprintf("%llu", static_cast<unsigned long long>(Consensus::MAX_FLEX_BLOCK_WEIGHT)));
+        args.SoftSetArg("-blockmaxweight", strprintf("%llu", static_cast<unsigned long long>(Consensus::MAX_FLEX_BLOCK_WEIGHT)));
     }
 
     // when specifying an explicit binding address, you want to listen on it
@@ -1112,12 +1110,8 @@ bool AppInitParameterInteraction(const ArgsManager& args)
         }
     }
 
-    // Signal NODE_P2P_V2 if BIP324 v2 transport is enabled.
-    if (args.GetBoolArg("-v2transport", DEFAULT_V2_TRANSPORT)) {
-        g_local_services = ServiceFlags(g_local_services | NODE_P2P_V2);
-    } else if (args.GetBoolArg("-v2onlyclearnet", DEFAULT_V2_ONLY_CLEARNET)) {
-        return InitError(_("Cannot set -v2onlyclearnet to true when v2transport is disabled."));
-    }
+    // Application framing is v3 from genesis. There is no -v2transport option.
+    g_local_services = ServiceFlags(g_local_services | NODE_P2P_V3);
 
     // Signal NODE_COMPACT_FILTERS if peerblockfilters and basic filters index are both enabled.
     if (args.GetBoolArg("-peerblockfilters", DEFAULT_PEERBLOCKFILTERS)) {
@@ -1217,14 +1211,14 @@ bool AppInitParameterInteraction(const ArgsManager& args)
 
     if (args.IsArgSet("-blockreservedweight")) {
         const auto block_reserved_weight = args.GetIntArg("-blockreservedweight", DEFAULT_BLOCK_RESERVED_WEIGHT);
-        if (static_cast<uint64_t>(block_reserved_weight) > MAX_BLOCK_WEIGHT) {
-            return InitError(strprintf(_("Specified -blockreservedweight (%d) exceeds consensus maximum block weight (%d)"), block_reserved_weight, MAX_BLOCK_WEIGHT));
+        if (static_cast<uint64_t>(block_reserved_weight) > Consensus::MAX_FLEX_BLOCK_WEIGHT) {
+            return InitError(strprintf(_("Specified -blockreservedweight (%d) exceeds the flex cap ceiling"), block_reserved_weight));
         }
         if (block_reserved_weight < MINIMUM_BLOCK_RESERVED_WEIGHT) {
             return InitError(strprintf(_("Specified -blockreservedweight (%d) is lower than minimum safety value of (%d)"), block_reserved_weight, MINIMUM_BLOCK_RESERVED_WEIGHT));
         }
-        if (static_cast<uint64_t>(block_reserved_weight) > REDUCED_DATA_MAX_BLOCK_WEIGHT) {
-            InitWarning(strprintf(_("Specified -blockreservedweight (%d) exceeds the block weight limit that applies while RDTS is active (%d); block templates will contain no transactions while that limit applies"), block_reserved_weight, REDUCED_DATA_MAX_BLOCK_WEIGHT));
+        if (static_cast<uint64_t>(block_reserved_weight) > Consensus::MIN_FLEX_BLOCK_WEIGHT) {
+            InitWarning(strprintf(_("Specified -blockreservedweight (%d) exceeds the flex cap floor (%d); block templates contain no transactions while the live cap is at that floor"), block_reserved_weight, Consensus::MIN_FLEX_BLOCK_WEIGHT));
         }
     }
 

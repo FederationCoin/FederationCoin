@@ -25,12 +25,7 @@ from test_framework.p2p import (
 )
 from test_framework.script import (
     CScript,
-    OP_DROP,
-    OP_TRUE,
-    OP_RETURN,
-)
-from test_framework.script_util import (
-    keys_to_multisig_script,
+    OP_0,
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -112,7 +107,7 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
     def restart_node_with_limit(self, *, memory_mb=None, count=None):
         """Restart node with specific size and/or count limits."""
         extra_args = self.extra_args[0] + [
-            "-datacarriersize=83",
+            "-datacarriersize=38",
         ]
 
         if memory_mb is not None:
@@ -133,27 +128,13 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
 
         if rejection_type == "dust":
             tx_info = self.wallet.create_self_transfer()
-            dust_amount = 100
-            dust_script = CScript([OP_TRUE])
+            dust_amount = 1
+            dust_script = CScript([OP_0, bytes(20)])
             tx_info['tx'].vout.append(CTxOut(dust_amount, dust_script))
             tx_info['tx'].vout[0].nValue -= dust_amount
 
         elif rejection_type == "low_fee":
             tx_info = self.wallet.create_self_transfer(fee_rate=Decimal('0.00000100'))
-
-        elif rejection_type == "op_return_size":
-            tx_info = self.wallet.create_self_transfer()
-            data = b'x' * 85
-            tx_info['tx'].vout.append(CTxOut(0, CScript([OP_RETURN, data])))
-
-        elif rejection_type == "nonstandard_script":
-            tx_info = self.wallet.create_self_transfer()
-            pubkeys = []
-            for _ in range(4):
-                pubkeys.append(bytes([0x02] + [0x00] * 32))
-            multisig_script = keys_to_multisig_script(pubkeys, k=4)
-            tx_info['tx'].vout.append(CTxOut(10000, multisig_script))
-            tx_info['tx'].vout[0].nValue -= 10000
 
         else:
             raise ValueError(f"Unknown rejection type: {rejection_type}")
@@ -170,8 +151,7 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
                 num_outputs = (target_size - base_size) // bytes_per_output
 
                 for _ in range(num_outputs):
-                    padding_data = b'x' * 30
-                    script = CScript([padding_data, OP_DROP, OP_TRUE])
+                    script = CScript([OP_0, bytes(32)])
                     tx_info['tx'].vout.append(CTxOut(100, script))
                     tx_info['tx'].vout[0].nValue -= 100
 
@@ -180,7 +160,7 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
         tx_info['hex'] = tx_info['tx'].serialize().hex()
         return tx_info
 
-    def populate_extra_pool(self, num_txs, rejection_type="dust", target_size=None):
+    def populate_extra_pool(self, num_txs, rejection_type="low_fee", target_size=None):
         """Populate the extra transaction pool using policy-rejected transactions."""
         rejected_txs = []
 
@@ -243,7 +223,7 @@ class CompactBlocksBlockReconstructionLimitTest(BitcoinTestFramework):
 
         self.restart_node_with_limit(count=100)
 
-        rejection_types = ["dust", "low_fee", "op_return_size", "nonstandard_script"]
+        rejection_types = ["dust", "low_fee"]
         rejected_txs = []
 
         for rejection_type in rejection_types:

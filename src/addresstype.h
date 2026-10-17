@@ -124,6 +124,20 @@ struct PayToAnchor : public WitnessUnknown
     };
 };
 
+/** Dilithium locking script. Address is bech32 of these bytes. */
+struct ModernSigDestination {
+private:
+    CScript m_script;
+
+public:
+    explicit ModernSigDestination(const CScript& script) : m_script(script) {}
+
+    const CScript& GetScript() const LIFETIMEBOUND { return m_script; }
+
+    friend bool operator==(const ModernSigDestination& a, const ModernSigDestination& b) { return a.GetScript() == b.GetScript(); }
+    friend bool operator<(const ModernSigDestination& a, const ModernSigDestination& b) { return a.GetScript() < b.GetScript(); }
+};
+
 /**
  * A txout script categorized into standard templates.
  *  * CNoDestination: Optionally a script, no corresponding address.
@@ -135,9 +149,10 @@ struct PayToAnchor : public WitnessUnknown
  *  * WitnessV1Taproot: TxoutType::WITNESS_V1_TAPROOT destination (P2TR address)
  *  * PayToAnchor: TxoutType::ANCHOR destination (P2A address)
  *  * WitnessUnknown: TxoutType::WITNESS_UNKNOWN destination (P2W??? address)
+ *  * ModernSigDestination: TxoutType::CHECKMODERNSIG / CHECKMODERNPOLICY
  *  A CTxDestination is the internal data type encoded in a bitcoin address
  */
-using CTxDestination = std::variant<CNoDestination, PubKeyDestination, PKHash, ScriptHash, WitnessV0ScriptHash, WitnessV0KeyHash, WitnessV1Taproot, PayToAnchor, WitnessUnknown>;
+using CTxDestination = std::variant<CNoDestination, PubKeyDestination, PKHash, ScriptHash, WitnessV0ScriptHash, WitnessV0KeyHash, WitnessV1Taproot, PayToAnchor, WitnessUnknown, ModernSigDestination>;
 
 /** Check whether a CTxDestination corresponds to one with an address. */
 bool IsValidDestination(const CTxDestination& dest);

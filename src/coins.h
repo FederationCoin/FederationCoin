@@ -495,11 +495,10 @@ private:
 // (pre-BIP34) cases.
 void AddCoins(CCoinsViewCache& cache, const CTransaction& tx, int nHeight, bool check = false);
 
-//! Utility function to find any unspent output with a given txid.
-//! This function can be quite expensive because in the event of a transaction
-//! which is not found in the cache, it can cause up to MAX_OUTPUTS_PER_BLOCK
-//! lookups to database, so it should be used with care.
-const Coin& AccessByTxid(const CCoinsViewCache& cache, const Txid& txid);
+//! Find any unspent output with this txid. Scans n in [0, max_outputs).
+//! max_outputs is LimitsForCap of the disconnecting block's worst-case cap.
+//! A miss after that many lookups is spent (coinEmpty).
+const Coin& AccessByTxid(const CCoinsViewCache& cache, const Txid& txid, uint64_t max_outputs);
 
 /**
  * This is a minimally invasive approach to shutdown on LevelDB read errors from the

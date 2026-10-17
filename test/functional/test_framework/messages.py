@@ -49,7 +49,7 @@ MAX_BIP125_RBF_SEQUENCE = 0xfffffffd  # Sequence number that is rbf-opt-in (BIP 
 MAX_SEQUENCE_NONFINAL = 0xfffffffe  # Sequence number that is csv-opt-out (BIP 68)
 SEQUENCE_FINAL = 0xffffffff  # Sequence number that disables nLockTime if set for every input of a tx
 
-MAX_PROTOCOL_MESSAGE_LENGTH = 32 * 1000 * 1000  # P2P/disk buffer. Consensus weight is the live flex cap.
+MAX_PROTOCOL_MESSAGE_LENGTH = 32 * 1000 * 1000  # v1 header / test decoder. Node non-block cap is 4_000_000.
 MAX_HEADERS_RESULTS = 2000  # Number of headers sent in one getheaders result
 MAX_INV_SIZE = 50000  # Maximum number of entries in an 'inv' protocol message
 
@@ -60,6 +60,7 @@ NODE_WITNESS = (1 << 3)
 NODE_COMPACT_FILTERS = (1 << 6)
 NODE_NETWORK_LIMITED = (1 << 10)
 NODE_P2P_V2 = (1 << 11)
+NODE_P2P_V3 = (1 << 14)
 NODE_REPLACE_BY_FEE = (1 << 26)
 NODE_REDUCED_DATA = (1 << 27)
 NODE_BLAKE2B = (1 << 28)
@@ -80,8 +81,8 @@ WITNESS_SCALE_FACTOR = 4
 DEFAULT_ANCESTOR_LIMIT = 25    # default max number of in-mempool ancestors
 DEFAULT_DESCENDANT_LIMIT = 25  # default max number of in-mempool descendants
 
-# Default setting for -datacarriersize. 80 bytes of data, +1 for OP_RETURN, +2 for the pushdata opcodes.
-MAX_OP_RETURN_RELAY = 83
+# Coinbase witness commitment is 38 bytes. User OP_RETURN relay matches that.
+MAX_OP_RETURN_RELAY = 38
 
 DEFAULT_MEMPOOL_EXPIRY_HOURS = 336  # hours
 
@@ -192,6 +193,32 @@ def powhash(header):
     if not header.m_header_v2:
         return hash256(CBlockHeader.serialize(header))
     return blake2b_header_hash_components(header)["result"][::-1]
+
+
+def block_identity(header):
+    """Chain-link / P2P hash. Blake2b GetHash for kind 00; SHA-256d of 80 for kind 01."""
+    ser = CBlockHeader.serialize(header)
+    if not header.m_header_v2:
+        return hash256(ser)
+    version = header.get_complete_version()
+    kind = (version >> 8) & 3
+    if kind == 0:
+        return powhash(header)
+    if kind == 1:
+        return hash256(ser[:80])
+    return hash256(ser)
+
+
+def work_digest(header):
+    """Per-kind work digest. FP8 gym and Poseidon2 stay node-side."""
+    if not header.m_header_v2:
+        return hash256(CBlockHeader.serialize(header))
+    kind = (header.get_complete_version() >> 8) & 3
+    if kind == 0:
+        return powhash(header)
+    if kind == 1:
+        return hash256(CBlockHeader.serialize(header)[:80])
+    raise NotImplementedError("work_digest is node-side for fp8gym and poseidon2")
 
 
 def ser_compact_size(l):
@@ -852,7 +879,7 @@ class CBlockHeader:
             self.m_nonce3 = int.from_bytes(f.read(4), "little")
             self.m_extranonce = int.from_bytes(f.read(16), "little")
             self.m_time_offset = int.from_bytes(f.read(4), "little")
-            self.m_txcount = int.from_bytes(f.read(2), "little")
+            self.m_txcount = int.from_bytes(f.read(4), "little")
             self.m_flags = int.from_bytes(f.read(1), "little")
             self.m_xor_key_mask_clear_bits = int.from_bytes(f.read(1), "little")
             self.m_xor_key = int.from_bytes(f.read(16), "little")
@@ -897,7 +924,7 @@ class CBlockHeader:
             r += self.m_nonce3.to_bytes(4, "little")
             r += self.m_extranonce.to_bytes(16, "little")
             r += self.m_time_offset.to_bytes(4, "little")
-            r += self.m_txcount.to_bytes(2, "little")
+            r += self.m_txcount.to_bytes(4, "little")
             r += self.m_flags.to_bytes(1, "little")
             r += self.m_xor_key_mask_clear_bits.to_bytes(1, "little")
             r += self.m_xor_key.to_bytes(16, "little")

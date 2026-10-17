@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <headerssync.h>
+#include <consensus/work/retarget.h>
 #include <logging.h>
 #include <pow.h>
 #include <util/check.h>
@@ -22,9 +23,10 @@ constexpr size_t HEADER_COMMITMENT_PERIOD{378};
 //! received and validated against commitments.
 constexpr size_t REDOWNLOAD_BUFFER_SIZE{8609}; // 8609/378 = ~22.8 commitments
 
-// Our memory analysis assumes 136 bytes for a CompressedHeader (so we should
-// re-calculate parameters if we compress further)
-static_assert(sizeof(CompressedHeader) == 136);
+// In-memory CompressedHeader (not the 166-byte wire header). uint32
+// m_txcount is 140 bytes here; re-calculate HEADER_COMMITMENT_PERIOD
+// if this shrinks.
+static_assert(sizeof(CompressedHeader) == 140);
 
 HeadersSyncState::HeadersSyncState(NodeId id, const Consensus::Params& consensus_params,
         const CBlockIndex* chain_start, const arith_uint256& minimum_required_work) :
@@ -152,7 +154,7 @@ bool HeadersSyncState::ValidateAndStoreHeadersCommitments(const std::vector<CBlo
     Assume(m_download_state == State::PRESYNC);
     if (m_download_state != State::PRESYNC) return false;
 
-    if (headers[0].hashPrevBlock != m_last_header_received.GetHash()) {
+    if (headers[0].hashPrevBlock != m_last_header_received.GetBlockIdentity()) {
         // Somehow our peer gave us a header that doesn't connect.
         // This might be benign -- perhaps our peer reorged away from the chain
         // they were on. Give up on this sync for now (likely we will start a
@@ -194,14 +196,15 @@ bool HeadersSyncState::ValidateAndProcessSingleHeader(const CBlockHeader& curren
     // so don't let anyone give a chain that would violate the difficulty
     // adjustment maximum.
     if (!PermittedDifficultyTransition(m_consensus_params, next_height,
-                m_last_header_received.nBits, current.nBits)) {
+                m_last_header_received.nBits, m_last_header_received.GetCompleteVersion(),
+                current.nBits, current.GetCompleteVersion())) {
         LogDebug(BCLog::NET, "Initial headers sync aborted with peer=%d: invalid difficulty transition at height=%i (presync phase)\n", m_id, next_height);
         return false;
     }
 
     if (next_height % HEADER_COMMITMENT_PERIOD == m_commit_offset) {
         // Add a commitment.
-        m_header_commitments.push_back(m_hasher(current.GetHash()) & 1);
+        m_header_commitments.push_back(m_hasher(current.GetBlockIdentity()) & 1);
         if (m_header_commitments.size() > m_max_commitments) {
             // The peer's chain is too long; give up.
             // It's possible the chain grew since we started the sync; so
@@ -212,7 +215,7 @@ bool HeadersSyncState::ValidateAndProcessSingleHeader(const CBlockHeader& curren
         }
     }
 
-    m_current_chain_work += GetBlockProof(CBlockIndex(current));
+    m_current_chain_work += Consensus::ClaimedWorkFromHeader(current, m_consensus_params);
     m_last_header_received = current;
     m_current_height = next_height;
 
@@ -235,20 +238,24 @@ bool HeadersSyncState::ValidateAndStoreRedownloadedHeader(const CBlockHeader& he
 
     // Check that the difficulty adjustments are within our tolerance:
     uint32_t previous_nBits{0};
+    uint32_t previous_version{0};
     if (!m_redownloaded_headers.empty()) {
         previous_nBits = m_redownloaded_headers.back().nBits;
+        previous_version = m_redownloaded_headers.back().GetCompleteVersion();
     } else {
         previous_nBits = m_chain_start->nBits;
+        previous_version = m_chain_start->GetBlockHeader().GetCompleteVersion();
     }
 
     if (!PermittedDifficultyTransition(m_consensus_params, next_height,
-                previous_nBits, header.nBits)) {
+                previous_nBits, previous_version,
+                header.nBits, header.GetCompleteVersion())) {
         LogDebug(BCLog::NET, "Initial headers sync aborted with peer=%d: invalid difficulty transition at height=%i (redownload phase)\n", m_id, next_height);
         return false;
     }
 
     // Track work on the redownloaded chain
-    m_redownload_chain_work += GetBlockProof(CBlockIndex(header));
+    m_redownload_chain_work += Consensus::ClaimedWorkFromHeader(header, m_consensus_params);
 
     if (m_redownload_chain_work >= m_minimum_required_work) {
         m_process_all_remaining_headers = true;
@@ -267,7 +274,7 @@ bool HeadersSyncState::ValidateAndStoreRedownloadedHeader(const CBlockHeader& he
             // we've run out of commitments.
             return false;
         }
-        bool commitment = m_hasher(header.GetHash()) & 1;
+        bool commitment = m_hasher(header.GetBlockIdentity()) & 1;
         bool expected_commitment = m_header_commitments.front();
         m_header_commitments.pop_front();
         if (commitment != expected_commitment) {
@@ -279,7 +286,7 @@ bool HeadersSyncState::ValidateAndStoreRedownloadedHeader(const CBlockHeader& he
     // Store this header for later processing.
     m_redownloaded_headers.emplace_back(header);
     m_redownload_buffer_last_height = next_height;
-    m_redownload_buffer_last_hash = header.GetHash();
+    m_redownload_buffer_last_hash = header.GetBlockIdentity();
 
     return true;
 }
@@ -297,7 +304,7 @@ std::vector<CBlockHeader> HeadersSyncState::PopHeadersReadyForAcceptance()
         ++height;
         ret.emplace_back(m_redownloaded_headers.front(), m_redownload_buffer_first_prev_hash, height);
         m_redownloaded_headers.pop_front();
-        m_redownload_buffer_first_prev_hash = ret.back().GetHash();
+        m_redownload_buffer_first_prev_hash = ret.back().GetBlockIdentity();
     }
     return ret;
 }
@@ -312,7 +319,7 @@ CBlockLocator HeadersSyncState::NextHeadersRequestLocator() const
 
     if (m_download_state == State::PRESYNC) {
         // During pre-synchronization, we continue from the last header received.
-        locator.push_back(m_last_header_received.GetHash());
+        locator.push_back(m_last_header_received.GetBlockIdentity());
     }
 
     if (m_download_state == State::REDOWNLOAD) {

@@ -11,6 +11,7 @@
 #include <consensus/params.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
+#include <consensus/work/kind.h>
 #include <key_io.h>
 #include <outputtype.h>
 #include <pow.h>
@@ -54,10 +55,6 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
         BOOST_CHECK_EQUAL(c.CSVHeight, 1);
         BOOST_CHECK_EQUAL(c.SegwitHeight, 1);
         BOOST_CHECK_EQUAL(params->Checkpoints().GetHeight(), 0);
-        BOOST_CHECK_EQUAL(c.Blake2bHeight, 0);
-        BOOST_CHECK_EQUAL(c.Blake2bTargetShift, 0);
-        BOOST_CHECK(c.RdtsActiveAt(0));
-        BOOST_CHECK(!c.RdtsActiveAt(-1));
         const CScript& genesis_sig{params->GenesisBlock().vtx[0]->vin[0].scriptSig};
         BOOST_CHECK(genesis_sig == (CScript() << 0 << OP_0));
         BOOST_CHECK_EQUAL(c.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime,
@@ -79,7 +76,7 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
             BOOST_CHECK_EQUAL(params->MessageStart()[3], 0x00);
             BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1e00ffff);
             BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0U);
-            BOOST_CHECK(c.powLimit == uint256{"000000ffff000000000000000000000000000000000000000000000000000000"});
+            BOOST_CHECK(c.powLimit == uint256{"7fff000000000000000000000000000000000000000000000000000000000000"});
             BOOST_CHECK(params->DNSSeeds().empty());
             BOOST_CHECK(DummyMainNeedsWarning(chain));
             break;
@@ -93,7 +90,7 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
             BOOST_CHECK_EQUAL(params->MessageStart()[3], 0xc3);
             BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1c03a830);
             BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0x1c03a830U);
-            BOOST_CHECK(c.powLimit == uint256{"000000ffff000000000000000000000000000000000000000000000000000000"});
+            BOOST_CHECK(c.powLimit == uint256{"7fff000000000000000000000000000000000000000000000000000000000000"});
             BOOST_REQUIRE_EQUAL(params->DNSSeeds().size(), 1U);
             BOOST_CHECK_EQUAL(params->DNSSeeds().front(), "seed.testnet.federationcoin.org.");
             BOOST_CHECK(!DummyMainNeedsWarning(chain));
@@ -117,7 +114,7 @@ BOOST_AUTO_TEST_CASE(chain_params_identity)
             BOOST_CHECK_EQUAL(params->Bech32HRP(), "tgfcn");
             BOOST_CHECK_EQUAL(params->GenesisBlock().nBits, 0x1e0377ae);
             BOOST_CHECK_EQUAL(c.nMinDifficultyBits, 0U);
-            BOOST_CHECK(c.powLimit == uint256{"00000377ae000000000000000000000000000000000000000000000000000000"});
+            BOOST_CHECK(c.powLimit == uint256{"7fff000000000000000000000000000000000000000000000000000000000000"});
             BOOST_CHECK(params->DNSSeeds().empty());
             BOOST_CHECK(!DummyMainNeedsWarning(chain));
             break;
@@ -155,32 +152,36 @@ BOOST_AUTO_TEST_CASE(testnet_blake2b_floor)
 
     CBlockHeader next;
     next.nTime = genesis.nTime + 60;
+    Consensus::ApplyWorkKindTag(next, Consensus::WorkKindTag::BLAKE2B);
     BOOST_CHECK_EQUAL(GetNextWorkRequired(&genesis, &next, c), 0x1c03a830U);
 
     next.nTime = genesis.nTime + 21 * 60;
     BOOST_CHECK_EQUAL(GetNextWorkRequired(&genesis, &next, c), 0x1c03a830U);
+
+    Consensus::ApplyWorkKindTag(next, Consensus::WorkKindTag::FP8_GYM);
+    const unsigned gym_bits{GetNextWorkRequired(&genesis, &next, c)};
+    BOOST_CHECK_NE(gym_bits, 0x1c03a830U);
+    BOOST_CHECK_EQUAL(gym_bits, Consensus::LookupWorkKind(Consensus::WorkKindTag::FP8_GYM)->ExpectedNBits(uint256::ONE, c));
 }
 
 BOOST_AUTO_TEST_CASE(output_type_is_allowed_forks)
 {
     BOOST_CHECK(OutputTypeIsAllowed(OutputType::DILITHIUM87));
     BOOST_CHECK(OutputTypeIsAllowed(OutputType::DILITHIUM44));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::LEGACY));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::P2SH_SEGWIT));
-    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M));
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::UNKNOWN));
 
     const auto parked{CreateChainParams(ArgsManager{}, ChainType::REGTEST)};
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M, parked->GetConsensus()));
-    BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32, parked->GetConsensus()));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP, parked->GetConsensus()));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32, parked->GetConsensus()));
 
     Consensus::Params taproot_on{parked->GetConsensus()};
     taproot_on.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
     BOOST_CHECK(!OutputTypeIsAllowed(OutputType::BECH32M, taproot_on));
-    BOOST_CHECK(OutputTypeIsAllowed(OutputType::SECP, taproot_on));
+    BOOST_CHECK(OutputTypeIsAllowed(OutputType::BECH32, taproot_on));
 }
 
 BOOST_AUTO_TEST_CASE(format_subversion_true_equals_false)

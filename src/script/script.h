@@ -210,11 +210,16 @@ enum opcodetype
     // Opcode added by BIP 342 (Tapscript)
     OP_CHECKSIGADD = 0xba,
 
+    // FederationCoin Dilithium locking scripts (epic 43)
+    OP_CHECKMODERNSIG = 0xbb,
+    OP_CHECKMODERNPOLICY = 0xbc,
+
     OP_INVALIDOPCODE = 0xff,
 };
 
-// Maximum value that an opcode can be
-static const unsigned int MAX_OPCODE = OP_NOP10;
+// Maximum value that an opcode can be. Includes CHECKSIGADD and the
+// modern-sig CHECKs so HasValidOps parses those scripts.
+static const unsigned int MAX_OPCODE = OP_CHECKMODERNPOLICY;
 
 std::string GetOpName(opcodetype opcode);
 

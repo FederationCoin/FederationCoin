@@ -332,6 +332,44 @@ static PrecomputedTransactionData MakeUnifiedTxdata(const CMutableTransaction& t
     return txdata;
 }
 
+BOOST_AUTO_TEST_CASE(unified_empty_scriptcode_product_v0)
+{
+    // Product v0: empty scriptCode, SHA256 TaggedHash("UnifiedSighash"), hashtype 0x21.
+    // Stored-byte order (HexStr), not GetHex.
+    auto digest_for = [](const CScript& spk) {
+        CMutableTransaction tx;
+        tx.version = 2;
+        tx.nLockTime = 0;
+        tx.vin.resize(1);
+        tx.vin[0].prevout = COutPoint(Txid::FromUint256(uint256::ONE), 0);
+        tx.vin[0].nSequence = CTxIn::SEQUENCE_FINAL;
+        tx.vout.resize(1);
+        tx.vout[0].nValue = 25000;
+        tx.vout[0].scriptPubKey = CScript() << OP_TRUE;
+        std::vector<CTxOut> spent{CTxOut{50000, spk}};
+        const auto txdata{MakeUnifiedTxdata(tx, spent)};
+        uint256 hash;
+        BOOST_REQUIRE(SignatureHashUnified(hash, CScript{}, tx, 0, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata));
+        return hash;
+    };
+    const CScript secp{CScript() << OP_0 << std::vector<unsigned char>(20, 0x11)};
+    const CScript d44{CScript() << OP_0 << std::vector<unsigned char>(32, 0x44)};
+    const CScript d87{CScript() << OP_0 << std::vector<unsigned char>(32, 0x87)};
+    const uint256 secp_hash{digest_for(secp)};
+    const uint256 d44_hash{digest_for(d44)};
+    const uint256 d87_hash{digest_for(d87)};
+    BOOST_CHECK_NE(secp_hash, d44_hash);
+    BOOST_CHECK_NE(d44_hash, d87_hash);
+    const auto expect = [](const char* hex) {
+        const std::vector<unsigned char> raw{ParseHex(hex)};
+        BOOST_REQUIRE_EQUAL(raw.size(), 32U);
+        return uint256{Span<const unsigned char>{raw.data(), raw.size()}};
+    };
+    BOOST_CHECK_EQUAL(secp_hash, expect("cbe315aa43df656f81e26a77692d60c26fec6933609ef3006834bb8828cc02ea"));
+    BOOST_CHECK_EQUAL(d44_hash, expect("31026e9adedd9d8452efc6def91e9f5d446d787bf02eba10429c1a028ce4aa07"));
+    BOOST_CHECK_EQUAL(d87_hash, expect("990f0636c1fd41de8666378c90349aa59ffa799f76af6bf37b324b10a07c6daa"));
+}
+
 BOOST_AUTO_TEST_CASE(unified_sighash_replay_protection)
 {
     const CScript script0{CScript() << OP_1 << OP_CHECKSIG};
@@ -461,32 +499,15 @@ BOOST_AUTO_TEST_CASE(unified_sighash_needs_spent_outputs)
     BOOST_CHECK(!SignatureHashUnified(hash, script0, tx, 0, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::BASE, bare));
 }
 
-BOOST_AUTO_TEST_CASE(unified_sighash_signing_rules_follow_the_schedule)
+BOOST_AUTO_TEST_CASE(unified_sighash_signing_rules_are_always_unified)
 {
-    // The one decision every signer in the process routes through. It reads the
-    // schedule and not the chain, so a node whose blocks lag cannot answer it
-    // differently from one that is caught up.
-    Consensus::Params unscheduled;
-    unscheduled.Blake2bHeight = std::numeric_limits<int>::max();
-    Consensus::Params scheduled;
-    scheduled.Blake2bHeight = 100;
-
+    Consensus::Params params;
     ArgsManager plain;
-    SetupSighashRulesArgs(plain);
+    BOOST_CHECK(SighashRulesForSigning(plain, params) == SighashRules::UNIFIED);
 
-    // Where the fork is not scheduled there is nothing to opt into.
-    BOOST_CHECK(SighashRulesForSigning(plain, unscheduled) == SighashRules::LEGACY);
-    // Where it is, every signature opts in, whatever the chain has reached. One
-    // made ahead of the height relays and waits for it.
-    BOOST_CHECK(SighashRulesForSigning(plain, scheduled) == SighashRules::UNIFIED);
-
-    ArgsManager old_sigs;
-    SetupSighashRulesArgs(old_sigs);
-    old_sigs.ForceSetArg("-walletoldsigs", "1");
-    // The escape hatch overrides it, and is the only way to give up replay
-    // protection wherever the fork is scheduled.
-    BOOST_CHECK(SighashRulesForSigning(old_sigs, scheduled) == SighashRules::LEGACY);
-    BOOST_CHECK(SighashRulesForSigning(old_sigs, unscheduled) == SighashRules::LEGACY);
+    ArgsManager ignored_old_flag;
+    ignored_old_flag.ForceSetArg("-walletoldsigs", "1");
+    BOOST_CHECK(SighashRulesForSigning(ignored_old_flag, params) == SighashRules::UNIFIED);
 }
 
 BOOST_AUTO_TEST_CASE(unified_sighash_hash_type_names_round_trip)
@@ -585,17 +606,12 @@ BOOST_AUTO_TEST_CASE(unified_sighash_sign_and_verify_roundtrip)
         }
     }
 
-    // Sign under the legacy rules.
+    // UNIFIED is genesis. A creator that stays on the closed hasher refuses
+    // to sign, and a BIP143 signature does not verify under either flag set.
     CMutableTransaction legacy_tx{tx};
     SignatureData legacy_sigdata;
     MutableTransactionSignatureCreator legacy_creator{legacy_tx, 0, spent[0].nValue, &txdata, SIGHASH_ALL};
-    BOOST_CHECK(ProduceSignature(keystore, legacy_creator, spk, legacy_sigdata));
-    UpdateInput(legacy_tx.vin[0], legacy_sigdata);
-
-    // ...and it stays valid after activation: the legacy algorithm is
-    // unchanged, so a spender who never sets the bit is unaffected.
-    BOOST_CHECK(verify(legacy_tx, /*hf=*/false));
-    BOOST_CHECK(verify(legacy_tx, /*hf=*/true));
+    BOOST_CHECK(!ProduceSignature(keystore, legacy_creator, spk, legacy_sigdata));
 }
 
 BOOST_AUTO_TEST_CASE(unified_sighash_taproot_keypath_roundtrip)

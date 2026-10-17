@@ -228,6 +228,9 @@ public:
     virtual bool HavePrivateKeys() const { return false; }
     virtual bool HaveCryptedKeys() const { return false; }
 
+    /** Drop cached Dilithium seeds. CWallet::Lock() calls this after clearing the master key. */
+    virtual void Lock() {}
+
     //! The action to do when the DB needs rewrite
     virtual void RewriteDB() {}
 
@@ -602,7 +605,9 @@ private:
     using KeyMap = std::map<CKeyID, CKey>;
 
     ScriptPubKeyMap m_map_script_pub_keys GUARDED_BY(cs_desc_man);
+    std::map<int32_t, CScript> m_map_index_scripts GUARDED_BY(cs_desc_man);
     PubKeyMap m_map_pubkeys GUARDED_BY(cs_desc_man);
+    void CacheScriptAtIndex(const CScript& script, int32_t index) EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
     int32_t m_max_cached_index = -1;
 
     KeyMap m_map_keys GUARDED_BY(cs_desc_man);
@@ -617,6 +622,8 @@ private:
     bool AddDescriptorKeyWithDB(WalletBatch& batch, const CKey& key, const CPubKey &pubkey) EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
 
     KeyMap GetKeys() const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
+    /** Keys plus HD seed bytes so Dilithium KDF never uses a BIP32 child. */
+    void FillSigningMaterial(FlatSigningProvider& provider) const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
 
     // Cached FlatSigningProviders to avoid regenerating them each time they are needed.
     mutable std::map<int32_t, FlatSigningProvider> m_map_signing_providers;
@@ -669,6 +676,7 @@ public:
     bool SetupDescriptorGeneration(WalletBatch& batch, const CExtKey& master_key, OutputType addr_type, bool internal);
 
     bool HavePrivateKeys() const override;
+    void Lock() override;
     bool HasPrivKey(const CKeyID& keyid) const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
     //! Retrieve the particular key if it is available. Returns nullopt if the key is not in the wallet, or if the wallet is locked.
     std::optional<CKey> GetKey(const CKeyID& keyid) const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);

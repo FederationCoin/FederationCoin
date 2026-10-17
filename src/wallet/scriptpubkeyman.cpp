@@ -5,6 +5,7 @@
 #include <hash.h>
 #include <key_io.h>
 #include <logging.h>
+#include <support/cleanse.h>
 #include <node/types.h>
 #include <outputtype.h>
 #include <script/descriptor.h>
@@ -149,6 +150,18 @@ IsMineResult IsMineInner(const LegacyDataSPKM& keystore, const CScript& scriptPu
     case TxoutType::WITNESS_V1_TAPROOT:
     case TxoutType::ANCHOR:
         break;
+    case TxoutType::CHECKMODERNSIG: {
+        if (vSolutions.empty() || vSolutions[0].size() != 32) break;
+        const uint256 program{Span<const unsigned char>{vSolutions[0].data(), vSolutions[0].size()}};
+        uint8_t kind{0};
+        CKeyID key_id;
+        if (keystore.GetMldsaProgram(program, kind, key_id) && keystore.HaveKey(key_id)) {
+            ret = std::max(ret, IsMineResult::SPENDABLE);
+        }
+        break;
+    }
+    case TxoutType::CHECKMODERNPOLICY:
+        break;
     case TxoutType::PUBKEY:
         keyID = CPubKey(vSolutions[0]).GetID();
         if (!PermitsUncompressed(sigversion) && vSolutions[0].size() != 33) {
@@ -267,14 +280,12 @@ SigningResult ScriptPubKeyMan::SignMessageBIP322(MessageSignatureFormat format, 
 
     // Sign the transaction.
     //
-    // Deliberately does not opt in to the hardfork signature hash, and must not
-    // be changed to. This is a BIP322 message signature, not a spend: it is
-    // verified against a hash type of exactly SIGHASH_ALL, so opting in would
-    // produce a signature this node's own verifier rejects, and would not be
-    // recognized by other implementations either.
+    // BIP322 on this chain verifies with SCRIPT_VERIFY_UNIFIED_SIGHASH, so the
+    // proof must opt in. SIGHASH_ALL stays required; the UNIFIED bit rides with
+    // it. Bitcoin-era BIP322 vectors are ERR_INVALID here.
     std::map<int, bilingual_str> errors;
     if (!::SignTransaction(to_sign, keystore, coins, SIGHASH_ALL, errors,
-                           /*inputs_amount_sum=*/nullptr, /*sighash_rules=*/SighashRules::LEGACY)) {
+                           /*inputs_amount_sum=*/nullptr, /*sighash_rules=*/SighashRules::UNIFIED)) {
         // TODO: this may be a multisig which successfully signed but needed additional signatures
         return SigningResult::SIGNING_FAILED;
     }
@@ -2201,8 +2212,17 @@ bool LegacyDataSPKM::DeleteRecordsWithDB(WalletBatch& batch)
     return batch.EraseRecords(DBKeys::LEGACY_TYPES);
 }
 
+void DescriptorScriptPubKeyMan::CacheScriptAtIndex(const CScript& script, int32_t index)
+{
+    m_map_script_pub_keys[script] = index;
+    m_map_index_scripts[index] = script;
+}
+
 util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const OutputType type)
 {
+    if (!OutputTypeIsAllowed(type)) {
+        return util::Error{Untranslated("Address type is not valid on this chain.")};
+    }
     // Returns true if this descriptor supports getting new addresses. Conditions where we may be unable to fetch them (e.g. locked) are caught later
     if (!CanGetAddresses()) {
         return util::Error{_("No addresses available")};
@@ -2227,28 +2247,28 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
         }
         if (!m_wallet_descriptor.descriptor->ExpandFromCache(m_wallet_descriptor.next_index, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
             const int32_t want{m_wallet_descriptor.next_index};
-            for (const auto& [script, idx] : m_map_script_pub_keys) {
-                if (idx == want) {
-                    scripts_temp = {script};
-                    break;
-                }
+            if (const auto it = m_map_index_scripts.find(want); it != m_map_index_scripts.end()) {
+                scripts_temp = {it->second};
             }
             if (scripts_temp.empty()) {
                 FlatSigningProvider provider;
-                provider.keys = GetKeys();
+                FillSigningMaterial(provider);
                 DescriptorCache write_cache;
                 if (!m_wallet_descriptor.descriptor->Expand(want, provider, scripts_temp, out_keys, &write_cache)) {
+                    if (m_storage.IsLocked()) {
+                        return util::Error{_("Error: Wallet locked. Unlock with walletpassphrase to derive more Dilithium addresses.")};
+                    }
                     return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
                 }
                 for (const CScript& script : scripts_temp) {
-                    m_map_script_pub_keys[script] = want;
+                    CacheScriptAtIndex(script, want);
                 }
                 m_map_signing_providers[want] = out_keys;
             }
         }
 
         CTxDestination dest;
-        if (!ExtractDestination(scripts_temp[0], dest)) {
+        if (scripts_temp.empty() || !ExtractDestination(scripts_temp[0], dest)) {
             return util::Error{_("Error: Cannot extract destination from the generated scriptpubkey")}; // shouldn't happen
         }
         m_wallet_descriptor.next_index++;
@@ -2359,6 +2379,18 @@ std::map<CKeyID, CKey> DescriptorScriptPubKeyMan::GetKeys() const
     return m_map_keys;
 }
 
+void DescriptorScriptPubKeyMan::FillSigningMaterial(FlatSigningProvider& provider) const
+{
+    AssertLockHeld(cs_desc_man);
+    provider.keys = GetKeys();
+    for (const auto& [id, key] : provider.keys) {
+        if (key.size() == 32) {
+            provider.hd_seed.assign(UCharCast(key.begin()), UCharCast(key.end()));
+            return;
+        }
+    }
+}
+
 bool DescriptorScriptPubKeyMan::HasPrivKey(const CKeyID& keyid) const
 {
     AssertLockHeld(cs_desc_man);
@@ -2420,7 +2452,7 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
     }
 
     FlatSigningProvider provider;
-    provider.keys = GetKeys();
+    FillSigningMaterial(provider);
 
     uint256 id = GetID();
     for (int32_t i = m_max_cached_index + 1; i < new_range_end; ++i) {
@@ -2434,7 +2466,7 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
         // Add all of the scriptPubKeys to the scriptPubKey set
         new_spks.insert(scripts_temp.begin(), scripts_temp.end());
         for (const CScript& script : scripts_temp) {
-            m_map_script_pub_keys[script] = i;
+            CacheScriptAtIndex(script, i);
         }
         for (const auto& pk_pair : out_keys.pubkeys) {
             const CPubKey& pubkey = pk_pair.second;
@@ -2478,15 +2510,12 @@ std::vector<WalletDestination> DescriptorScriptPubKeyMan::MarkUnusedAddresses(co
                 scripts_temp.clear();
                 const int32_t want{m_wallet_descriptor.next_index};
                 if (!m_wallet_descriptor.descriptor->ExpandFromCache(want, m_wallet_descriptor.cache, scripts_temp, *out_keys)) {
-                    for (const auto& [spk, idx] : m_map_script_pub_keys) {
-                        if (idx == want) {
-                            scripts_temp = {spk};
-                            break;
-                        }
+                    if (const auto it = m_map_index_scripts.find(want); it != m_map_index_scripts.end()) {
+                        scripts_temp = {it->second};
                     }
                     if (scripts_temp.empty()) {
                         FlatSigningProvider provider;
-                        provider.keys = GetKeys();
+                        FillSigningMaterial(provider);
                         if (!m_wallet_descriptor.descriptor->Expand(want, provider, scripts_temp, *out_keys, nullptr)) {
                             throw std::runtime_error(std::string(__func__) + ": Unable to expand descriptor");
                         }
@@ -2596,6 +2625,17 @@ bool DescriptorScriptPubKeyMan::HavePrivateKeys() const
     return m_map_keys.size() > 0 || m_map_crypted_keys.size() > 0;
 }
 
+void DescriptorScriptPubKeyMan::Lock()
+{
+    LOCK(cs_desc_man);
+    for (auto& entry : m_map_signing_providers) {
+        for (auto& seed_pair : entry.second.mldsa_seeds) {
+            memory_cleanse(seed_pair.second.data(), seed_pair.second.size());
+        }
+        entry.second.mldsa_seeds.clear();
+    }
+}
+
 bool DescriptorScriptPubKeyMan::HaveCryptedKeys() const
 {
     LOCK(cs_desc_man);
@@ -2670,7 +2710,7 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
         if (!m_wallet_descriptor.descriptor->ExpandFromCache(index, m_wallet_descriptor.cache, scripts_temp, *out_keys)) {
             if (!HavePrivateKeys()) return nullptr;
             FlatSigningProvider master_provider;
-            master_provider.keys = GetKeys();
+            FillSigningMaterial(master_provider);
             DescriptorCache write_cache;
             if (!m_wallet_descriptor.descriptor->Expand(index, master_provider, scripts_temp, *out_keys, &write_cache)) return nullptr;
         }
@@ -2681,7 +2721,7 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
 
     if (HavePrivateKeys() && include_private) {
         FlatSigningProvider master_provider;
-        master_provider.keys = GetKeys();
+        FillSigningMaterial(master_provider);
         m_wallet_descriptor.descriptor->ExpandPrivate(index, master_provider, *out_keys);
     }
 
@@ -2879,8 +2919,6 @@ void DescriptorScriptPubKeyMan::SetCache(const DescriptorCache& cache)
         FlatSigningProvider out_keys;
         std::vector<CScript> scripts_temp;
         if (!m_wallet_descriptor.descriptor->ExpandFromCache(i, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
-            // Dilithium expand needs the BIP32 child secret. Scripts are
-            // filled after descriptor keys are loaded.
             continue;
         }
         // Add all of the scriptPubKeys to the scriptPubKey set
@@ -2889,7 +2927,7 @@ void DescriptorScriptPubKeyMan::SetCache(const DescriptorCache& cache)
             if (m_map_script_pub_keys.count(script) != 0) {
                 throw std::runtime_error(strprintf("Error: Already loaded script at index %d as being at index %d", i, m_map_script_pub_keys[script]));
             }
-            m_map_script_pub_keys[script] = i;
+            CacheScriptAtIndex(script, i);
         }
         for (const auto& pk_pair : out_keys.pubkeys) {
             const CPubKey& pubkey = pk_pair.second;
@@ -2910,18 +2948,11 @@ void DescriptorScriptPubKeyMan::FillMissingScripts()
 {
     LOCK(cs_desc_man);
     FlatSigningProvider provider;
-    provider.keys = GetKeys();
+    FillSigningMaterial(provider);
     if (provider.keys.empty()) return;
     std::set<CScript> new_spks;
     for (int32_t i = m_wallet_descriptor.range_start; i < m_wallet_descriptor.range_end; ++i) {
-        bool have = false;
-        for (const auto& [script, idx] : m_map_script_pub_keys) {
-            if (idx == i) {
-                have = true;
-                break;
-            }
-        }
-        if (have) continue;
+        if (m_map_index_scripts.count(i) > 0) continue;
         FlatSigningProvider out_keys;
         std::vector<CScript> scripts_temp;
         DescriptorCache temp_cache;
@@ -2930,7 +2961,7 @@ void DescriptorScriptPubKeyMan::FillMissingScripts()
         }
         new_spks.insert(scripts_temp.begin(), scripts_temp.end());
         for (const CScript& script : scripts_temp) {
-            m_map_script_pub_keys[script] = i;
+            CacheScriptAtIndex(script, i);
         }
         for (const auto& pk_pair : out_keys.pubkeys) {
             if (m_map_pubkeys.count(pk_pair.second) == 0) {
@@ -2938,12 +2969,8 @@ void DescriptorScriptPubKeyMan::FillMissingScripts()
             }
         }
     }
-    if (!m_map_script_pub_keys.empty()) {
-        int32_t max_idx = m_wallet_descriptor.range_start - 1;
-        for (const auto& [_, idx] : m_map_script_pub_keys) {
-            max_idx = std::max(max_idx, idx);
-        }
-        m_max_cached_index = max_idx;
+    if (!m_map_index_scripts.empty()) {
+        m_max_cached_index = m_map_index_scripts.rbegin()->first;
     }
     if (!new_spks.empty()) {
         m_storage.TopUpCallback(new_spks, this);
@@ -3015,7 +3042,7 @@ bool DescriptorScriptPubKeyMan::GetDescriptorString(std::string& out, const bool
     LOCK(cs_desc_man);
 
     FlatSigningProvider provider;
-    provider.keys = GetKeys();
+    FillSigningMaterial(provider);
 
     if (priv) {
         // For the private version, always return the master key to avoid
@@ -3041,7 +3068,7 @@ void DescriptorScriptPubKeyMan::UpgradeDescriptorCache()
 
     // Expand the descriptor
     FlatSigningProvider provider;
-    provider.keys = GetKeys();
+    FillSigningMaterial(provider);
     FlatSigningProvider out_keys;
     std::vector<CScript> scripts_temp;
     DescriptorCache temp_cache;
@@ -3066,6 +3093,7 @@ void DescriptorScriptPubKeyMan::UpdateWalletDescriptor(WalletDescriptor& descrip
 
     m_map_pubkeys.clear();
     m_map_script_pub_keys.clear();
+    m_map_index_scripts.clear();
     m_max_cached_index = -1;
     m_wallet_descriptor = descriptor;
 

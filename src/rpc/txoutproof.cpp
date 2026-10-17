@@ -6,6 +6,8 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <coins.h>
+#include <consensus/block_limits.h>
+#include <consensus/flex_weight.h>
 #include <consensus/validation.h>
 #include <index/txindex.h>
 #include <merkleblock.h>
@@ -97,8 +99,12 @@ static RPCHelpMan gettxoutproof()
                 Chainstate& active_chainstate = chainman.ActiveChainstate();
 
                 // Loop through txids and try to find which block they're in. Exit loop once a block is found.
+                const CBlockIndex* tip{active_chainstate.m_chain.Tip()};
+                const int tip_height{tip ? tip->nHeight : 0};
+                const uint64_t max_outputs{Consensus::LimitsForCap(
+                    Consensus::WorstCaseCapAtHeight(tip_height, chainman.GetConsensus().nSubsidyHalvingInterval)).max_outputs};
                 for (const auto& tx : setTxids) {
-                    const Coin& coin{AccessByTxid(active_chainstate.CoinsTip(), tx)};
+                    const Coin& coin{AccessByTxid(active_chainstate.CoinsTip(), tx, max_outputs)};
                     if (!coin.IsSpent()) {
                         pblockindex = active_chainstate.m_chain[coin.nHeight];
                         break;
@@ -164,7 +170,7 @@ static RPCHelpMan gettxoutproof()
 
             if (prove_witness) {
                 UniValue proven{UniValue::VOBJ};
-                proven.pushKV("blockhash", block.GetHash().GetHex());
+                proven.pushKV("blockhash", block.GetBlockIdentity().GetHex());
                 proven.pushKV("blockheight", pblockindex->nHeight);
                 proven.pushKV("tx", txs);
                 UniValue res{UniValue::VOBJ};
@@ -277,7 +283,7 @@ static RPCHelpMan verifytxoutproof()
             ChainstateManager& chainman = EnsureAnyChainman(request.context);
             LOCK(cs_main);
 
-            const CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(merkleBlock.header.GetHash());
+            const CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(merkleBlock.header.GetBlockIdentity());
             if (!pindex || !chainman.ActiveChain().Contains(pindex) || pindex->nTx == 0) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found in chain");
             }
@@ -303,7 +309,7 @@ static RPCHelpMan verifytxoutproof()
             }
 
             if (verify_witness) {
-                res.pushKV("blockhash", merkleBlock.header.GetHash().GetHex());
+                res.pushKV("blockhash", merkleBlock.header.GetBlockIdentity().GetHex());
                 UniValue txs{UniValue::VARR};
                 for (size_t i{0}; i < vMatch.size(); ++i) {
                     UniValue tx{UniValue::VOBJ};

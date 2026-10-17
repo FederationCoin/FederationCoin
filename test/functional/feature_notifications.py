@@ -86,7 +86,7 @@ class NotificationsTest(BitcoinTestFramework):
         self.log.info("test -blocknotify")
         block_count = 10
         # Mine to the imported secp descriptor so node 0 can rescan the same coins.
-        mine_addr = self.nodes[1].getnewaddress("", "secp") if self.is_wallet_compiled() else ADDRESS_BCRT1_UNSPENDABLE
+        mine_addr = self.nodes[1].getnewaddress("", "bech32") if self.is_wallet_compiled() else ADDRESS_BCRT1_UNSPENDABLE
         blocks = self.generatetoaddress(self.nodes[1], block_count, mine_addr)
 
         # wait at most 10 seconds for expected number of files before reading the content

@@ -9,8 +9,11 @@
 #include <chain.h>
 #include <coins.h>
 #include <consensus/amount.h>
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
+#include <consensus/mldsa87_spend.h>
 #include <consensus/validation.h>
+#include <script/mldsa_merge.h>
+#include <script/modern_sig.h>
 #include <core_io.h>
 #include <index/txindex.h>
 #include <key_io.h>
@@ -580,6 +583,8 @@ static RPCHelpMan decodescript()
         case TxoutType::WITNESS_UNKNOWN:
         case TxoutType::WITNESS_V1_TAPROOT:
         case TxoutType::ANCHOR:
+        case TxoutType::CHECKMODERNSIG:
+        case TxoutType::CHECKMODERNPOLICY:
             // Should not be wrapped
             return false;
         } // no default case, so the compiler can warn about missing cases
@@ -623,6 +628,8 @@ static RPCHelpMan decodescript()
             case TxoutType::WITNESS_V0_SCRIPTHASH:
             case TxoutType::WITNESS_V1_TAPROOT:
             case TxoutType::ANCHOR:
+            case TxoutType::CHECKMODERNSIG:
+            case TxoutType::CHECKMODERNPOLICY:
                 // Should not be wrapped
                 return false;
             } // no default case, so the compiler can warn about missing cases
@@ -738,10 +745,7 @@ static RPCHelpMan combinerawtransaction()
         if (coin.IsSpent()) {
             throw JSONRPCError(RPC_VERIFY_ERROR, "Input not found or already spent");
         }
-        int witness_version{0};
-        std::vector<unsigned char> witness_program;
-        if (coin.out.scriptPubKey.IsWitnessProgram(witness_version, witness_program) &&
-            witness_version == 0 && witness_program.size() == 32) {
+        if (MatchModernPolicy(coin.out.scriptPubKey)) {
             std::vector<std::vector<std::vector<unsigned char>>> stacks;
             stacks.reserve(txVariants.size());
             for (const CMutableTransaction& txv : txVariants) {
@@ -752,13 +756,31 @@ static RPCHelpMan combinerawtransaction()
             uint256 sighash;
             const bool hashed{txdata.m_spent_outputs_ready &&
                               SignatureHashUnified(sighash, CScript{}, txConst, i, SIGHASH_ALL | SIGHASH_UNIFIED, SigVersion::WITNESS_V0, txdata)};
-            const std::span<const unsigned char> message{hashed ? std::span<const unsigned char>{sighash.begin(), sighash.size()} : std::span<const unsigned char>{}};
-            const auto merged{Consensus::MergeMlDsa44Witnesses(stacks, message)};
+            if (!hashed) {
+                throw JSONRPCError(RPC_VERIFY_ERROR, "Unable to combine Dilithium slot witnesses");
+            }
+            const std::span<const unsigned char> message{sighash.begin(), sighash.size()};
+            const auto merged87{Consensus::MergeMlDsa87Witnesses(stacks, message)};
+            const auto merged44{Consensus::MergeMlDsa44Witnesses(stacks, message)};
+            if (merged87 && merged44 && *merged87 != *merged44) {
+                throw JSONRPCError(RPC_VERIFY_ERROR, "Unable to combine Dilithium slot witnesses");
+            }
+            const auto& merged{merged87 ? merged87 : merged44};
             if (!merged) {
-                throw JSONRPCError(RPC_VERIFY_ERROR, "Unable to combine ML-DSA-44 slot witnesses");
+                throw JSONRPCError(RPC_VERIFY_ERROR, "Unable to combine Dilithium slot witnesses");
             }
             mergedTx.vin[i].scriptSig.clear();
             mergedTx.vin[i].scriptWitness.stack = *merged;
+            continue;
+        }
+        if (MatchModernSingle(coin.out.scriptPubKey)) {
+            for (const CMutableTransaction& txv : txVariants) {
+                if (txv.vin.size() > i && txv.vin[i].scriptWitness.stack.size() == 2) {
+                    mergedTx.vin[i].scriptSig.clear();
+                    mergedTx.vin[i].scriptWitness = txv.vin[i].scriptWitness;
+                    break;
+                }
+            }
             continue;
         }
 

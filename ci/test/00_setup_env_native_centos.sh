@@ -12,3 +12,4 @@ export CI_BASE_PACKAGES="gcc-c++ glibc-devel libstdc++-devel ccache make git pyt
 export PIP_PACKAGES="pyzmq"
 export GOAL="install"
 export BITCOIN_CONFIG="-DWITH_ZMQ=ON -DBUILD_GUI=ON -DREDUCE_EXPORTS=ON"
+export RUN_BENCH=true

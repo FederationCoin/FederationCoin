@@ -37,17 +37,16 @@ from .script import (
     CScriptOp,
     OP_0,
     OP_RETURN,
-    OP_TRUE,
 )
 from .script_util import (
-    key_to_p2pkh_script,
     key_to_p2wpkh_script,
     keys_to_multisig_script,
     script_to_p2wsh_script,
 )
 from .util import assert_equal
 
-MAX_BLOCK_SIGOPS = 20000
+# Legacy sigops before the witness scale. floor(2_400_000 / 50) / 4.
+MAX_BLOCK_SIGOPS = 12000
 MAX_BLOCK_SIGOPS_WEIGHT = MAX_BLOCK_SIGOPS * WITNESS_SCALE_FACTOR
 MAX_STANDARD_TX_WEIGHT = 400000
 
@@ -185,12 +184,16 @@ def script_BIP34_coinbase_height(height):
     return CScript([CScriptNum(height)])
 
 
+# Product-admitted dummy programs (CheckOutputSizes). Not spendable.
+WITNESS_V0_DUMMY_KEYHASH = CScript([OP_0, bytes(20)])
+WITNESS_V0_DUMMY_SCRIPTHASH = CScript([OP_0, bytes(32)])
+
+
 def create_coinbase(height, pubkey=None, *, script_pubkey=None, extra_output_script=None, fees=0, nValue=50, halving_period=REGTEST_HALVING_INTERVAL):
     """Create a coinbase transaction.
 
-    If pubkey is passed in, the coinbase output will be a P2PKH output.
-    A raw pubkey script is larger than this chain's 34-byte output limit.
-    Otherwise the output is anyone-can-spend.
+    If pubkey is passed in, the coinbase output is P2WPKH of that key.
+    Otherwise the output is a witness v0 keyhash dummy (20 zero bytes).
 
     If extra_output_script is given, make a 0-value output to that
     script. This is useful to pad block weight/sigops as needed. """
@@ -203,11 +206,11 @@ def create_coinbase(height, pubkey=None, *, script_pubkey=None, extra_output_scr
         coinbaseoutput.nValue >>= halvings
         coinbaseoutput.nValue += fees
     if pubkey is not None:
-        coinbaseoutput.scriptPubKey = key_to_p2pkh_script(pubkey)
+        coinbaseoutput.scriptPubKey = key_to_p2wpkh_script(pubkey)
     elif script_pubkey is not None:
         coinbaseoutput.scriptPubKey = script_pubkey
     else:
-        coinbaseoutput.scriptPubKey = CScript([OP_TRUE])
+        coinbaseoutput.scriptPubKey = WITNESS_V0_DUMMY_KEYHASH
     coinbase.vout = [coinbaseoutput]
     if extra_output_script is not None:
         coinbaseoutput2 = CTxOut()
@@ -221,10 +224,11 @@ def create_tx_with_script(prevtx, n, script_sig=b"", *, amount, output_script=No
     """Return one-input, one-output transaction object
        spending the prevtx's n-th output with the given amount.
 
-       Can optionally pass scriptPubKey and scriptSig, default is anyone-can-spend output.
+       Can optionally pass scriptPubKey and scriptSig. Default output is a
+       witness v0 keyhash dummy (20 zero bytes).
     """
     if output_script is None:
-        output_script = CScript()
+        output_script = WITNESS_V0_DUMMY_KEYHASH
     tx = CTransaction()
     assert n < len(prevtx.vout)
     tx.vin.append(CTxIn(COutPoint(prevtx.sha256, n), script_sig, SEQUENCE_FINAL))

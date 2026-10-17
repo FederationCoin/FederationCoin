@@ -7,12 +7,15 @@
 #define BITCOIN_CONSENSUS_AMOUNT_H
 
 #include <cstdint>
+#include <limits>
 
 /** Amount in atomic tokens (can be negative). One CAmount unit is one token. */
 typedef int64_t CAmount;
 
 /** 1 COIN = 100 million tokens. This is not a ticker. */
 static constexpr CAmount COIN = 100000000;
+static_assert(COIN > 0);
+static_assert(21000000 <= std::numeric_limits<CAmount>::max() / COIN);
 
 /** No amount larger than this (in atomic tokens) is valid.
  *

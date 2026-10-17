@@ -4,10 +4,15 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Helpful routines for mempool testing."""
 
+from decimal import Decimal
+
 from .blocktools import (
     COINBASE_MATURITY,
 )
-from .messages import CTransaction
+from .messages import (
+    COIN,
+    CTransaction,
+)
 from .util import (
     assert_equal,
     assert_greater_than,
@@ -16,13 +21,36 @@ from .util import (
 )
 from .wallet import (
     MiniWallet,
+    minimum_fee_tokens,
 )
 
 ORPHAN_TX_EXPIRE_TIME = 1200
-# Default for -minrelaytxfee in sat/kvB. Consensus floor is floor(vsize / 12).
-DEFAULT_MIN_RELAY_TX_FEE = 3000
-# -corepolicy keeps the historical incremental relay fee. Satoshis per kvB.
+# C++ DEFAULT_MIN_RELAY_TX_FEE. Consensus floor is floor(vsize / 12).
+DEFAULT_MIN_RELAY_TX_FEE = 0
+# -corepolicy incremental when that flag is on. Tokens per kvB.
 DEFAULT_INCREMENTAL_RELAY_FEE = 100
+# Historical Core incremental, used if a test turns -corepolicy on.
+COREPOLICY_MIN_RELAY_TX_FEE = 100
+
+
+def relay_feerate_sat_vb_str(node):
+    """CFeeRate::ToString(SAT_VB) for the node's min relay feerate."""
+    sat_kvb = int(node.getnetworkinfo()["relayfee"] * COIN)
+    return f"{sat_kvb // 1000}.{sat_kvb % 1000:03d} token/vB"
+
+
+def just_below_relay_sat_vb(node):
+    """Largest representable token/vB rate strictly below the node's minrelay."""
+    sat_kvb = int(node.getnetworkinfo()["relayfee"] * COIN)
+    assert sat_kvb > 0
+    return Decimal(sat_kvb - 1) / Decimal(1000)
+
+
+def just_below_relay_sat_vb_str(node):
+    sat_kvb = int(node.getnetworkinfo()["relayfee"] * COIN)
+    assert sat_kvb > 0
+    below = sat_kvb - 1
+    return f"{below // 1000}.{below % 1000:03d} token/vB"
 
 def assert_mempool_contents(test_framework, node, expected=None, sync=True):
     """Assert that all transactions in expected are in the mempool,
@@ -52,6 +80,10 @@ def fill_mempool(test_framework, node, *, tx_sync_fun=None):
     test_framework.log.info("Fill the mempool until eviction is triggered and the mempoolminfee rises")
     txouts = gen_return_txouts()
     minrelayfee = node.getnetworkinfo()['relayfee']
+    # Filler transactions must pay consensus MinimumFee (floor(vsize / 12)).
+    # When minrelay is 0, do not invent a linear token/vB stand-in; the victim
+    # pays that floor and later batches pay a multiple of the dummy's floor.
+    fill_fee = minrelayfee
 
     tx_batch_size = 1
     num_of_batches = 75
@@ -80,18 +112,29 @@ def fill_mempool(test_framework, node, *, tx_sync_fun=None):
         txouts = txouts[excess_outputs:]
 
     test_framework.log.debug("Create a mempool tx that will be evicted")
-    tx_to_be_evicted_id = ephemeral_miniwallet.send_self_transfer(
-        from_node=node, utxo_to_spend=confirmed_utxos.pop(0), fee_rate=minrelayfee)["txid"]
+    if fill_fee > 0:
+        tx_to_be_evicted_id = ephemeral_miniwallet.send_self_transfer(
+            from_node=node, utxo_to_spend=confirmed_utxos.pop(0), fee_rate=fill_fee)["txid"]
+        # ~65k vB dummy: feerate * 130 ≈ 2x that feerate as an absolute fee.
+        base_fee = fill_fee * 130
+    else:
+        victim = ephemeral_miniwallet.create_self_transfer(
+            utxo_to_spend=confirmed_utxos.pop(0), fee=0, fee_rate=0)
+        ephemeral_miniwallet.pay_minimum_fee(victim)
+        tx_to_be_evicted_id = ephemeral_miniwallet.sendrawtransaction(
+            from_node=node, tx_hex=victim["hex"])
+        probe = ephemeral_miniwallet.create_self_transfer(
+            utxo_to_spend=confirmed_utxos[0], fee=0, fee_rate=0)
+        probe["tx"].vout.extend(txouts)
+        ephemeral_miniwallet.resign(probe["tx"])
+        dummy_floor = Decimal(minimum_fee_tokens(probe["tx"].get_vsize())) / COIN
+        base_fee = dummy_floor * 2
 
     def send_batch(fee):
         utxos = confirmed_utxos[:tx_batch_size]
         create_lots_of_big_transactions(ephemeral_miniwallet, node, fee, tx_batch_size, txouts, utxos)
         del confirmed_utxos[:tx_batch_size]
 
-    # Increase the tx fee rate to give the subsequent transactions a higher priority in the mempool
-    # The tx has an approx. vsize of 65k, i.e. multiplying the previous fee rate (in sats/kvB)
-    # by 130 should result in a fee that corresponds to 2x of that fee rate
-    base_fee = minrelayfee * 130
     batch_fees = [(i + 1) * base_fee for i in range(num_of_batches)]
 
     test_framework.log.debug("Fill up the mempool with txs with higher fee rate")

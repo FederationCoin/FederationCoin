@@ -4,10 +4,16 @@
 
 #include <chainparams.h>
 #include <consensus/amount.h>
+#include <consensus/block_limits.h>
+#include <consensus/flex_weight.h>
 #include <consensus/merkle.h>
+#include <primitives/block.h>
 #include <core_io.h>
 #include <hash.h>
 #include <net.h>
+#include <streams.h>
+#include <util/strencodings.h>
+#include <script/script.h>
 #include <signet.h>
 #include <uint256.h>
 #include <util/chaintype.h>
@@ -75,23 +81,131 @@ BOOST_AUTO_TEST_CASE(subsidy_limit_test)
     BOOST_CHECK_EQUAL(nSum, CAmount{2099999997690000});
 }
 
-BOOST_AUTO_TEST_CASE(block_header_hidden_v2_fields)
+BOOST_AUTO_TEST_CASE(p2pkh_output_fails_checkblock)
 {
     Consensus::Params params{};
-    const auto check_hidden_field = [&](const CBlock& block) {
-        BlockValidationState state;
-        BOOST_CHECK(!CheckBlock(block, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
-        BOOST_CHECK(state.GetResult() == BlockValidationResult::BLOCK_MUTATED);
-        BOOST_CHECK_EQUAL(state.GetRejectReason(), "error-headerv1-with-v2-fields");
-    };
+    params.nSubsidyHalvingInterval = 210000;
+    CBlock block;
+    block.m_header_v2 = true;
+    block.hashPrevBlock = uint256::ONE;
+    CMutableTransaction cb;
+    cb.vin.resize(1);
+    cb.vin[0].prevout.SetNull();
+    cb.vin[0].scriptSig = CScript() << OP_0 << OP_0;
+    CScript p2pkh;
+    p2pkh << OP_DUP << OP_HASH160 << std::vector<unsigned char>(20, 0x02) << OP_EQUALVERIFY << OP_CHECKSIG;
+    cb.vout.emplace_back(50 * COIN, p2pkh);
+    block.vtx.push_back(MakeTransactionRef(std::move(cb)));
+    BlockValidationState state;
+    BOOST_CHECK(!CheckBlock(block, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-txns-vout-script");
+}
 
-    CBlock hidden_txcount;
-    hidden_txcount.m_txcount = 1;
-    check_hidden_field(hidden_txcount);
+BOOST_AUTO_TEST_CASE(block_header_requires_v2)
+{
+    Consensus::Params params{};
+    BlockValidationState state;
+    CBlock v1;
+    BOOST_CHECK(!CheckBlock(v1, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK(state.GetResult() == BlockValidationResult::BLOCK_INVALID_HEADER);
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-version-blake2b");
 
-    CBlock hidden_mm_rhs;
-    hidden_mm_rhs.m_mm_rhs = uint256::ONE;
-    check_hidden_field(hidden_mm_rhs);
+    // v2 payload fields on a v1 header do not change that: v1 is invalid.
+    CBlock v1_with_fields;
+    v1_with_fields.m_txcount = 1;
+    v1_with_fields.m_mm_rhs = uint256::ONE;
+    state = {};
+    BOOST_CHECK(!CheckBlock(v1_with_fields, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-version-blake2b");
+
+    CBlock v2_txcount;
+    v2_txcount.m_header_v2 = true;
+    v2_txcount.m_txcount = 1;
+    state = {};
+    BOOST_CHECK(!CheckBlock(v2_txcount, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/true));
+    BOOST_CHECK(state.GetResult() == BlockValidationResult::BLOCK_MUTATED);
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-txnlist-size");
+
+    CBlock empty_v2;
+    empty_v2.m_header_v2 = true;
+    params.nSubsidyHalvingInterval = 210000;
+    state = {};
+    BOOST_CHECK(!CheckBlock(empty_v2, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-blk-length");
+
+    CBlock oversize;
+    oversize.m_header_v2 = true;
+    oversize.m_height = 0;
+    CMutableTransaction cb;
+    cb.vin.resize(1);
+    cb.vin[0].prevout.SetNull();
+    cb.vin[0].scriptSig.assign(3'000'000, static_cast<unsigned char>(0x00));
+    cb.vout.emplace_back(0, CScript() << OP_0 << std::vector<unsigned char>(20, 0x01));
+    oversize.vtx.push_back(MakeTransactionRef(std::move(cb)));
+    state = {};
+    BOOST_CHECK(!CheckBlock(oversize, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-blk-length");
+
+    CBlockHeader v2hdr;
+    v2hdr.m_header_v2 = true;
+    BOOST_CHECK_EQUAL(::GetSerializeSize(v2hdr), BLOCK_HEADER_V2_SERIALIZED_SIZE);
+
+    CBlockHeader wide_txcount;
+    wide_txcount.m_header_v2 = true;
+    wide_txcount.m_txcount = 65536;
+    DataStream wide_ss;
+    wide_ss << wide_txcount;
+    BOOST_CHECK_EQUAL(wide_ss.size(), BLOCK_HEADER_V2_SERIALIZED_SIZE);
+    CBlockHeader wide_back;
+    wide_ss >> wide_back;
+    BOOST_CHECK_EQUAL(wide_back.m_txcount, 65536U);
+    CBlock wide_mismatch;
+    wide_mismatch.m_header_v2 = true;
+    wide_mismatch.m_txcount = 65536;
+    state = {};
+    BOOST_CHECK(!CheckBlock(wide_mismatch, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/true));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-txnlist-size");
+    CBlockHeader pin16;
+    pin16.m_header_v2 = true;
+    pin16.m_txcount = 3;
+    const uint256 pin_hash{pin16.GetHash()};
+    pin16.m_txcount = 3;
+    BOOST_CHECK_EQUAL(pin16.GetHash(), pin_hash);
+    DataStream pin_ss;
+    pin_ss << pin16;
+    BOOST_REQUIRE_EQUAL(pin_ss.size(), BLOCK_HEADER_V2_SERIALIZED_SIZE);
+    BOOST_CHECK_EQUAL(HexStr(pin_ss).substr(216, 8), "03000000");
+
+    CBlock under_grown;
+    under_grown.m_header_v2 = true;
+    under_grown.m_height = 210000;
+    CMutableTransaction cb_under;
+    cb_under.vin.resize(1);
+    cb_under.vin[0].prevout.SetNull();
+    cb_under.vin[0].scriptSig.assign(2'500'001, static_cast<unsigned char>(0x00));
+    cb_under.vout.emplace_back(0, CScript() << OP_0 << std::vector<unsigned char>(20, 0x01));
+    under_grown.vtx.push_back(MakeTransactionRef(std::move(cb_under)));
+    BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(under_grown))) > Consensus::MIN_FLEX_BLOCK_WEIGHT);
+    BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(under_grown))) <=
+                Consensus::LimitsForCap(Consensus::WorstCaseCapAtHeight(210000, 210000)).serialized_size);
+    state = {};
+    BOOST_CHECK(!CheckBlock(under_grown, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_NE(state.GetRejectReason(), "bad-blk-length");
+
+    CBlock over_grown;
+    over_grown.m_header_v2 = true;
+    over_grown.m_height = 210000;
+    CMutableTransaction cb_over;
+    cb_over.vin.resize(1);
+    cb_over.vin[0].prevout.SetNull();
+    cb_over.vin[0].scriptSig.assign(3'700'001, static_cast<unsigned char>(0x00));
+    cb_over.vout.emplace_back(0, CScript() << OP_0 << std::vector<unsigned char>(20, 0x01));
+    over_grown.vtx.push_back(MakeTransactionRef(std::move(cb_over)));
+    BOOST_CHECK(static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(over_grown))) >
+                Consensus::LimitsForCap(Consensus::WorstCaseCapAtHeight(210000, 210000)).serialized_size);
+    state = {};
+    BOOST_CHECK(!CheckBlock(over_grown, state, params, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false));
+    BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-blk-length");
 }
 
 BOOST_AUTO_TEST_CASE(signet_parse_tests)

@@ -80,6 +80,13 @@ set_target_properties(secp256k1 PROPERTIES
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 endif()  # WITH_SYSTEM_LIBSECP256K1
 
+# ML-DSA-44 / 87: PQClean `clean` C as static libs (gitlinks). The node
+# provides PQCLEAN_randombytes. 87 does not compile fips202.c; link 87
+# then 44 so one SHAKE is in the process.
+add_subdirectory(crypto/mldsa44)
+add_subdirectory(crypto/mldsa87)
+set_target_properties(mldsa44 mldsa87 PROPERTIES EXCLUDE_FROM_ALL TRUE)
+
 # Set top-level target output locations.
 if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
@@ -115,36 +122,25 @@ endif()
 add_library(bitcoin_consensus STATIC EXCLUDE_FROM_ALL
   arith_uint256.cpp
   consensus/merkle.cpp
-  consensus/mldsa_spend.cpp
+  consensus/mldsa44_spend.cpp
   consensus/mldsa87_spend.cpp
   consensus/secp_spend.cpp
   consensus/flex_weight.cpp
+  consensus/block_limits.cpp
   consensus/epoch_watermark.cpp
   consensus/settlement_fee.cpp
+  consensus/mldsa_seed.cpp
   consensus/tx_check.cpp
-  crypto/mldsa44/fips202.c
-  crypto/mldsa44/ntt.c
-  crypto/mldsa44/packing.c
-  crypto/mldsa44/poly.c
-  crypto/mldsa44/polyvec.c
-  crypto/mldsa44/randombytes.c
-  crypto/mldsa44/reduce.c
-  crypto/mldsa44/rounding.c
-  crypto/mldsa44/sign.c
-  crypto/mldsa44/symmetric-shake.c
-  crypto/mldsa87/ntt.c
-  crypto/mldsa87/packing.c
-  crypto/mldsa87/poly.c
-  crypto/mldsa87/polyvec.c
-  crypto/mldsa87/reduce.c
-  crypto/mldsa87/rounding.c
-  crypto/mldsa87/sign.c
-  crypto/mldsa87/symmetric-shake.c
+  consensus/work/kind.cpp
+  consensus/work/fp8_gym.cpp
+  consensus/work/poseidon2.cpp
+  crypto/mldsa_randombytes.c
   hash.cpp
   primitives/block.cpp
   primitives/transaction.cpp
   pubkey.cpp
   script/interpreter.cpp
+  script/modern_sig.cpp
   script/script.cpp
   script/script_error.cpp
   uint256.cpp
@@ -154,6 +150,8 @@ target_link_libraries(bitcoin_consensus
     core_interface
     bitcoin_crypto
     secp256k1
+    mldsa87
+    mldsa44
 )
 
 if(WITH_ZMQ)
@@ -204,7 +202,9 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   policy/coin_age_priority.cpp
   policy/feerate.cpp
   policy/policy.cpp
+  policy/witness_spend_kind.cpp
   pow.cpp
+  consensus/work/retarget.cpp
   protocol.cpp
   psbt.cpp
   rpc/rawtransaction_util.cpp

@@ -6,6 +6,7 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <consensus/consensus.h>
+#include <consensus/flex_weight.h>
 #include <consensus/merkle.h>
 #include <consensus/validation.h>
 #include <pow.h>
@@ -44,7 +45,7 @@ static void DuplicateInputs(benchmark::Bench& bench)
     block.nBits = GetNextWorkRequired(pindexPrev, &block, chainparams.GetConsensus());
     block.nNonce = 0;
     auto nHeight = pindexPrev->nHeight + 1;
-    block.m_header_v2 = chainparams.GetConsensus().IsBlake2bHeight(nHeight);
+    block.m_header_v2 = true;
     block.m_height = nHeight;
 
     // Make a coinbase TX
@@ -60,7 +61,7 @@ static void DuplicateInputs(benchmark::Bench& bench)
     naughtyTx.vout[0].nValue = 0;
     naughtyTx.vout[0].scriptPubKey = SCRIPT_PUB;
 
-    uint64_t n_inputs = (((MAX_BLOCK_SERIALIZED_SIZE / WITNESS_SCALE_FACTOR) - (CTransaction(coinbaseTx).GetTotalSize() + CTransaction(naughtyTx).GetTotalSize())) / 41) - 100;
+    uint64_t n_inputs = (((Consensus::MIN_FLEX_BLOCK_WEIGHT / WITNESS_SCALE_FACTOR) - (CTransaction(coinbaseTx).GetTotalSize() + CTransaction(naughtyTx).GetTotalSize())) / 41) - 100;
     for (uint64_t x = 0; x < (n_inputs - 1); ++x) {
         naughtyTx.vin.emplace_back(Txid::FromUint256(GetRandHash()), 0, CScript(), 0);
     }

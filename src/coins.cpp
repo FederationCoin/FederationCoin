@@ -4,7 +4,6 @@
 
 #include <coins.h>
 
-#include <consensus/consensus.h>
 #include <logging.h>
 #include <random.h>
 #include <util/trace.h>
@@ -345,13 +344,10 @@ void CCoinsViewCache::SanityCheck() const
     assert(recomputed_usage == cachedCoinsUsage);
 }
 
-static const size_t MIN_TRANSACTION_OUTPUT_WEIGHT = WITNESS_SCALE_FACTOR * ::GetSerializeSize(CTxOut());
-static const size_t MAX_OUTPUTS_PER_BLOCK = MAX_BLOCK_WEIGHT / MIN_TRANSACTION_OUTPUT_WEIGHT;
-
-const Coin& AccessByTxid(const CCoinsViewCache& view, const Txid& txid)
+const Coin& AccessByTxid(const CCoinsViewCache& view, const Txid& txid, uint64_t max_outputs)
 {
     COutPoint iter(txid, 0);
-    while (iter.n < MAX_OUTPUTS_PER_BLOCK) {
+    while (static_cast<uint64_t>(iter.n) < max_outputs) {
         const Coin& alternate = view.AccessCoin(iter);
         if (!alternate.IsSpent()) return alternate;
         ++iter.n;

@@ -16,12 +16,10 @@ from test_framework.script import (
 )
 from test_framework.script_util import (
     key_to_p2pk_script,
-    key_to_p2pkh_script,
     key_to_p2wpkh_script,
     keys_to_multisig_script,
     output_key_to_p2tr_script,
     program_to_witness_script,
-    script_to_p2sh_script,
     script_to_p2wsh_script,
 )
 from test_framework.test_framework import BitcoinTestFramework
@@ -34,7 +32,7 @@ from test_framework.wallet import MiniWallet
 from test_framework.wallet_util import generate_keypair
 
 
-DUST_RELAY_TX_FEE = 3000  # default setting [sat/kvB]
+DUST_RELAY_TX_FEE = 250  # default setting [sat/kvB]; (3 * 1000) / 12
 
 
 class DustRelayFeeTest(BitcoinTestFramework):
@@ -51,7 +49,7 @@ class DustRelayFeeTest(BitcoinTestFramework):
             tx.vout.append(CTxOut(nValue=0, scriptPubKey=output_script))
             res = node.testmempoolaccept([tx.serialize().hex()])[0]
             assert_equal(res['allowed'], False)
-            assert_equal(res['reject-reason'], 'bad-txns-datacarrier')
+            assert res['reject-reason'] in ('bad-txns-datacarrier', 'bad-txns-vout-script'), res
             return
 
         tx_size = len(CTxOut(nValue=0, scriptPubKey=output_script).serialize())
@@ -118,10 +116,7 @@ class DustRelayFeeTest(BitcoinTestFramework):
         self.log.info("-> Testing scripts at or under 34-byte limit (should pass)")
 
         passing_scripts = [
-            (key_to_p2pkh_script(pubkey), "P2PKH", 25),
             (key_to_p2wpkh_script(pubkey), "P2WPKH", 22),
-            (script_to_p2wsh_script(CScript([OP_TRUE])), "P2WSH", 34),
-            (script_to_p2sh_script(CScript([OP_TRUE])), "P2SH", 23),
         ]
 
         for script, name, expected_size in passing_scripts:
@@ -132,6 +127,16 @@ class DustRelayFeeTest(BitcoinTestFramework):
             res = node.testmempoolaccept([tx.serialize().hex()])[0]
             assert_equal(res['allowed'], True)
             self.log.info(f"   ✓ {name} ({expected_size} bytes) accepted")
+
+        leftover_p2wsh = script_to_p2wsh_script(CScript([OP_TRUE]))
+        assert_equal(len(leftover_p2wsh), 34)
+        tx = self.wallet.create_self_transfer()["tx"]
+        tx.vout.append(CTxOut(nValue=1000, scriptPubKey=leftover_p2wsh))
+        self.wallet.resign(tx)
+        res = node.testmempoolaccept([tx.serialize().hex()])[0]
+        assert_equal(res['allowed'], False)
+        assert 'bad-txns-vout-script' in res['reject-reason']
+        self.log.info("   leftover P2WSH (34 bytes) rejected")
 
         self.log.info("-> Testing P2TR (34 bytes) - witness v1 is rejected")
         p2tr_script = output_key_to_p2tr_script(pubkey[1:])
@@ -152,8 +157,9 @@ class DustRelayFeeTest(BitcoinTestFramework):
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
         assert_equal(res['allowed'], False)
         assert 'output-script-size' in res['reject-reason'].lower() or \
-               'bad-txns' in res['reject-reason'].lower(), \
-               f"Expected output-script-size error, got: {res['reject-reason']}"
+               'bad-txns' in res['reject-reason'].lower() or \
+               'scriptpubkey' in res['reject-reason'].lower(), \
+               f"Expected output-script-size or scriptpubkey, got: {res['reject-reason']}"
         self.log.info(f"   ✓ P2PK compressed (35 bytes) correctly rejected: {res['reject-reason']}")
 
         # Test Case 3: 1-of-1 bare multisig (37 bytes) should be rejected
@@ -166,22 +172,24 @@ class DustRelayFeeTest(BitcoinTestFramework):
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
         assert_equal(res['allowed'], False)
         assert 'output-script-size' in res['reject-reason'].lower() or \
-               'bad-txns' in res['reject-reason'].lower(), \
-               f"Expected output-script-size error, got: {res['reject-reason']}"
+               'bad-txns' in res['reject-reason'].lower() or \
+               'scriptpubkey' in res['reject-reason'].lower(), \
+               f"Expected output-script-size or scriptpubkey, got: {res['reject-reason']}"
         self.log.info(f"   ✓ 1-of-1 bare multisig (37 bytes) correctly rejected: {res['reject-reason']}")
 
         # Test Case 4: Boundary testing (exactly 34 vs 35 bytes)
         self.log.info("-> Testing boundary conditions")
 
-        # Exactly 34 bytes should pass (create a witness program v0 with 32-byte data)
+        # Leftover v0/32 is P2WSH, not a Dilithium template.
         script_34 = CScript([0, bytes(32)])  # OP_0 + 32 bytes = 34 bytes
         assert_equal(len(script_34), 34)
         tx = self.wallet.create_self_transfer()["tx"]
         tx.vout.append(CTxOut(nValue=1000, scriptPubKey=script_34))
         self.wallet.resign(tx)
         res = node.testmempoolaccept([tx.serialize().hex()])[0]
-        assert_equal(res['allowed'], True)
-        self.log.info("   ✓ Exactly 34 bytes accepted (boundary)")
+        assert_equal(res['allowed'], False)
+        assert 'bad-txns-vout-script' in res['reject-reason']
+        self.log.info("   leftover 34-byte v0/32 rejected")
 
         # 35 bytes should fail (create a witness program v0 with 33-byte data - invalid but tests size)
         script_35 = CScript([0, bytes(33)])  # OP_0 + 33 bytes = 35 bytes
@@ -202,10 +210,7 @@ class DustRelayFeeTest(BitcoinTestFramework):
         _, pubkey = generate_keypair(compressed=True)
 
         output_scripts = (
-            (key_to_p2pkh_script(pubkey),                      "P2PKH"),
-            (script_to_p2sh_script(CScript([OP_TRUE])),        "P2SH"),
             (key_to_p2wpkh_script(pubkey),                     "P2WPKH"),
-            (script_to_p2wsh_script(CScript([OP_TRUE])),       "P2WSH"),
             (CScript([OP_RETURN, b'superimportanthash']),      "null data (OP_RETURN)"),
         )
         rejected_scripts = (

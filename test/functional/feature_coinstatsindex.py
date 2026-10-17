@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from test_framework.blocktools import (
     COINBASE_MATURITY,
+    WITNESS_V0_DUMMY_KEYHASH,
     create_block,
     create_coinbase,
 )
@@ -137,8 +138,8 @@ class CoinStatsIndexTest(BitcoinTestFramework):
             assert_equal(res5['block_info'], {
                 'unspendable': 0,
                 'prevout_spent': 50,
-                'new_outputs_ex_coinbase': Decimal('49.99691000'),
-                'coinbase': Decimal('50.00309000'),
+                'new_outputs_ex_coinbase': Decimal('49.99690400'),
+                'coinbase': Decimal('50.00309600'),
                 'unspendables': {
                     'genesis_block': 0,
                     'bip30': 0,
@@ -163,7 +164,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
         tx2_val = '20.99'
         tx2.vout = [CTxOut(int(Decimal(tx2_val) * COIN), CScript([OP_RETURN] + [OP_FALSE] * 30))]
         tx2_hex = tx2.serialize().hex()
-        assert_raises_rpc_error(-26, "bad-txns-datacarrier", self.nodes[0].sendrawtransaction, tx2_hex, 0, tx2_val)
+        assert_raises_rpc_error(-26, "bad-txns-vout-script", self.nodes[0].sendrawtransaction, tx2_hex, 0, tx2_val)
 
         # Include both txs in a block
         self.generate(self.nodes[0], 1)
@@ -175,8 +176,8 @@ class CoinStatsIndexTest(BitcoinTestFramework):
             assert_equal(res6['block_info'], {
                 'unspendable': Decimal('0'),
                 'prevout_spent': Decimal('50.00000000'),
-                'new_outputs_ex_coinbase': Decimal('49.99996781'),
-                'coinbase': Decimal('50.00003219'),
+                'new_outputs_ex_coinbase': Decimal('49.99999000'),
+                'coinbase': Decimal('50.00001000'),
                 'unspendables': {
                     'genesis_block': Decimal('0'),
                     'bip30': Decimal('0'),
@@ -189,7 +190,7 @@ class CoinStatsIndexTest(BitcoinTestFramework):
         # Create a coinbase that does not claim full subsidy and also
         # has two outputs
         cb = create_coinbase(109, nValue=35)
-        cb.vout.append(CTxOut(5 * COIN, CScript([OP_FALSE])))
+        cb.vout.append(CTxOut(5 * COIN, WITNESS_V0_DUMMY_KEYHASH))
         cb.rehash()
 
         # Generate a block that includes previous coinbase

@@ -20,6 +20,7 @@
 #include <qt/sendcoinsentry.h>
 
 #include <chainparams.h>
+#include <consensus/settlement_fee.h>
 #include <interfaces/node.h>
 #include <key_io.h>
 #include <outputtype.h>
@@ -32,6 +33,7 @@
 #include <wallet/fees.h>
 #include <wallet/wallet.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <fstream>
@@ -201,7 +203,7 @@ void SendCoinsDialog::setModel(WalletModel *_model)
         connect(ui->optInRBF, &QCheckBox::stateChanged, this, &SendCoinsDialog::updateSmartFeeLabel);
         connect(ui->optInRBF, &QCheckBox::stateChanged, this, &SendCoinsDialog::coinControlUpdateLabels);
 #endif
-        CAmount requiredFee = model->wallet().getRequiredFee(1000);
+        CAmount requiredFee = std::max(model->wallet().getRequiredFee(1000), MinimumFee(1000));
         ui->customFee->SetMinValue(requiredFee);
         if (ui->customFee->value() < requiredFee) {
             ui->customFee->setValue(requiredFee);
@@ -509,19 +511,19 @@ void SendCoinsDialog::sendButtonClicked([[maybe_unused]] bool checked)
     QString question_string, informative_text, detailed_text;
     if (!PrepareSendText(question_string, informative_text, detailed_text)) return;
 
-    bool secp_used{model->wallet().getDefaultAddressType() == OutputType::SECP};
+    bool segwit_used{model->wallet().getDefaultAddressType() == OutputType::BECH32};
     if (m_current_transaction) {
         for (const auto& recipient : m_current_transaction->getRecipients()) {
             const CTxDestination dest{DecodeDestination(recipient.address.toStdString())};
-            if (OutputTypeFromDestination(dest) == OutputType::SECP) {
-                secp_used = true;
+            if (OutputTypeFromDestination(dest) == OutputType::BECH32) {
+                segwit_used = true;
                 break;
             }
         }
     }
-    if (secp_used) {
+    if (segwit_used) {
         const auto ret = QMessageBox::warning(this, windowTitle(),
-            tr("secp is cheap, not quantum-safe. The payment still goes. Send anyway?"),
+            tr("SegWit is cheap, not quantum-safe (secp256k1). The payment still goes. Send anyway?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (ret != QMessageBox::Yes) return;
     }

@@ -5,6 +5,7 @@
 #include <consensus/tx_check.h>
 
 #include <consensus/amount.h>
+#include <consensus/checked_arith.h>
 #include <consensus/consensus.h>
 #include <primitives/transaction.h>
 #include <consensus/validation.h>
@@ -16,10 +17,8 @@ bool CheckTransaction(const CTransaction& tx, TxValidationState& state)
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vin-empty");
     if (tx.vout.empty())
         return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vout-empty");
-    // P2P/disk buffer. Live flex cap is contextual; do not use MAX_FLEX here.
-    if (static_cast<uint64_t>(::GetSerializeSize(TX_NO_WITNESS(tx))) > MAX_BLOCK_SERIALIZED_SIZE) {
-        return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-oversize");
-    }
+    // No height here. Size vs live cap is CheckBlock / ContextualCheckBlock.
+    // A lone transaction is not a block; do not freeze a byte cap on every tx.
 
     // Check for negative or overflow output values (see CVE-2010-5139)
     CAmount nValueOut = 0;
@@ -29,9 +28,10 @@ bool CheckTransaction(const CTransaction& tx, TxValidationState& state)
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vout-negative");
         if (txout.nValue > MAX_MONEY)
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-vout-toolarge");
-        nValueOut += txout.nValue;
-        if (!MoneyRange(nValueOut))
+        CAmount next_out{0};
+        if (!Consensus::CheckedAddSigned(nValueOut, txout.nValue, next_out) || !MoneyRange(next_out))
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-txouttotal-toolarge");
+        nValueOut = next_out;
     }
 
     // Check for duplicate inputs (see CVE-2018-17144)

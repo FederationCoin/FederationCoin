@@ -20,7 +20,8 @@ import sys
 import tempfile
 import time
 
-from .address import base58_to_byte, key_to_p2wpkh, program_to_witness, script_to_p2wsh
+from .address import base58_to_byte, key_to_p2wpkh, encode_modern_sig_address, script_to_p2wsh
+from .script_util import fingerprint_to_modern_single_script
 from .key import ECKey
 from .descriptors import descsum_create
 from .mldsa import keygen
@@ -194,10 +195,6 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         parser.add_argument("--randomseed", type=int,
                             help="set a random seed for deterministically reproducing a previous test run")
         parser.add_argument("--timeout-factor", dest="timeout_factor", type=float, help="adjust test timeouts by a factor. Setting it to 0 disables all timeouts")
-        parser.add_argument("--v2transport", dest="v2transport", default=False, action="store_true",
-                            help="use BIP324 v2 connections between all nodes by default")
-        parser.add_argument("--v1transport", dest="v1transport", default=False, action="store_true",
-                            help="Explicitly use v1 transport (can be used to overwrite global --v2transport option)")
         parser.add_argument("--test_methods", dest="test_methods", nargs='*',
                             help="Run specified test methods sequentially instead of the full test. Use only for methods that do not depend on any context set up in run_test or other methods.")
 
@@ -215,8 +212,6 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         config = configparser.ConfigParser()
         config.read_file(open(self.options.configfile))
         self.config = config
-        if self.options.v1transport:
-            self.options.v2transport=False
 
         if "descriptors" not in self.options:
             # Wallet is not required by the test at all and the value of self.options.descriptors won't matter.
@@ -391,9 +386,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         for args in self.extra_args:
             joined = " ".join(args)
             if "-addresstype=" not in joined:
-                args.append("-addresstype=secp")
+                args.append("-addresstype=bech32")
             if "-changetype=" not in joined:
-                args.append("-changetype=secp")
+                args.append("-changetype=bech32")
 
     def add_options(self, parser):
         """Override this method to add command-line options to the test"""
@@ -577,7 +572,6 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 start_perf=self.options.perf,
                 use_valgrind=self.options.valgrind,
                 descriptors=self.options.descriptors,
-                v2transport=self.options.v2transport,
                 wallet_compiled=self.is_wallet_compiled(),
             )
             self.nodes.append(test_node_i)
@@ -865,7 +859,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         cache_node_dir = get_datadir_path(self.options.cachedir, CACHE_NODE_ID)
         assert self.num_nodes <= MAX_NODES
         # Premine pays secp P2WPKH of the first three node keys plus MiniWallet ML-DSA.
-        cache_marker = os.path.join(cache_node_dir, "secp-spend")
+        cache_marker = os.path.join(cache_node_dir, "modern-sig")
         if os.path.isdir(cache_node_dir) and not os.path.isfile(cache_marker):
             shutil.rmtree(cache_node_dir)
 
@@ -914,7 +908,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 key = ECKey()
                 key.set(secret, compressed)
                 return key_to_p2wpkh(key.get_pubkey().get_bytes())
-            gen_addresses = [wif_to_p2wpkh(k.key) for k in TestNode.PRIV_KEYS][:3] + [program_to_witness(0, program)]
+            gen_addresses = [wif_to_p2wpkh(k.key) for k in TestNode.PRIV_KEYS][:3] + [encode_modern_sig_address(fingerprint_to_modern_single_script(program, 1))]
             assert_equal(len(gen_addresses), 4)
             for i in range(8):
                 self.generatetoaddress(
@@ -1009,7 +1003,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         """Product wallets are descriptor-only. BDB create is refused."""
         assert_raises_rpc_error(-4, "Legacy wallets are not supported", node.createwallet, wallet_name=wallet_name, descriptors=False)
         self.assert_closed_address_types(node)
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             addr = node.getnewaddress("", kind)
             assert node.validateaddress(addr)["isvalid"]
 

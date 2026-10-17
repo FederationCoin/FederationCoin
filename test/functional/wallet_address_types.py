@@ -2,12 +2,12 @@
 # Copyright (c) 2017-2022 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Test that the wallet receives and spends Dilithium 87, Dilithium 44, and secp.
+"""Test that the wallet receives and spends Dilithium 87, Dilithium 44, and SegWit (bech32).
 
 There are 3 nodes-under-test plus a miner:
     - node0 uses Dilithium 87 (default)
     - node1 uses Dilithium 44
-    - node2 uses secp
+    - node2 uses native SegWit (bech32)
     - node3 mines
 """
 
@@ -31,7 +31,7 @@ class AddressTypeTest(BitcoinTestFramework):
         self.extra_args = [
             ["-addresstype=mldsa87"],
             ["-addresstype=mldsa44"],
-            ["-addresstype=secp"],
+            ["-addresstype=bech32"],
             [],
         ]
         self.noban_tx_relay = True
@@ -40,28 +40,21 @@ class AddressTypeTest(BitcoinTestFramework):
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
 
-    def program_len(self, address):
-        info = self.nodes[0].validateaddress(address)
-        assert info["isvalid"]
-        return len(info["witness_program"]) // 2
-
     def test_address(self, node, address, typ):
         info = self.nodes[node].getaddressinfo(address)
         assert self.nodes[node].validateaddress(address)["isvalid"]
         assert_equal(info.get("iswitness"), True)
-        assert_equal(info["witness_version"], 0)
-        prog = info["witness_program"]
-        if typ == "secp":
-            assert_equal(len(prog), 40)
-        else:
-            assert_equal(len(prog), 64)
         desc = info.get("desc", "")
-        if typ == "mldsa87":
+        if typ == "bech32":
+            assert_equal(info["witness_version"], 0)
+            assert_equal(len(info["witness_program"]), 40)
+            assert desc.startswith("wpkh(")
+        elif typ == "mldsa87":
+            assert_equal(info.get("isscript"), True)
             assert desc.startswith("mldsa87(")
         elif typ == "mldsa44":
+            assert_equal(info.get("isscript"), True)
             assert desc.startswith("mldsa(")
-        elif typ == "secp":
-            assert desc.startswith("wpkh(")
         else:
             assert False
 
@@ -72,16 +65,15 @@ class AddressTypeTest(BitcoinTestFramework):
         self.log.info("Default getnewaddress is Dilithium 87")
         default_addr = self.nodes[0].getnewaddress()
         self.test_address(0, default_addr, "mldsa87")
-        assert_equal(self.program_len(default_addr), 32)
 
-        self.log.info("Explicit mldsa44 and secp succeed; heritage types are rejected")
+        self.log.info("Explicit mldsa44 and bech32 succeed; segwit is an alias; secp and heritage types are rejected")
         addr44 = self.nodes[0].getnewaddress("", "mldsa44")
         self.test_address(0, addr44, "mldsa44")
-        addr_secp = self.nodes[0].getnewaddress("", "secp")
-        self.test_address(0, addr_secp, "secp")
-        alias = self.nodes[0].getnewaddress("", "bech32")
-        self.test_address(0, alias, "secp")
-        for bad in ("legacy", "p2sh-segwit", "bech32m"):
+        addr_bech32 = self.nodes[0].getnewaddress("", "bech32")
+        self.test_address(0, addr_bech32, "bech32")
+        alias = self.nodes[0].getnewaddress("", "segwit")
+        self.test_address(0, alias, "bech32")
+        for bad in ("secp", "legacy", "p2sh-segwit", "bech32m"):
             assert_raises_rpc_error(-5, "Unknown address type", self.nodes[0].getnewaddress, "", bad)
             assert_raises_rpc_error(-5, "Unknown address type", self.nodes[0].getrawchangeaddress, bad)
 
@@ -101,8 +93,8 @@ class AddressTypeTest(BitcoinTestFramework):
         for i in range(3):
             assert_greater_than(self.nodes[i].getbalance(), 9)
 
-        self.log.info("Send among Dilithium 87, Dilithium 44, and secp and spend the result")
-        types = ["mldsa87", "mldsa44", "secp"]
+        self.log.info("Send among Dilithium 87, Dilithium 44, and SegWit and spend the result")
+        types = ["mldsa87", "mldsa44", "bech32"]
         for from_node, from_typ in enumerate(types):
             for to_node, to_typ in enumerate(types):
                 dest = self.nodes[to_node].getnewaddress("", to_typ)
@@ -123,7 +115,7 @@ class AddressTypeTest(BitcoinTestFramework):
             assert_greater_than(self.nodes[i].getbalance(), 8)
 
         self.log.info("Change follows -addresstype")
-        dest = self.nodes[2].getnewaddress("", "secp")
+        dest = self.nodes[2].getnewaddress("", "bech32")
         txid = self.nodes[0].sendmany(dummy="", amounts={dest: 0.001})
         tx = self.nodes[0].gettransaction(txid=txid, verbose=True)["decoded"]
         change_addrs = [vout["scriptPubKey"]["address"] for vout in tx["vout"] if vout["scriptPubKey"]["address"] != dest]

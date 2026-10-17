@@ -30,6 +30,7 @@ void initialize_net()
 
 FUZZ_TARGET(net, .init = initialize_net)
 {
+    SeedRandomStateForTest(SeedRand::ZEROS);
     FuzzedDataProvider fuzzed_data_provider(buffer.data(), buffer.size());
     SetMockTime(ConsumeTime(fuzzed_data_provider));
     CNode node{ConsumeNode(fuzzed_data_provider)};
@@ -61,7 +62,9 @@ FUZZ_TARGET(net, .init = initialize_net)
             [&] {
                 const std::vector<uint8_t> b = ConsumeRandomLengthByteVector(fuzzed_data_provider);
                 bool complete;
-                node.ReceiveMsgBytes(b, complete);
+                if (!node.ReceiveMsgBytes(b, complete)) {
+                    node.CloseSocketDisconnect();
+                }
             });
     }
 
@@ -79,6 +82,7 @@ FUZZ_TARGET(net, .init = initialize_net)
 
 FUZZ_TARGET(local_address, .init = initialize_net)
 {
+    SeedRandomStateForTest(SeedRand::ZEROS);
     FuzzedDataProvider fuzzed_data_provider(buffer.data(), buffer.size());
     SetMockTime(ConsumeTime(fuzzed_data_provider));
     CService service{ConsumeService(fuzzed_data_provider)};

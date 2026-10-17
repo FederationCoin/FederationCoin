@@ -2,7 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <consensus/mldsa_spend.h>
+#include <consensus/mldsa44_spend.h>
 #include <test/util/setup_common.h>
 
 #include <array>
@@ -32,13 +32,14 @@ static void AppendSigned(std::vector<std::vector<unsigned char>>& witness, const
 {
     std::array<unsigned char, Consensus::MLDSA44_SIGNATURE_SIZE> signature{};
     BOOST_REQUIRE(Consensus::MlDsa44Sign(holder.key, sighash, signature));
-    witness.emplace_back(holder.key.pubkey.begin(), holder.key.pubkey.end());
-    witness.emplace_back(signature.begin(), signature.end());
+    std::vector<unsigned char> item(holder.key.pubkey.begin(), holder.key.pubkey.end());
+    item.insert(item.end(), signature.begin(), signature.end());
+    witness.push_back(std::move(item));
 }
 
-static void AppendSkipped(std::vector<std::vector<unsigned char>>& witness, const Holder& holder)
+static void AppendSkipped(std::vector<std::vector<unsigned char>>& witness)
 {
-    witness.emplace_back(holder.hash.begin(), holder.hash.end());
+    witness.emplace_back();
 }
 
 BOOST_AUTO_TEST_CASE(two_of_three)
@@ -57,30 +58,28 @@ BOOST_AUTO_TEST_CASE(two_of_three)
 
     std::vector<std::vector<unsigned char>> one_signature;
     AppendSigned(one_signature, holders[0], sighash);
-    AppendSkipped(one_signature, holders[1]);
-    AppendSkipped(one_signature, holders[2]);
-    BOOST_CHECK_EQUAL(one_signature[2].size(), 32U);
-    BOOST_CHECK(!Consensus::CheckMultisigSpend(*program, one_signature, sighash));
+    AppendSkipped(one_signature);
+    AppendSkipped(one_signature);
+    BOOST_CHECK(one_signature[2].empty());
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, one_signature, sighash));
 
     std::vector<std::vector<unsigned char>> two_signatures;
     AppendSigned(two_signatures, holders[0], sighash);
     AppendSigned(two_signatures, holders[1], sighash);
-    AppendSkipped(two_signatures, holders[2]);
-    BOOST_CHECK_EQUAL(two_signatures.back().size(), 32U);
-    const uint256 skipped{Span<const unsigned char>{two_signatures.back().data(), two_signatures.back().size()}};
-    BOOST_CHECK(holders[2].hash == skipped);
-    BOOST_CHECK(Consensus::CheckMultisigSpend(*program, two_signatures, sighash));
+    AppendSkipped(two_signatures);
+    BOOST_CHECK(two_signatures.back().empty());
+    BOOST_CHECK(Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, two_signatures, sighash));
 
     std::vector<std::vector<unsigned char>> extra{two_signatures};
     extra.push_back({0x00});
-    BOOST_CHECK(!Consensus::CheckMultisigSpend(*program, extra, sighash));
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, extra, sighash));
 
     const auto outsider{MakeHolder(9)};
     std::vector<std::vector<unsigned char>> other_keys;
     AppendSigned(other_keys, holders[0], sighash);
     AppendSigned(other_keys, holders[1], sighash);
-    AppendSkipped(other_keys, outsider);
-    BOOST_CHECK(!Consensus::CheckMultisigSpend(*program, other_keys, sighash));
+    AppendSigned(other_keys, outsider, sighash);
+    BOOST_CHECK(!Consensus::CheckPolicySpendOf<Consensus::MlDsa44Kind>(2, hashes, other_keys, sighash));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

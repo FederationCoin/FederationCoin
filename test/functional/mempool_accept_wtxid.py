@@ -49,8 +49,7 @@ class MempoolWtxidTest(BitcoinTestFramework):
 
         keys = [keygen(node.binary, "22" * 32), keygen(node.binary, "33" * 32)]
         keys.sort(key=lambda k: key_hash(k["pubkey"]))
-        program = policy_program(1, [key_hash(k["pubkey"]) for k in keys])
-        script_pubkey = CScript([OP_0, program])
+        script_pubkey = policy_program(1, [key_hash(k["pubkey"]) for k in keys])
 
         self.log.info("Submit parent paying a 1-of-2 policy")
         utxo = wallet.get_utxo()

@@ -3,7 +3,9 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <consensus/amount.h>
+#include <consensus/block_limits.h>
 #include <consensus/consensus.h>
+#include <consensus/flex_weight.h>
 #include <kernel/mempool_entry.h>
 #include <primitives/transaction.h>
 #include <test/fuzz/FuzzedDataProvider.h>
@@ -39,7 +41,7 @@ CTxMemPoolEntry ConsumeTxMemPoolEntry(FuzzedDataProvider& fuzzed_data_provider, 
     const unsigned int entry_height = fuzzed_data_provider.ConsumeIntegralInRange<unsigned int>(0, std::numeric_limits<unsigned int>::max() - 1);
     const bool spends_coinbase = fuzzed_data_provider.ConsumeBool();
     const int32_t extra_weight = fuzzed_data_provider.ConsumeIntegralInRange<int32_t>(0, GetTransactionWeight(tx) * 3);
-    const unsigned int sig_op_cost = fuzzed_data_provider.ConsumeIntegralInRange<unsigned int>(0, MAX_BLOCK_SIGOPS_COST);
+    const unsigned int sig_op_cost = fuzzed_data_provider.ConsumeIntegralInRange<unsigned int>(0, static_cast<unsigned int>(Consensus::LimitsForCap(Consensus::MIN_FLEX_BLOCK_WEIGHT).sigops_cost));
     return CTxMemPoolEntry{MakeTransactionRef(tx), fee, time, entry_height, entry_sequence, {
         .inputs_coin_age = coin_age,
         .in_chain_input_value = tx.GetValueOut(),

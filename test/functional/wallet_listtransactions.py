@@ -253,7 +253,7 @@ class ListTransactionsTest(BitcoinTestFramework):
 
         addr1 = self.nodes[0].getnewaddress("pizza1", 'mldsa87')
         addr2 = self.nodes[0].getnewaddress("pizza2", 'mldsa44')
-        addr3 = self.nodes[0].getnewaddress("pizza3", 'secp')
+        addr3 = self.nodes[0].getnewaddress("pizza3", 'bech32')
 
         self.log.info("Send to externally generated addresses")
         # send to an address beyond the next to be generated to test the keypool gap
@@ -329,7 +329,7 @@ class ListTransactionsTest(BitcoinTestFramework):
         raw_tx = self.nodes[0].createrawtransaction([], [{'data': 'aa'}])
         funded_tx = self.nodes[0].fundrawtransaction(raw_tx)
         signed_tx = self.nodes[0].signrawtransactionwithwallet(funded_tx['hex'])
-        assert_raises_rpc_error(-26, "bad-txns-datacarrier", self.nodes[0].sendrawtransaction, signed_tx['hex'])
+        assert_raises_rpc_error(-26, "bad-txns-vout-script", self.nodes[0].sendrawtransaction, signed_tx['hex'])
 
     def test_from_me_status_change(self):
         self.log.info("Test gettransaction after changing a transaction's 'from me' status")

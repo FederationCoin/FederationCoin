@@ -9,8 +9,11 @@ from test_framework.script import (
     CScript,
     OP_0,
     OP_1,
+    OP_2,
     OP_15,
     OP_16,
+    OP_CHECKMODERNSIG,
+    OP_CHECKMODERNPOLICY,
     OP_CHECKMULTISIG,
     OP_CHECKSIG,
     OP_DUP,
@@ -109,6 +112,25 @@ def script_to_p2wsh_script(script):
 def key_to_p2wpkh_script(key):
     key = check_key(key)
     return program_to_witness_script(0, hash160(key))
+
+
+def fingerprint_to_modern_single_script(program, param):
+    """param 1 is Dilithium-44, param 2 is Dilithium-87. Do not push 44 or 87."""
+    if isinstance(program, str):
+        program = bytes.fromhex(program)
+    assert len(program) == 32
+    assert param in (1, 2)
+    return CScript([program, OP_1, OP_1 if param == 1 else OP_2, OP_CHECKMODERNSIG])
+
+
+def fingerprint_to_modern_policy_script(threshold, hashes, param):
+    """param 1 is Dilithium-44, param 2 is Dilithium-87. Hashes are sorted."""
+    ordered = sorted(hashes)
+    n = len(ordered)
+    assert 1 <= n <= 12
+    assert 1 <= threshold <= n
+    assert param in (1, 2)
+    return CScript([threshold, *ordered, n, OP_1, OP_1 if param == 1 else OP_2, OP_CHECKMODERNPOLICY])
 
 
 def script_to_p2sh_p2wsh_script(script):

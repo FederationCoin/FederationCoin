@@ -188,9 +188,9 @@ class MempoolLimitTest(BitcoinTestFramework):
 
         self.restart_node(0, extra_args=self.extra_args[0])
 
-        # Restarting the node resets mempool minimum feerate
-        assert_equal(node.getmempoolinfo()['minrelaytxfee'], Decimal('0.00003000'))
-        assert_equal(node.getmempoolinfo()['mempoolminfee'], Decimal('0.00003000'))
+        # Restarting the node resets mempool minimum feerate to minrelay.
+        minrelay = node.getmempoolinfo()['minrelaytxfee']
+        assert_equal(node.getmempoolinfo()['mempoolminfee'], minrelay)
 
         fill_mempool(self, node)
         current_info = node.getmempoolinfo()

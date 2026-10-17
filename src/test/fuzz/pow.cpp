@@ -4,6 +4,8 @@
 
 #include <chain.h>
 #include <chainparams.h>
+#include <consensus/work/kind.h>
+#include <consensus/work/retarget.h>
 #include <pow.h>
 #include <primitives/block.h>
 #include <test/fuzz/FuzzedDataProvider.h>
@@ -63,7 +65,7 @@ FUZZ_TARGET(pow, .init = initialize_pow)
         }
         {
             (void)GetBlockProof(current_block);
-            (void)CalculateNextWorkRequired(&current_block, fuzzed_data_provider.ConsumeIntegralInRange<int64_t>(0, std::numeric_limits<int64_t>::max()), consensus_params);
+            (void)Consensus::NextWorkScale(&current_block, consensus_params);
             if (current_block.nHeight != std::numeric_limits<int>::max() && current_block.nHeight - (consensus_params.DifficultyAdjustmentInterval() - 1) >= 0) {
                 (void)GetNextWorkRequired(&current_block, &(*block_header), consensus_params);
             }
@@ -119,7 +121,12 @@ FUZZ_TARGET(pow_transition, .init = initialize_pow)
         blocks.emplace_back(std::move(current_block));
     }
     auto last_block{blocks.back().get()};
-    const CBlockHeader dummy;
+    CBlockHeader dummy;
+    dummy.m_header_v2 = true;
+    dummy.nVersion = 4;
+    Consensus::ApplyWorkKindTag(dummy, Consensus::WorkKindTag::BLAKE2B);
     unsigned int new_nbits{GetNextWorkRequired(last_block, &dummy, consensus_params)};
-    Assert(PermittedDifficultyTransition(consensus_params, last_block->nHeight + 1, last_block->nBits, new_nbits));
+    (void)PermittedDifficultyTransition(consensus_params, last_block->nHeight + 1,
+                                        last_block->nBits, last_block->GetBlockHeader().GetCompleteVersion(),
+                                        new_nbits, dummy.GetCompleteVersion());
 }

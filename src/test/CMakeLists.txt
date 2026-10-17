@@ -61,13 +61,20 @@ add_executable(test_bitcoin
   merkle_tests.cpp
   merkleblock_tests.cpp
   miner_tests.cpp
+  flex_cap_dos_tests.cpp
   flex_weight_tests.cpp
+  work_kind_tests.cpp
+  work_cost_tests.cpp
+  fp8_gym_tests.cpp
+  poseidon2_pow_tests.cpp
   mldsa_multisig_tests.cpp
   mldsa_verify_tests.cpp
   mldsa_witness_tests.cpp
   mldsa87_multisig_tests.cpp
   mldsa87_verify_tests.cpp
   mldsa87_witness_tests.cpp
+  mldsa_spend_spec_tests.cpp
+  mldsa_seed_tests.cpp
   secp_single_spend_tests.cpp
   miniminer_tests.cpp
   miniscript_tests.cpp
@@ -102,6 +109,7 @@ add_executable(test_bitcoin
   script_segwit_tests.cpp
   script_standard_tests.cpp
   script_tests.cpp
+  product_v0_verify_tests.cpp
   scriptnum_tests.cpp
   serfloat_tests.cpp
   serialize_tests.cpp
@@ -137,6 +145,7 @@ add_executable(test_bitcoin
   validation_chainstatemanager_tests.cpp
   validation_flush_tests.cpp
   validation_tests.cpp
+  witness_spend_kind_tests.cpp
   validationinterface_tests.cpp
   versionbits_tests.cpp
   ../stats/test/stats_tests.cpp
@@ -152,6 +161,7 @@ target_json_data_sources(test_bitcoin
   data/key_io_valid.json
   data/script_tests.json
   data/unified_sighash.json
+  data/federation_spend_vectors.json
   data/sighash.json
   data/tx_invalid.json
   data/tx_valid.json
@@ -227,6 +237,32 @@ function(add_all_test_targets)
 endfunction()
 
 add_all_test_targets()
+
+# Manual 5070 Ti harness, not ctest. Needs nvcc that supports sm_120
+# (CUDA 12.8+), e.g. -DCMAKE_CUDA_COMPILER=/usr/local/cuda-13.2/bin/nvcc
+option(ENABLE_FP8_BLACKWELL_KAT "Build manual RTX 50-series FP8 gym KAT (not ctest)" OFF)
+if(ENABLE_FP8_BLACKWELL_KAT)
+  enable_language(CUDA)
+  find_package(CUDAToolkit REQUIRED)
+  add_executable(fp8_blackwell_kat
+    manual/fp8_blackwell_kat.cpp
+    manual/fp8_blackwell_kat.cu
+  )
+  set_target_properties(fp8_blackwell_kat PROPERTIES
+    CUDA_ARCHITECTURES 120
+    CUDA_STANDARD 17
+    CUDA_STANDARD_REQUIRED ON
+    CXX_STANDARD 20
+  )
+  target_link_libraries(fp8_blackwell_kat
+    PRIVATE
+      core_interface
+      bitcoin_consensus
+      bitcoin_crypto
+      bitcoin_util
+      CUDA::cudart
+  )
+endif()
 
 make_libbitcoinconsensus_dll_available(test_bitcoin)
 install_binary_component(test_bitcoin)

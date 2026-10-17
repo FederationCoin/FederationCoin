@@ -21,6 +21,11 @@ from test_framework.wallet_util import (
     calculate_input_weight,
     generate_keypair,
 )
+from test_framework.mempool_util import (
+    just_below_relay_sat_vb,
+    just_below_relay_sat_vb_str,
+    relay_feerate_sat_vb_str,
+)
 
 
 class WalletSendTest(BitcoinTestFramework):
@@ -59,7 +64,7 @@ class WalletSendTest(BitcoinTestFramework):
             to_untrusted_pending_before = to_wallet.getbalances()["mine"]["untrusted_pending"]
 
         if amount:
-            dest = to_wallet.getnewaddress("", "secp")
+            dest = to_wallet.getnewaddress("", "bech32")
             outputs = {dest: amount}
         else:
             outputs = {"data": data}
@@ -244,7 +249,7 @@ class WalletSendTest(BitcoinTestFramework):
             assert_equal(res, [{"success": True}, {"success": True}])
 
         for _ in range(3):
-            a2_receive = w2.getnewaddress("", "secp")
+            a2_receive = w2.getnewaddress("", "bech32")
             if not self.options.descriptors:
                 # Because legacy wallets use exclusively hardened derivation, we can't do a ranged import like we do for descriptors
                 a2_change = w2.getrawchangeaddress() # doesn't actually use change derivation
@@ -271,7 +276,7 @@ class WalletSendTest(BitcoinTestFramework):
             self.nodes[1].createwallet(wallet_name="w4", disable_private_keys=False)
             w4 = self.nodes[1].get_wallet_rpc("w4")
             for _ in range(3):
-                a2_receive = w2.getnewaddress("", "secp")
+                a2_receive = w2.getnewaddress("", "bech32")
                 res = w4.importmulti([{
                     "desc": w2.getaddressinfo(a2_receive)["desc"],
                     "timestamp": "now",
@@ -411,15 +416,17 @@ class WalletSendTest(BitcoinTestFramework):
                 self.test_send(from_wallet=w0, to_wallet=w1, amount=1, conf_target=v, estimate_mode=mode,
                     expect_error=(-3, f"JSON value of type {k} for field conf_target is not of expected type number"))
 
-        # Test setting explicit fee rate just below the minimum of 1 token/vB.
-        self.log.info("Explicit fee rate raises RPC error 'fee rate too low' if fee_rate of 0.99999999 is passed")
-        msg = "Fee rate (0.999 token/vB) is lower than the minimum fee rate setting (3.000 token/vB)"
-        self.test_send(from_wallet=w0, to_wallet=w1, amount=1, fee_rate=0.999, expect_error=(-4, msg))
-        self.test_send(from_wallet=w0, to_wallet=w1, amount=1, arg_fee_rate=0.999, expect_error=(-4, msg))
+        # Test setting explicit fee rate just below the node's minrelay.
+        below = just_below_relay_sat_vb(self.nodes[0])
+        min_str = relay_feerate_sat_vb_str(self.nodes[0])
+        self.log.info(f"Explicit fee rate raises RPC error 'fee rate too low' if fee_rate of {below} is passed")
+        msg = f"Fee rate ({just_below_relay_sat_vb_str(self.nodes[0])}) is lower than the minimum fee rate setting ({min_str})"
+        self.test_send(from_wallet=w0, to_wallet=w1, amount=1, fee_rate=below, expect_error=(-4, msg))
+        self.test_send(from_wallet=w0, to_wallet=w1, amount=1, arg_fee_rate=below, expect_error=(-4, msg))
 
         self.log.info("Explicit fee rate raises if invalid fee_rate is passed")
         # Test fee_rate with zero values.
-        msg = "Fee rate (0.000 token/vB) is lower than the minimum fee rate setting (3.000 token/vB)"
+        msg = f"Fee rate (0.000 token/vB) is lower than the minimum fee rate setting ({min_str})"
         for zero_value in [0, 0.000, 0.00000000, "0", "0.000", "0.00000000"]:
             self.test_send(from_wallet=w0, to_wallet=w1, amount=1, fee_rate=zero_value, expect_error=(-4, msg))
             self.test_send(from_wallet=w0, to_wallet=w1, amount=1, arg_fee_rate=zero_value, expect_error=(-4, msg))
@@ -474,7 +481,7 @@ class WalletSendTest(BitcoinTestFramework):
         res = self.test_send(from_wallet=w0, to_wallet=w1, amount=1, add_to_wallet=False, change_address=change_address, change_position=0)
         assert res["complete"]
         assert_equal(self.nodes[0].decodepsbt(res["psbt"])["tx"]["vout"][0]["scriptPubKey"]["address"], change_address)
-        res = self.test_send(from_wallet=w0, to_wallet=w1, amount=1, add_to_wallet=False, change_type="secp", change_position=0)
+        res = self.test_send(from_wallet=w0, to_wallet=w1, amount=1, add_to_wallet=False, change_type="bech32", change_position=0)
         assert res["complete"]
         change_address = self.nodes[0].decodepsbt(res["psbt"])["tx"]["vout"][0]["scriptPubKey"]["address"]
         assert change_address.startswith("gfcnrt1")
@@ -639,7 +646,7 @@ class WalletSendTest(BitcoinTestFramework):
         # 1600 inputs exceed MAX_STANDARD_TX_WEIGHT after sign.
         outputs = []
         for _ in range(1600):
-            outputs.append({wallet.getnewaddress(address_type="secp"): 0.1})
+            outputs.append({wallet.getnewaddress(address_type="bech32"): 0.1})
         self.nodes[0].send(outputs=outputs)
         self.generate(self.nodes[0], 1)
 

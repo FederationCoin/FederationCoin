@@ -12,6 +12,7 @@ The assumeutxo value generated and used here is committed to in
 from shutil import rmtree
 
 from dataclasses import dataclass
+from test_framework.address import ADDRESS_BCRT1_UNSPENDABLE
 from test_framework.blocktools import (
         create_block,
         create_coinbase
@@ -373,7 +374,7 @@ class AssumeutxoTest(BitcoinTestFramework):
                 # Create a stale block that forks off the main chain before the snapshot.
                 temp_invalid = n0.getbestblockhash()
                 n0.invalidateblock(temp_invalid)
-                stale_hash = self.generateblock(n0, output="raw(aaaa)", transactions=[], sync_fun=self.no_op)["hash"]
+                stale_hash = self.generateblock(n0, output=ADDRESS_BCRT1_UNSPENDABLE, transactions=[], sync_fun=self.no_op)["hash"]
                 n0.invalidateblock(stale_hash)
                 n0.reconsiderblock(temp_invalid)
                 stale_block = n0.getblock(stale_hash, 0)

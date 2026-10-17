@@ -62,6 +62,8 @@ add_executable(fuzz
   merkleblock.cpp
   message.cpp
   miniscript.cpp
+  mldsa_spend.cpp
+  modern_sig.cpp
   mini_miner.cpp
   muhash.cpp
   multiplication_overflow.cpp
@@ -134,6 +136,7 @@ add_executable(fuzz
   validation_load_mempool.cpp
   vecdeque.cpp
   versionbits.cpp
+  work_kind.cpp
 )
 target_link_libraries(fuzz
   core_interface

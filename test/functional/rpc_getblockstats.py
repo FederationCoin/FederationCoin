@@ -7,6 +7,7 @@
 # Test getblockstats rpc call
 #
 
+from test_framework.address import ADDRESS_BCRT1_UNSPENDABLE
 from test_framework.blocktools import COINBASE_MATURITY
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -56,13 +57,13 @@ class GetblockstatsTest(BitcoinTestFramework):
         self.generate(self.nodes[0], 1)
 
         wallet.sendtoaddress(address=wallet.getnewaddress("", "mldsa44"), amount=10, subtractfeefromamount=True)
-        wallet.sendtoaddress(address=wallet.getnewaddress("", "secp"), amount=10, subtractfeefromamount=False)
+        wallet.sendtoaddress(address=wallet.getnewaddress("", "bech32"), amount=10, subtractfeefromamount=False)
         wallet.settxfee(amount=0.003)
         wallet.sendtoaddress(address=wallet.getnewaddress(), amount=1, subtractfeefromamount=True)
         sent = wallet.send(outputs={"data": "21"})
         rejected = self.nodes[0].testmempoolaccept([wallet.gettransaction(sent["txid"])["hex"]])[0]
         assert_equal(rejected["allowed"], False)
-        assert_equal(rejected["reject-reason"], "bad-txns-datacarrier")
+        assert_equal(rejected["reject-reason"], "bad-txns-vout-script")
         self.sync_all()
         self.generate(self.nodes[0], 1)
 
@@ -187,7 +188,7 @@ class GetblockstatsTest(BitcoinTestFramework):
         assert tip_stats["utxo_size_inc_actual"] > 0
 
         self.log.info("Test when only header is known")
-        block = self.generateblock(self.nodes[0], output="raw(55)", transactions=[], submit=False)
+        block = self.generateblock(self.nodes[0], output=ADDRESS_BCRT1_UNSPENDABLE, transactions=[], submit=False)
         self.nodes[0].submitheader(block["hex"])
         assert_raises_rpc_error(-1, "Block not available (not fully downloaded)", lambda: self.nodes[0].getblockstats(block['hash']))
 

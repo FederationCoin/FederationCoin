@@ -31,13 +31,16 @@ from test_framework.util import (
     assert_equal,
 )
 
-VALID_DATA_LIMIT = MAX_PROTOCOL_MESSAGE_LENGTH - 5  # Account for the 5-byte length prefix
+# Non-block CommandReceiveLimit is net.h MAX_PROTOCOL_MESSAGE_LENGTH (4_000_000).
+# messages.MAX_PROTOCOL_MESSAGE_LENGTH is the 32MB v1 header / disk buffer.
+NONBLOCK_RECEIVE_LIMIT = 4_000_000
+VALID_DATA_LIMIT = NONBLOCK_RECEIVE_LIMIT - 5  # Account for the 5-byte length prefix
 
 
 class msg_unrecognized:
     """Nonsensical message. Modeled after similar types in test_framework.messages."""
 
-    msgtype = b'badmsg\x01'
+    msgtype = b'badmsg'
 
     def __init__(self, *, str_data):
         self.str_data = str_data.encode() if not isinstance(str_data, bytes) else str_data
@@ -108,88 +111,55 @@ class InvalidMessagesTest(BitcoinTestFramework):
         self.nodes[0].disconnect_p2ps()
 
     def test_magic_bytes(self):
-        # Skip with v2, magic bytes are v1-specific
-        if self.options.v2transport:
-            return
-        self.log.info("Test message with invalid magic bytes disconnects peer")
+        self.log.info("Test a corrupted v3 ciphertext disconnects the peer")
         conn = self.nodes[0].add_p2p_connection(P2PDataStore())
-        with self.nodes[0].assert_debug_log(['Header error: Wrong MessageStart ffffffff received']):
-            msg = conn.build_message(msg_unrecognized(str_data="d"))
-            # modify magic bytes
-            msg = b'\xff' * 4 + msg[4:]
-            conn.send_raw_message(msg)
+        with self.nodes[0].assert_debug_log(['V3 transport error: packet decryption failure']):
+            msg = bytearray(conn.build_message(msg_unrecognized(str_data="d")))
+            msg[-1] ^= 0xff
+            conn.send_raw_message(bytes(msg))
             conn.wait_for_disconnect(timeout=1)
         self.nodes[0].disconnect_p2ps()
 
     def test_checksum(self):
-        # Skip with v2, the checksum is v1-specific
-        if self.options.v2transport:
-            return
-        self.log.info("Test message with invalid checksum logs an error")
+        self.log.info("Test a v3 frame with a flipped length bit disconnects the peer")
         conn = self.nodes[0].add_p2p_connection(P2PDataStore())
-        with self.nodes[0].assert_debug_log(['Header error: Wrong checksum (badmsg, 2 bytes), expected 78df0a04 was ffffffff']):
-            msg = conn.build_message(msg_unrecognized(str_data="d"))
-            # Checksum is after start bytes (4B), message type (12B), len (4B)
-            cut_len = 4 + 12 + 4
-            # modify checksum
-            msg = msg[:cut_len] + b'\xff' * 4 + msg[cut_len + 4:]
-            conn.send_raw_message(msg)
-            conn.sync_with_ping(timeout=1)
-        # Check that traffic is accounted for (24 bytes header + 2 bytes payload)
-        assert_equal(self.nodes[0].getpeerinfo()[0]['bytesrecv_per_msg']['*other*'], 26)
+        with self.nodes[0].assert_debug_log(['V3 transport error: packet decryption failure']):
+            msg = bytearray(conn.build_message(msg_unrecognized(str_data="d")))
+            msg[0] ^= 0x01
+            conn.send_raw_message(bytes(msg))
+            conn.wait_for_disconnect(timeout=1)
         self.nodes[0].disconnect_p2ps()
 
     def test_size(self):
-        self.log.info("Test message with oversized payload disconnects peer")
-        # The 32MB cap is a 4-byte v1 header. BIP324's length field is 3 bytes,
-        # so a v2 encoder cannot name MAX_PROTOCOL_MESSAGE_LENGTH+1. Always
-        # exercise the v1 header reject, including under --v2transport.
-        v1 = self.nodes[0].add_p2p_connection(P2PDataStore(), supports_v2_p2p=False)
-        with self.nodes[0].assert_debug_log(
-            [f'Header error: Size too large (badmsg, {MAX_PROTOCOL_MESSAGE_LENGTH + 1} bytes)']
-        ):
-            msg = msg_unrecognized(str_data="d" * (VALID_DATA_LIMIT + 1))
-            v1.send_raw_message(v1.build_message(msg))
-            v1.wait_for_disconnect(timeout=1)
+        self.log.info("Test a v3 frame whose total_payload exceeds the command limit disconnects")
+        conn = self.nodes[0].add_p2p_connection(P2PDataStore())
+        too_big = NONBLOCK_RECEIVE_LIMIT + 1
+        # ping short id is 18; 8-byte LE total, no body yet.
+        contents = (18).to_bytes(1, 'big') + too_big.to_bytes(8, 'little')
+        tmsg = conn.v2_state.v3_enc_packet(contents, more=False)
+        with self.nodes[0].assert_debug_log([f'V3 transport error: ping total_payload too large ({too_big})']):
+            conn.send_raw_message(tmsg)
+            conn.wait_for_disconnect(timeout=1)
         self.nodes[0].disconnect_p2ps()
 
-        if not self.options.v2transport:
-            return
-        self.log.info("Test a BIP324-max length field is not treated as 32MB-oversized")
+        self.log.info("Test an AEAD-max v3 length field is not treated as oversized")
         conn = self.nodes[0].add_p2p_connection(P2PDataStore())
-        # Encrypt only the 3-byte length (2^24-1). The node must accept it and
-        # wait for the ciphertext instead of logging packet too large.
-        enc_len = conn.v2_state.peer['send_L'].crypt((2**24 - 1).to_bytes(3, 'little'))
+        enc_len = conn.v2_state.peer['send_L'].crypt((2**24 - 1).to_bytes(8, 'little'))
         before = self.nodes[0].getnettotals()['totalbytesrecv']
-        with self.nodes[0].assert_debug_log([], unexpected_msgs=['packet too large']):
+        with self.nodes[0].assert_debug_log([], unexpected_msgs=['frame too large']):
             conn.send_raw_message(enc_len)
-            self.wait_until(lambda: self.nodes[0].getnettotals()['totalbytesrecv'] >= before + 3)
+            self.wait_until(lambda: self.nodes[0].getnettotals()['totalbytesrecv'] >= before + 8)
             assert conn.is_connected
         self.nodes[0].disconnect_p2ps()
 
     def test_msgtype(self):
-        self.log.info("Test message with invalid message type logs an error")
+        self.log.info("Test a v3 frame with an unknown short id disconnects")
         conn = self.nodes[0].add_p2p_connection(P2PDataStore())
-        if self.options.v2transport:
-            msgtype = 99 # not defined
-            msg = msg_unrecognized(str_data="d")
-            contents = msgtype.to_bytes(1, 'big') + msg.serialize()
-            tmsg = conn.v2_state.v2_enc_packet(contents, ignore=False)
-            with self.nodes[0].assert_debug_log(['V2 transport error: invalid message type']):
-                conn.send_raw_message(tmsg)
-                conn.sync_with_ping(timeout=1)
-            # Check that traffic is accounted for (20 bytes plus 3 bytes contents)
-            assert_equal(self.nodes[0].getpeerinfo()[0]['bytesrecv_per_msg']['*other*'], 23)
-        else:
-            with self.nodes[0].assert_debug_log(['Header error: Invalid message type']):
-                msg = msg_unrecognized(str_data="d")
-                msg = conn.build_message(msg)
-                # Modify msgtype
-                msg = msg[:7] + b'\x00' + msg[7 + 1:]
-                conn.send_raw_message(msg)
-                conn.sync_with_ping(timeout=1)
-                # Check that traffic is accounted for (24 bytes header + 2 bytes payload)
-                assert_equal(self.nodes[0].getpeerinfo()[0]['bytesrecv_per_msg']['*other*'], 26)
+        contents = (99).to_bytes(1, 'big') + (2).to_bytes(8, 'little') + b'dd'
+        tmsg = conn.v2_state.v3_enc_packet(contents, more=False)
+        with self.nodes[0].assert_debug_log(['V3 transport error: invalid first frame']):
+            conn.send_raw_message(tmsg)
+            conn.wait_for_disconnect(timeout=1)
         self.nodes[0].disconnect_p2ps()
 
     def test_addrv2(self, label, required_log_messages, raw_addrv2):
@@ -353,12 +323,10 @@ class InvalidMessagesTest(BitcoinTestFramework):
 
     def test_resource_exhaustion(self):
         self.log.info("Test node stays up despite many large junk messages")
-        # Don't use v2 here - the non-optimised encryption would take too long to encrypt
-        # the large messages
-        conn = self.nodes[0].add_p2p_connection(P2PDataStore(), supports_v2_p2p=False)
-        conn2 = self.nodes[0].add_p2p_connection(P2PDataStore(), supports_v2_p2p=False)
+        conn = self.nodes[0].add_p2p_connection(P2PDataStore())
+        conn2 = self.nodes[0].add_p2p_connection(P2PDataStore())
         msg_at_size = msg_unrecognized(str_data="b" * VALID_DATA_LIMIT)
-        assert len(msg_at_size.serialize()) == MAX_PROTOCOL_MESSAGE_LENGTH
+        assert len(msg_at_size.serialize()) == NONBLOCK_RECEIVE_LIMIT
 
         self.log.info("(a) Send 80 messages, each of maximum valid data size (4MB)")
         for _ in range(80):

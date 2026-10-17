@@ -277,7 +277,7 @@ class ImportDescriptorsTest(BitcoinTestFramework):
             w3.getnewaddress,
             address_type="bech32m",
         )
-        w3.getnewaddress(address_type="secp")
+        w3.getnewaddress(address_type="bech32")
 
 
 if __name__ == '__main__':

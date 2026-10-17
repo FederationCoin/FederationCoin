@@ -29,8 +29,8 @@ from test_framework.wallet import (
 )
 from typing import Optional
 
-# Header v2 is 164 bytes. The 80-byte constant is the v1 header.
-HEADER_SIZE = 164
+# Header v2 is 166 bytes. The 80-byte constant is the v1 header.
+HEADER_SIZE = 166
 
 
 INVALID_PARAM = "abc"

@@ -9,6 +9,7 @@
 #include <consensus/params.h>
 #include <deploymentstatus.h>
 #include <pubkey.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/sign.h>
 #include <script/signingprovider.h>
@@ -22,10 +23,10 @@
 static const std::string OUTPUT_TYPE_STRING_LEGACY = "legacy";
 static const std::string OUTPUT_TYPE_STRING_P2SH_SEGWIT = "p2sh-segwit";
 static const std::string OUTPUT_TYPE_STRING_BECH32 = "bech32";
+static const std::string OUTPUT_TYPE_STRING_SEGWIT = "segwit";
 static const std::string OUTPUT_TYPE_STRING_BECH32M = "bech32m";
 static const std::string OUTPUT_TYPE_STRING_DILITHIUM87 = "mldsa87";
 static const std::string OUTPUT_TYPE_STRING_DILITHIUM44 = "mldsa44";
-static const std::string OUTPUT_TYPE_STRING_SECP = "secp";
 static const std::string OUTPUT_TYPE_STRING_UNKNOWN = "unknown";
 
 std::optional<OutputType> ParseOutputType(const std::string& type)
@@ -36,8 +37,8 @@ std::optional<OutputType> ParseOutputType(const std::string& type)
     if (type == OUTPUT_TYPE_STRING_DILITHIUM44) {
         return OutputType::DILITHIUM44;
     }
-    if (type == OUTPUT_TYPE_STRING_SECP || type == OUTPUT_TYPE_STRING_BECH32) {
-        return OutputType::SECP;
+    if (type == OUTPUT_TYPE_STRING_BECH32 || type == OUTPUT_TYPE_STRING_SEGWIT) {
+        return OutputType::BECH32;
     }
     return std::nullopt;
 }
@@ -49,7 +50,7 @@ bool OutputTypeIsAllowed(OutputType type)
 
 bool OutputTypeIsAllowed(OutputType type, const Consensus::Params&)
 {
-    return type == OutputType::DILITHIUM87 || type == OutputType::DILITHIUM44 || type == OutputType::SECP;
+    return type == OutputType::DILITHIUM87 || type == OutputType::DILITHIUM44 || type == OutputType::BECH32;
 }
 
 const std::string& FormatOutputType(OutputType type)
@@ -61,7 +62,6 @@ const std::string& FormatOutputType(OutputType type)
     case OutputType::BECH32M: return OUTPUT_TYPE_STRING_BECH32M;
     case OutputType::DILITHIUM87: return OUTPUT_TYPE_STRING_DILITHIUM87;
     case OutputType::DILITHIUM44: return OUTPUT_TYPE_STRING_DILITHIUM44;
-    case OutputType::SECP: return OUTPUT_TYPE_STRING_SECP;
     case OutputType::UNKNOWN: return OUTPUT_TYPE_STRING_UNKNOWN;
     } // no default case, so the compiler can warn about missing cases
     assert(false);
@@ -82,16 +82,11 @@ CTxDestination GetDestinationForKey(const CPubKey& key, OutputType type)
             return witdest;
         }
     }
-    case OutputType::SECP: {
-        if (!key.IsCompressed()) return PKHash(key);
-        return WitnessV0KeyHash(key);
-    }
     case OutputType::DILITHIUM87:
     case OutputType::DILITHIUM44:
+        return CNoDestination{};
     case OutputType::BECH32M:
     case OutputType::UNKNOWN:
-        // Dilithium receive is not a secp wrap. Dump/legacy paths that still
-        // pass a CPubKey get compressed P2WPKH.
         if (!key.IsCompressed()) return PKHash(key);
         return WitnessV0KeyHash(key);
     } // no default case, so the compiler can warn about missing cases
@@ -115,9 +110,8 @@ CTxDestination AddAndGetDestinationForScript(FlatSigningProvider& keystore, cons
     case OutputType::LEGACY:
         return ScriptHash(script);
     case OutputType::P2SH_SEGWIT:
-    case OutputType::BECH32:
-    case OutputType::SECP: {
-        // "bech32" parses as SECP. createmultisig still emits P2WSH (not a spend kind).
+    case OutputType::BECH32: {
+        // createmultisig still emits P2WSH (not a spend kind).
         CTxDestination witdest = WitnessV0ScriptHash(script);
         CScript witprog = GetScriptForDestination(witdest);
         // Add the redeemscript, so that P2WSH and P2SH-P2WSH outputs are recognized as ours.
@@ -138,11 +132,11 @@ CTxDestination AddAndGetDestinationForScript(FlatSigningProvider& keystore, cons
 
 std::optional<OutputType> OutputTypeFromDestination(const CTxDestination& dest) {
     if (std::holds_alternative<WitnessV0KeyHash>(dest)) {
-        return OutputType::SECP;
+        return OutputType::BECH32;
     }
     if (std::holds_alternative<WitnessV0ScriptHash>(dest) ||
         std::holds_alternative<WitnessUnknown>(dest)) {
-        return OutputType::DILITHIUM87;
+        return std::nullopt;
     }
     if (std::holds_alternative<PKHash>(dest) ||
         std::holds_alternative<ScriptHash>(dest)) {
@@ -150,6 +144,16 @@ std::optional<OutputType> OutputTypeFromDestination(const CTxDestination& dest) 
     }
     if (std::holds_alternative<WitnessV1Taproot>(dest)) {
         return OutputType::BECH32M;
+    }
+    if (const auto* modern = std::get_if<ModernSigDestination>(&dest)) {
+        int32_t param{-1};
+        if (const auto single{MatchModernSingle(modern->GetScript())}; single && single->kind) {
+            param = single->param;
+        } else if (const auto policy{MatchModernPolicy(modern->GetScript())}; policy && policy->kind) {
+            param = policy->param;
+        }
+        if (param == PARAM_DILITHIUM_87) return OutputType::DILITHIUM87;
+        if (param == PARAM_DILITHIUM_44) return OutputType::DILITHIUM44;
     }
     return std::nullopt;
 }

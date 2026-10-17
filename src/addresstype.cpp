@@ -9,6 +9,7 @@
 #include <deploymentstatus.h>
 #include <hash.h>
 #include <pubkey.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/solver.h>
 #include <uint256.h>
@@ -97,6 +98,10 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
         addressRet = WitnessUnknown{vSolutions[0][0], vSolutions[1]};
         return true;
     }
+    case TxoutType::CHECKMODERNSIG:
+    case TxoutType::CHECKMODERNPOLICY:
+        addressRet = ModernSigDestination(scriptPubKey);
+        return true;
     case TxoutType::MULTISIG:
     case TxoutType::NULL_DATA:
     case TxoutType::NONSTANDARD:
@@ -149,6 +154,11 @@ public:
     {
         return CScript() << CScript::EncodeOP_N(id.GetWitnessVersion()) << id.GetWitnessProgram();
     }
+
+    CScript operator()(const ModernSigDestination& dest) const
+    {
+        return dest.GetScript();
+    }
 };
 
 class ValidDestinationVisitor
@@ -168,6 +178,7 @@ public:
     {
         return DeploymentEnabled(Params().GetConsensus(), Consensus::DEPLOYMENT_TAPROOT);
     }
+    bool operator()(const ModernSigDestination& dest) const { return true; }
 };
 } // namespace
 

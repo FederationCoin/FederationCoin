@@ -32,10 +32,10 @@ def calc_hash_str(blk_hdr):
     def blake2b(data):
         return hashlib.blake2b(data, digest_size=32).digest()
 
-    flags = blk_hdr[110:111]
-    xor_key = blk_hdr[112:128]
+    flags = blk_hdr[112:113]
+    xor_key = blk_hdr[114:130]
     xor_key_hash = tagged_hash("Bitcoin block hash PoW XOR key", xor_key)
-    xor_key_mask_clear_bits = blk_hdr[111:112]
+    xor_key_mask_clear_bits = blk_hdr[113:114]
     prevblock_ordered = blk_hdr[4:36][::-1]
     prevblock_hidden = bytearray(tagged_hash("Bitcoin prevblock header, hashed", prevblock_ordered))
     prevblock_hidden[:6] = b"\x00" * 6
@@ -43,18 +43,17 @@ def calc_hash_str(blk_hdr):
         "Bitcoin block header 1",
         blk_hdr[:4]         # version
         + prevblock_ordered
-        + blk_hdr[128:132]  # height
+        + blk_hdr[130:134]  # height
         + blk_hdr[36:68]    # hashMerkleRoot
         + blk_hdr[68:72]    # time
         + b"\x00"
         + blk_hdr[72:76]    # nBits
-        + blk_hdr[108:110]  # tx count
-        + b"\x00" * 2
+        + blk_hdr[108:112]  # tx count (uint32)
         + flags
         + xor_key_mask_clear_bits
         + xor_key_hash,
     )
-    h2 = tagged_hash("Merge-mining hook", h1 + b"\x00" * 32 + blk_hdr[132:164])
+    h2 = tagged_hash("Merge-mining hook", h1 + b"\x00" * 32 + blk_hdr[134:166])
     hash1 = blake2b(
         b"\x00" * 4
         + h2
@@ -97,7 +96,7 @@ def calc_hash_str(blk_hdr):
 def get_blk_dt(blk_hdr):
     members = struct.unpack("<I", blk_hdr[68:68+4])
     nTime = members[0]
-    if blk_hdr[3] & 0x80 and blk_hdr[110] & 4:
+    if blk_hdr[3] & 0x80 and blk_hdr[112] & 4:
         nTime = (nTime + int.from_bytes(blk_hdr[104:108], "little")) & 0xffffffff
     dt = datetime.datetime.fromtimestamp(nTime)
     dt_ym = datetime.datetime(dt.year, dt.month, 1)
@@ -280,8 +279,8 @@ class BlockDataCopier:
                     print("Premature end of block data")
                     return
 
-            inhdr = self.read_xored(self.inF, 8)
-            if (not inhdr or (inhdr[0] == "\0")):
+            inhdr = self.read_xored(self.inF, 12)
+            if not inhdr or len(inhdr) < 12:
                 self.inF.close()
                 self.inF = None
                 self.inFn = self.inFn + 1
@@ -289,16 +288,16 @@ class BlockDataCopier:
 
             inMagic = inhdr[:4]
             if (inMagic != self.settings['netmagic']):
-                # Seek backwards 7 bytes (skipping the first byte in the previous search)
+                # Seek backwards 11 bytes (skipping the first byte in the previous search)
                 # and continue searching from the new position if the magic bytes are not
                 # found.
-                self.inF.seek(-7, os.SEEK_CUR)
+                self.inF.seek(-11, os.SEEK_CUR)
                 continue
             inLenLE = inhdr[4:]
-            su = struct.unpack("<I", inLenLE)
+            su = struct.unpack("<Q", inLenLE)
             blk_hdr = self.read_xored(self.inF, 80)
             if blk_hdr[3] & 0x80:
-                blk_hdr += self.read_xored(self.inF, 84)
+                blk_hdr += self.read_xored(self.inF, 86)
             inLen = su[0] - len(blk_hdr)
             inExtent = BlockExtent(self.inFn, self.inF.tell(), inhdr, blk_hdr, inLen)
 

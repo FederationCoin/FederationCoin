@@ -27,15 +27,19 @@ from test_framework.script_util import (
     scripthash_to_p2sh_script,
 )
 from test_framework.segwit_addr import (
+    Encoding,
+    bech32_encode,
+    convertbits,
     decode_segwit_address,
     encode_segwit_address,
 )
 
 
-ADDRESS_BCRT1_UNSPENDABLE = 'gfcnrt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqk0jtm6'
-ADDRESS_BCRT1_UNSPENDABLE_DESCRIPTOR = 'addr(gfcnrt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqk0jtm6)#70vh8kqv'
-# Coins sent to this address can be spent with a witness stack of just OP_TRUE
-ADDRESS_BCRT1_P2WSH_OP_TRUE = 'gfcnrt1qft5p2uhsdcdc3l2ua4ap5qqfg4pjaqlp250x7us7a8qqhrxrxfsqhsn2cu'
+# P2WPKH of 20 zero bytes. v0/20 is a legal coinbase; leftover P2WSH is not.
+ADDRESS_BCRT1_UNSPENDABLE = 'gfcnrt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqy0zkrj'
+ADDRESS_BCRT1_UNSPENDABLE_DESCRIPTOR = 'addr(gfcnrt1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqy0zkrj)#wkajx6k9'
+# Second v0/20 so a chain split can mine a different legal coinbase.
+ADDRESS_BCRT1_P2WPKH_ONES = 'gfcnrt1qqyqszqgpqyqszqgpqyqszqgpqyqszqgp9lrhfn'
 
 
 class AddressType(enum.Enum):
@@ -129,6 +133,13 @@ def key_to_p2sh_p2wpkh(key, main=False):
     key = check_key(key)
     p2shscript = CScript([OP_0, hash160(key)])
     return script_to_p2sh(p2shscript, main)
+
+def encode_modern_sig_address(script, main=False):
+    hrp = "gfcn" if main else "gfcnrt"
+    data = convertbits(bytes(script), 8, 5)
+    assert data is not None
+    return bech32_encode(Encoding.BECH32, hrp, data)
+
 
 def program_to_witness(version, program, main=False):
     if (type(program) is str):

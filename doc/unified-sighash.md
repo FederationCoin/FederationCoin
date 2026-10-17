@@ -1,17 +1,11 @@
-# Unified opt-in signature hash
+# Unified signature hash
 
-One signature hash for every input type, supplementing the three in use today
-for spenders who opt in. It removes CVE-2013-2292 and CVE-2020-14199 from the
-legacy and segwit v0 algorithms for the inputs that opt in, which have carried
-both defects since 2013 and 2017. Opting in is the spender's choice, so it
-lowers the cost an honest transaction imposes rather than bounding what an
-attacker can still construct: a quadratic-hashing transaction simply does not
-opt in, and worst-case block validation cost is unchanged.
-Because the message it produces is distinct from every existing one, an opted-in
-transaction is also protected against replay onto any chain that does not
-implement it.
+One signature hash for every product spend from genesis. It removes
+CVE-2013-2292 and CVE-2020-14199 from the legacy and segwit v0
+algorithms. The message is distinct from Bitcoin’s, so a signature
+here is not a signature on that chain.
 
-Status: draft.
+Status: wire. Always on. The legacy hasher is closed.
 
 Bitcoin specifies consensus rules in BIPs rather than in this directory. None has
 been written for this change, and anything implementing it needs the rules from
@@ -75,25 +69,19 @@ decides whether a spend is protected is whether the signer opted in.
 
 ## Activation
 
-The rules apply to a block when its height is greater than or equal to
-`Blake2bHeight`, the buried deployment the proof of work change activates at.
-One trigger covers every rule the fork carries, so there is no window where one
-is live and another is not. That deployment belongs to the proof of work change
-and is specified there, not here.
+The unified message is **on from genesis**. There is no height, no
+compatibility window, and no UNIFIED-off BIP141 hasher. Dummy MAIN is
+unlaunched; after launch this is a contract.
 
-Consensus asks whether the deployment is active *at* a block, the standard
-buried-deployment comparison. An implementation should call that helper rather
-than open-code the arithmetic: a copy that drifts is a consensus split.
+Every product spend (native P2WPKH, Dilithium 44/87 single-key,
+Dilithium t-of-n) signs the unified preimage with hashtype
+`SIGHASH_ALL | SIGHASH_UNIFIED`. For those spends `scriptCode` is the
+empty script. The legacy hasher is closed: a signature without `0x20`
+is invalid, and a UNIFIED-off `VerifyScript` does not accept P2WSH or
+implied P2PKH.
 
-Nothing outside consensus asks. Signing and relay both opt in wherever the
-deployment is scheduled: the height is a question about a block, and neither a
-signature nor a mempool entry is in one yet. An entry therefore does not change
-meaning as the chain crosses the height, and nothing has to be reconciled in
-either direction.
-
-A byte that opts in reads as its low bits under the legacy algorithm, so a
-signature carrying one is valid before activation and not after; a signature made
-under the fork's rules is not valid before it.
+Signing and relay use the same rule as consensus. A mempool entry does
+not change meaning with height.
 
 ## Specification
 
@@ -229,10 +217,18 @@ be added later. Height and time are not distinguished here: the message commits
 to the value, and `LOCKTIME_THRESHOLD` decides which it means during validation,
 which leaves that split untouched by the wider field.
 
-`scriptCode` is what the legacy rules already use: the scriptPubKey for a bare
-input, the redeemScript for P2SH, the witnessScript for P2WSH, and for P2WPKH the
-implied P2PKH script as in BIP143. Where `OP_CODESEPARATOR` has executed, it is
-the portion of the script following it, exactly as today.
+For every product **witness v0** spend (native P2WPKH, Dilithium 44/87
+single-key, Dilithium t-of-n) `scriptCode` is the **empty script**. The
+message already commits to every spent `scriptPubKey` via the spent-scripts
+aggregate, so repeating an implied P2PKH (BIP143) or the Dilithium
+fingerprint as `scriptCode` would not add a check the verifier can use.
+Hashtype is `0x21` (`SIGHASH_ALL | SIGHASH_UNIFIED`). Hasher is SHA256
+BIP-340 `TaggedHash("UnifiedSighash")` then `GetSHA256()`, not Blake2b.
+
+For script types that are not product v0, `scriptCode` is what the legacy
+rules already use: the scriptPubKey for a bare input, the redeemScript for
+P2SH, the witnessScript for P2WSH, and where `OP_CODESEPARATOR` has
+executed, the portion of the script following it.
 
 For script type 0 this includes the legacy removal of the signature from the
 script before hashing, the operation the original algorithm performs and BIP143
@@ -468,32 +464,18 @@ Where the fork is not scheduled there is nothing to opt into, and such a
 signature is refused as too early rather than as malformed, so a caller can tell
 the two apart.
 
-`-walletoldsigs` signs the legacy message instead. A signer that has to
-interoperate with software which does not know the fork needs it, and so does a
-test that wants a legacy signature. It is the only way to produce one where the
-fork is scheduled, so it is also the only way to give up replay protection, which
-is why it is not the default.
-
-On a chain where the fork is not scheduled at all there is no opt-in to make and
-signing is legacy throughout.
+There is no `-walletoldsigs`. Signing is UNIFIED wherever the fork is
+scheduled. A legacy signature is not produced and is not accepted as a
+spend.
 
 Everything that spends uses that one rule: the wallet,
 `signrawtransactionwithkey`, the PSBT RPCs, `combinerawtransaction`, the GUI,
-and `bitcoin-tx`. The mempool follows the same rule, so what a node signs is
-what it will relay. Only consensus reads the height, because only a block has
-one.
+and `federationcoin-tx`. The mempool follows the same rule, so what a node signs is
+what it will relay.
 
 Message signing is the exception, and stays legacy. A message signature is
 verified against a hash type of exactly `SIGHASH_ALL`, so opting in would
 produce one this node's own verifier rejects.
-
-Reading is separate from signing, and is not narrowed by `-walletoldsigs`.
-Verifying under the fork's rules accepts a legacy signature too, since one that
-does not set the bit takes the legacy message either way, so a node told to sign
-the old message still recognizes a co-signer's opted-in signature rather than
-replacing it. What a node signs is its own choice; what it can read from someone
-else is not. One consequence for multisig: an input can carry a legacy signature
-from one party and an opted-in one from another, and both verify.
 
 A PSBT input's declared hash type moves to the type the signature actually used,
 but only for the call that produced it. Where two parties sign under different
@@ -528,30 +510,13 @@ anything accepted by policy is valid under consensus therefore does not hold,
 so the argument that anything accepted by policy is valid under consensus does
 not hold here.
 
-The mempool answers it without reference to the height: the flag is on wherever
-the fork is scheduled. A node whose blocks lag would otherwise refuse to relay a
-transaction the rest of the network already accepts, and an entry that never
-changes meaning needs no reconciliation when the chain crosses the height in
-either direction.
+UNIFIED is genesis. Mempool and consensus both set
+`SCRIPT_VERIFY_UNIFIED_SIGHASH`. There is no height schedule and no
+legacy-wallet sign path.
 
-### Relationship to the proof-of-work change
-
-This is built on that change rather than beside it, so `DEPLOYMENT_BLAKE2B` and
-`Blake2bHeight` are declared there and used here. Both sets of rules activate at
-that one deployment, so the fork takes effect at a single block and there is no
-window where one applies without the other.
-
-Two things follow for anyone reading the tests. A block at or after the
-activation height must carry the v2 header, which states its own height and
-transaction count, and a node refuses one that does not: first
-`bad-version-blake2b`, then `bad-txnlist-size` once the version is right. Blocks
-the framework solves for itself therefore go through the two helpers at the top
-of `feature_unified_sighash.py` rather than calling `create_block` directly.
-Asking the node for a block template also requires naming the `blake2b` rule.
-
-Signing opts in wherever the deployment is scheduled, so on a network that has no
-height for it the wallet signs legacy throughout and nothing here applies until
-one is set.
+Header v2 and Blake2b work are also genesis. Tests that build blocks
+use header-v2 helpers because that is the only legal header, not
+because a deployment is pending.
 
 ## Interaction with PSBT
 

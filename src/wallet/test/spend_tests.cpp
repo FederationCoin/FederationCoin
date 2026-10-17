@@ -9,9 +9,12 @@
 #include <outputtype.h>
 #include <policy/fees.h>
 #include <primitives/transaction.h>
+#include <script/modern_sig.h>
 #include <script/script.h>
 #include <script/solver.h>
 #include <validation.h>
+#include <script/descriptor.h>
+#include <script/signingprovider.h>
 #include <wallet/coincontrol.h>
 #include <wallet/spend.h>
 #include <wallet/test/util.h>
@@ -53,6 +56,30 @@ BOOST_AUTO_TEST_CASE(max_signed_input_size_uses_external_outpoint)
     BOOST_CHECK_EQUAL(high_r, low_r);
 }
 
+BOOST_FIXTURE_TEST_CASE(multi_provider_infer_dilithium_input_size, TestChain100Setup)
+{
+    auto wallet = CreateProductWallet(*m_node.chain);
+    for (const OutputType type : {OutputType::DILITHIUM87, OutputType::DILITHIUM44}) {
+        const CScript spk{GetScriptForDestination(ProductReceiveDest(*wallet, type))};
+        MultiSigningProvider providers;
+        for (ScriptPubKeyMan* man : wallet->GetScriptPubKeyMans(spk)) {
+            auto solving = man->GetSolvingProvider(spk);
+            BOOST_REQUIRE(solving);
+            providers.AddProvider(std::move(solving));
+        }
+        const auto parsed{MatchModernSingle(spk)};
+        BOOST_REQUIRE(parsed && parsed->kind);
+        uint8_t kind{0};
+        CKeyID key_id;
+        BOOST_REQUIRE(providers.GetMldsaProgram(parsed->fingerprint, kind, key_id));
+        BOOST_CHECK_EQUAL(kind, type == OutputType::DILITHIUM87 ? PARAM_DILITHIUM_87 : PARAM_DILITHIUM_44);
+        const auto desc{InferDescriptor(spk, providers)};
+        BOOST_REQUIRE(desc);
+        BOOST_REQUIRE(desc->MaxSatisfactionWeight(/*use_max_sig=*/false).has_value());
+        BOOST_CHECK_GT(CalculateMaximumSignedInputSize(CTxOut{COIN, spk}, wallet.get(), /*coin_control=*/nullptr), 0);
+    }
+}
+
 BOOST_FIXTURE_TEST_CASE(SubtractFee, TestChain100Setup)
 {
     auto wallet = CreateProductWallet(*m_node.chain);
@@ -74,14 +101,14 @@ BOOST_FIXTURE_TEST_CASE(SubtractFee, TestChain100Setup)
         coin_control.fOverrideFeeRate = true;
         coin_control.m_change_type = OutputType::DILITHIUM87;
         auto res = CreateTransaction(*wallet, {recipient}, /*change_pos=*/std::nullopt, coin_control);
-        BOOST_CHECK(res);
+        BOOST_REQUIRE_MESSAGE(res, util::ErrorString(res).original);
         const auto& txr = *res;
         BOOST_CHECK_GT(txr.fee, 0);
         CAmount out_sum{0};
         for (const auto& out : txr.tx->vout) {
             out_sum += out.nValue;
-            BOOST_CHECK_EQUAL(out.scriptPubKey.size(), 34U);
-            BOOST_CHECK_EQUAL(out.scriptPubKey[0], OP_0);
+            BOOST_CHECK_EQUAL(out.scriptPubKey.size(), DILITHIUM_SINGLE_SCRIPT_SIZE);
+            BOOST_CHECK(MatchModernSingle(out.scriptPubKey).has_value());
         }
         BOOST_CHECK_EQUAL(out_sum + txr.fee, 50 * COIN);
         return txr.fee;
@@ -130,12 +157,12 @@ BOOST_AUTO_TEST_CASE(available_coins_separates_dilithium_kinds)
     wallet->SetLastBlockProcessed(300, uint256{});
     AddConfirmedProductCoin(*wallet, OutputType::DILITHIUM87, COIN);
     AddConfirmedProductCoin(*wallet, OutputType::DILITHIUM44, COIN);
-    AddConfirmedProductCoin(*wallet, OutputType::SECP, COIN);
+    AddConfirmedProductCoin(*wallet, OutputType::BECH32, COIN);
 
     const CoinsResult coins{AvailableCoins(*wallet)};
     BOOST_CHECK_EQUAL(coins.coins.at(OutputType::DILITHIUM87).size(), 1U);
     BOOST_CHECK_EQUAL(coins.coins.at(OutputType::DILITHIUM44).size(), 1U);
-    BOOST_CHECK_EQUAL(coins.coins.at(OutputType::SECP).size(), 1U);
+    BOOST_CHECK_EQUAL(coins.coins.at(OutputType::BECH32).size(), 1U);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

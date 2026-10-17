@@ -34,7 +34,7 @@ from test_framework.wallet import (
     MiniWallet,
 )
 
-# 1sat/vB feerate denominated in BTC/KvB
+# 1 token/vB feerate denominated in GFCN/kvB
 FEERATE_1SAT_VB = Decimal("0.00001000")
 # Number of seconds to wait to ensure no getdata is received
 GETDATA_WAIT = 60
@@ -66,25 +66,18 @@ class PackageRelayTest(BitcoinTestFramework):
         self.supports_cli = False
 
     def create_tx_below_mempoolminfee(self, wallet):
-        """Create a 1-input 0.1sat/vB transaction using a confirmed UTXO. Decrement and use
-        self.sequence so that subsequent calls to this function result in unique transactions."""
+        """Create a 1-input transaction that pays floor(weight/4 / 12).
+        Default minrelay is 0, so this is valid to relay but below a
+        raised mempoolminfee. Decrement self.sequence so later calls stay unique."""
 
         self.sequence -= 1
-        assert_greater_than(self.nodes[0].getmempoolinfo()["mempoolminfee"], Decimal(DEFAULT_MIN_RELAY_TX_FEE) / COIN)
+        mempoolminfee = self.nodes[0].getmempoolinfo()["mempoolminfee"]
+        assert_greater_than(mempoolminfee, Decimal(DEFAULT_MIN_RELAY_TX_FEE) / COIN)
 
-        parent = wallet.create_self_transfer(fee_rate=Decimal(DEFAULT_MIN_RELAY_TX_FEE) / COIN, sequence=self.sequence, confirmed_only=True)
-        tx = parent["tx"]
-        short = 3 * tx.get_vsize() - int(parent["fee"] * COIN)
-        if short > 0:
-            tx.vout[0].nValue -= short
-            wallet.resign(tx)
-            parent["fee"] += Decimal(short) / COIN
-            parent["txid"] = tx.rehash()
-            parent["wtxid"] = tx.getwtxid()
-            parent["hex"] = tx.serialize().hex()
-            parent["new_utxo"]["value"] = Decimal(tx.vout[0].nValue) / COIN
-            parent["new_utxo"]["txid"] = parent["txid"]
-            parent["new_utxo"]["wtxid"] = parent["wtxid"]
+        parent = wallet.create_self_transfer(fee=0, fee_rate=0, sequence=self.sequence, confirmed_only=True)
+        wallet.pay_minrelay(parent, self.nodes[0])
+        parent_feerate = parent["fee"] * Decimal(1000) / parent["tx"].get_vsize()
+        assert_greater_than(mempoolminfee, parent_feerate)
         return parent
 
     @cleanup

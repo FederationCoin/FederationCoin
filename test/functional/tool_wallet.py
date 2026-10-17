@@ -532,7 +532,7 @@ class ToolWalletTest(BitcoinTestFramework):
         def_wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
         outputs = {}
         for i in range(500):
-            outputs[wallet.getnewaddress(address_type="secp")] = 0.01
+            outputs[wallet.getnewaddress(address_type="bech32")] = 0.01
         def_wallet.sendmany(amounts=outputs)
         self.generate(self.nodes[0], 1)
         send_res = wallet.sendall([def_wallet.getnewaddress()])

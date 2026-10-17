@@ -27,7 +27,7 @@ RPCHelpMan getnewaddress()
                 "so payments received with the address will be associated with 'label'.\n",
                 {
                     {"label", RPCArg::Type::STR, RPCArg::Default{""}, "The label name for the address to be linked to. It can also be set to the empty string \"\" to represent the default label. The label does not need to exist, it will be created if there is no label by the given name."},
-                    {"address_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -addresstype"}, "The address type to use. Options are \"mldsa87\", \"mldsa44\", and \"secp\". \"bech32\" is accepted as an alias for secp."},
+                    {"address_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -addresstype"}, "The address type to use. Options are \"mldsa87\", \"mldsa44\", and \"bech32\". \"segwit\" is accepted as an alias for bech32."},
                 },
                 RPCResult{
                     RPCResult::Type::STR, "address", "The new bitcoin address"
@@ -80,7 +80,7 @@ RPCHelpMan getrawchangeaddress()
                 "\nReturns a new Bitcoin address, for receiving change.\n"
                 "This is for use with raw transactions, NOT normal use.\n",
                 {
-                    {"address_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -changetype"}, "The address type to use. Options are \"mldsa87\", \"mldsa44\", and \"secp\". \"bech32\" is accepted as an alias for secp."},
+                    {"address_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -changetype"}, "The address type to use. Options are \"mldsa87\", \"mldsa44\", and \"bech32\". \"segwit\" is accepted as an alias for bech32."},
                 },
                 RPCResult{
                     RPCResult::Type::STR, "address", "The address"
@@ -556,6 +556,7 @@ public:
     UniValue operator()(const WitnessV1Taproot& id) const { return UniValue(UniValue::VOBJ); }
     UniValue operator()(const PayToAnchor& id) const { return UniValue(UniValue::VOBJ); }
     UniValue operator()(const WitnessUnknown& id) const { return UniValue(UniValue::VOBJ); }
+    UniValue operator()(const ModernSigDestination& dest) const { return UniValue(UniValue::VOBJ); }
 };
 
 static UniValue DescribeWalletAddress(const CWallet& wallet, const CTxDestination& dest)

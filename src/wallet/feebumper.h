@@ -119,6 +119,14 @@ public:
         }
         return false;
     }
+
+    bool EvalWitnessV0(const std::vector<unsigned char>& program, const CScriptWitness& witness) const override
+    {
+        if (program.size() == WITNESS_V0_KEYHASH_SIZE && witness.stack.size() == 2) {
+            CheckECDSASignature(witness.stack[0], witness.stack[1], CScript{}, SigVersion::WITNESS_V0);
+        }
+        return m_checker.EvalWitnessV0(program, witness);
+    }
 };
 
 } // namespace feebumper

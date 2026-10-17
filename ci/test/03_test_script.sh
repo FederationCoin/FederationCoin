@@ -67,9 +67,9 @@ EOF
 if [ "$RUN_FUZZ_TESTS" = "true" ]; then
   export DIR_FUZZ_IN=${DIR_QA_ASSETS}/fuzz_corpora/
   if [ ! -d "$DIR_FUZZ_IN" ]; then
-    # ${CI_RETRY_EXE} git clone --depth=1 https://qa-assets.federationcoin.org "${DIR_QA_ASSETS}"
-    # not yet provisioned
-    echo "qa-assets.federationcoin.org is not yet provisioned; not cloning fuzz corpora"
+    # Seed pile until https://qa-assets.federationcoin.org exists.
+    # Bitcoin-era blobs from our MIT copy. Fix our targets for our wire; do not skip.
+    ${CI_RETRY_EXE} git clone --depth=1 https://github.com/FederationCoin/qa-assets "${DIR_QA_ASSETS}"
   fi
   if [ -d "${DIR_QA_ASSETS}/.git" ]; then
     (
@@ -118,8 +118,10 @@ if [ "$DOWNLOAD_PREVIOUS_RELEASES" = "true" ]; then
   echo "bin.federationcoin.org is not yet provisioned; not downloading previous releases"
 fi
 
-# Bench and fuzz binaries are not executed in CI. Fuzz corpora are not hosted.
-BITCOIN_CONFIG_ALL="-DBUILD_BENCH=OFF -DBUILD_FUZZ_BINARY=OFF"
+# Fuzz and bench are gates. Compile both on every job. Dedicated
+# fuzz envs set BUILD_FOR_FUZZING, which overrides BUILD_FUZZ_BINARY
+# to ON and drops other targets (including bench).
+BITCOIN_CONFIG_ALL="-DBUILD_BENCH=ON -DBUILD_FUZZ_BINARY=ON"
 if [ -z "$NO_DEPENDS" ]; then
   BITCOIN_CONFIG_ALL="${BITCOIN_CONFIG_ALL} -DCMAKE_TOOLCHAIN_FILE=$DEPENDS_DIR/$HOST/toolchain.cmake"
 fi
@@ -169,6 +171,12 @@ fi
 
 if [ "$RUN_UNIT_TESTS" = "true" ]; then
   DIR_UNIT_TEST_DATA="${DIR_UNIT_TEST_DATA}" LD_LIBRARY_PATH="${DEPENDS_DIR}/${HOST}/lib" CTEST_OUTPUT_ON_FAILURE=ON ctest --stop-on-failure "${MAKEJOBS}" --timeout $(( TEST_RUNNER_TIMEOUT_FACTOR * 60 ))
+fi
+
+if [ "$RUN_BENCH" = "true" ]; then
+  # Timing run, not -sanity-check. Sanitizer jobs leave RUN_BENCH off;
+  # those numbers are not comparable.
+  LD_LIBRARY_PATH="${DEPENDS_DIR}/${HOST}/lib" "${BASE_OUTDIR}"/bin/bench_bitcoin -priority-level=high
 fi
 
 if [ "$RUN_UNIT_TESTS_SEQUENTIAL" = "true" ]; then

@@ -9,6 +9,7 @@
 #include <span.h>
 #include <test/util/random.h>
 #include <test/util/setup_common.h>
+#include <uint256.h>
 #include <util/strencodings.h>
 
 #include <algorithm>
@@ -277,6 +278,48 @@ BOOST_AUTO_TEST_CASE(packet_test_vectors) {
         "3485e548a2741fb1ac069f7f44caa674ba4268b7441f3f65ad587ae5e6010d23",
         "",
         "35ac395374d27fa328bf84ace695bbf29b5aa831a0b99da2df40b92f9eaad2575df9c49227bfb570850f6e60e5350db8e6a399c1b677190458dc9f9498f188e0b6727c4dc151ab64e36b431be452e7a3eb292355b2d828f49820cebbe582241c493e36daa5fa6b3fd437b8e8622b8b25627e774bbb5aa570a5904cf17e6914f6");
+}
+
+BOOST_AUTO_TEST_CASE(v3_frame_roundtrip_and_bits)
+{
+    SelectParams(ChainType::REGTEST);
+    BIP324Cipher initiator(GenerateRandomKey(), MakeByteSpan(uint256::ONE));
+    BIP324Cipher responder(GenerateRandomKey(), MakeByteSpan(uint256::ZERO));
+    initiator.Initialize(responder.GetOurPubKey(), /*initiator=*/true);
+    responder.Initialize(initiator.GetOurPubKey(), /*initiator=*/false);
+
+    const std::vector<std::byte> contents(32, std::byte{0x11});
+    std::vector<std::byte> packet(contents.size() + BIP324Cipher::V3_EXPANSION);
+    initiator.EncryptV3(contents, {}, /*ignore=*/false, /*more=*/true, packet);
+
+    BOOST_CHECK_EQUAL(packet.size(), contents.size() + BIP324Cipher::V3_EXPANSION);
+    const uint64_t len{responder.DecryptLengthV3(Span{packet}.first(BIP324Cipher::V3_LENGTH_LEN))};
+    BOOST_CHECK_EQUAL(len, contents.size());
+    BOOST_CHECK_LE(len, BIP324Cipher::MAX_AEAD_FRAME);
+
+    std::vector<std::byte> decoded(len);
+    bool ignore{true};
+    bool more{false};
+    BOOST_CHECK(responder.DecryptV3(Span{packet}.subspan(BIP324Cipher::V3_LENGTH_LEN), {}, ignore, more, decoded));
+    BOOST_CHECK(!ignore);
+    BOOST_CHECK(more);
+    BOOST_CHECK(decoded == contents);
+
+    std::vector<std::byte> decoy(contents.size() + BIP324Cipher::V3_EXPANSION);
+    initiator.EncryptV3(contents, {}, /*ignore=*/true, /*more=*/false, decoy);
+    std::vector<std::byte> decoy_plain(contents.size());
+    ignore = false;
+    more = true;
+    BOOST_CHECK(responder.DecryptV3(Span{decoy}.subspan(BIP324Cipher::V3_LENGTH_LEN), {}, ignore, more, decoy_plain));
+    BOOST_CHECK(ignore);
+    BOOST_CHECK(!more);
+
+    std::vector<std::byte> reserved(contents.size() + BIP324Cipher::V3_EXPANSION);
+    initiator.EncryptV3(contents, {}, std::byte{0x01}, reserved);
+    std::vector<std::byte> reserved_plain(contents.size());
+    ignore = false;
+    more = false;
+    BOOST_CHECK(!responder.DecryptV3(Span{reserved}.subspan(BIP324Cipher::V3_LENGTH_LEN), {}, ignore, more, reserved_plain));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

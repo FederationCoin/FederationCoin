@@ -173,6 +173,8 @@ public:
         std::unordered_map<Consensus::BuriedDeployment, int> activation_heights{};
         bool fastprune{false};
         bool enforce_bip94{false};
+        /** Default true. -con_noretarg=0 turns retargeting on for mining_work_menu.py. */
+        bool pow_no_retargeting{true};
     };
 
     static std::unique_ptr<const CChainParams> RegTest(const RegTestOptions& options);

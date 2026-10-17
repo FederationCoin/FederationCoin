@@ -7,6 +7,7 @@
 #include <chainparams.h>
 #include <crypto/chacha20.h>
 #include <crypto/chacha20poly1305.h>
+#include <crypto/common.h>
 #include <crypto/hkdf_sha256_32.h>
 #include <key.h>
 #include <pubkey.h>
@@ -106,5 +107,49 @@ bool BIP324Cipher::Decrypt(Span<const std::byte> input, Span<const std::byte> aa
     if (!m_recv_p_cipher->Decrypt(input, aad, header, contents)) return false;
 
     ignore = (header[0] & IGNORE_BIT) == IGNORE_BIT;
+    return true;
+}
+
+void BIP324Cipher::EncryptV3(Span<const std::byte> contents, Span<const std::byte> aad, bool ignore, bool more, Span<std::byte> output) noexcept
+{
+    std::byte header{};
+    if (ignore) header |= IGNORE_BIT;
+    if (more) header |= MORE_BIT;
+    EncryptV3(contents, aad, header, output);
+}
+
+void BIP324Cipher::EncryptV3(Span<const std::byte> contents, Span<const std::byte> aad, std::byte header, Span<std::byte> output) noexcept
+{
+    assert(output.size() == contents.size() + V3_EXPANSION);
+    assert(contents.size() <= MAX_AEAD_FRAME);
+
+    std::byte len[V3_LENGTH_LEN];
+    WriteLE64(len, contents.size());
+    m_send_l_cipher->Crypt(len, output.first(V3_LENGTH_LEN));
+
+    std::byte hdr[HEADER_LEN]{header};
+    m_send_p_cipher->Encrypt(hdr, contents, aad, output.subspan(V3_LENGTH_LEN));
+}
+
+uint64_t BIP324Cipher::DecryptLengthV3(Span<const std::byte> input) noexcept
+{
+    assert(input.size() == V3_LENGTH_LEN);
+    std::byte buf[V3_LENGTH_LEN];
+    m_recv_l_cipher->Crypt(input, buf);
+    return ReadLE64(buf);
+}
+
+bool BIP324Cipher::DecryptV3(Span<const std::byte> input, Span<const std::byte> aad, bool& ignore, bool& more, Span<std::byte> contents) noexcept
+{
+    assert(input.size() + V3_LENGTH_LEN == contents.size() + V3_EXPANSION);
+
+    std::byte header[HEADER_LEN];
+    if (!m_recv_p_cipher->Decrypt(input, aad, header, contents)) return false;
+
+    ignore = (header[0] & IGNORE_BIT) == IGNORE_BIT;
+    more = (header[0] & MORE_BIT) == MORE_BIT;
+    const uint8_t bits{static_cast<uint8_t>(header[0])};
+    const uint8_t used{static_cast<uint8_t>(V3_HEADER_USED)};
+    if ((bits & static_cast<uint8_t>(~used)) != 0) return false;
     return true;
 }

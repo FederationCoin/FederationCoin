@@ -81,10 +81,6 @@ WalletDescriptor GenerateWalletDescriptor(const CExtPubKey& master_key, const Ou
         desc_prefix = "mldsa(" + xpub + "/44h";
         break;
     }
-    case OutputType::SECP: {
-        desc_prefix = "wpkh(" + xpub + "/84h";
-        break;
-    }
     case OutputType::UNKNOWN: {
         // We should never have a DescriptorScriptPubKeyMan for an UNKNOWN OutputType,
         // so if we get to this point something is wrong

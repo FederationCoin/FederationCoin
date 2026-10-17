@@ -21,6 +21,8 @@ BOOST_AUTO_TEST_CASE(minimum_fee_rate)
     BOOST_CHECK_EQUAL(MinimumFee(0), 0);
     BOOST_CHECK_EQUAL(MinimumFee(11), 0);
     BOOST_CHECK_EQUAL(MinimumFee(12), 1);
+    // 1075 % 12 is 7, so the floor is 89, not a rounded 90.
+    BOOST_CHECK_EQUAL(1075 % 12, 7);
     BOOST_CHECK_EQUAL(MinimumFee(1075), 89);
     BOOST_CHECK(FeeMeetsMinimumRate(0, 0));
     BOOST_CHECK(FeeMeetsMinimumRate(0, 11));
@@ -37,6 +39,31 @@ BOOST_AUTO_TEST_CASE(minimum_fee_rate)
     BOOST_CHECK(FeeMeetsMinimumRate(11, 137));
     // Any higher fee is valid, including the old 3-token rate.
     BOOST_CHECK(FeeMeetsMinimumRate(1075 * 3, 1075));
+}
+
+BOOST_AUTO_TEST_CASE(consensus_vsize_floors_remainder)
+{
+    BOOST_CHECK_EQUAL(ConsensusVsize(0), 0);
+    BOOST_CHECK_EQUAL(ConsensusVsize(1), 0);
+    BOOST_CHECK_EQUAL(ConsensusVsize(2), 0);
+    BOOST_CHECK_EQUAL(ConsensusVsize(3), 0);
+    BOOST_CHECK_EQUAL(ConsensusVsize(4), 1);
+    BOOST_CHECK_EQUAL(ConsensusVsize(5), 1);
+    BOOST_CHECK_EQUAL(MinimumFee(ConsensusVsize(1)), 0);
+    BOOST_CHECK_EQUAL(MinimumFee(ConsensusVsize(2)), 0);
+    BOOST_CHECK_EQUAL(MinimumFee(ConsensusVsize(3)), 0);
+    BOOST_CHECK_EQUAL(MinimumFee(ConsensusVsize(48)), 1);
+}
+
+BOOST_AUTO_TEST_CASE(mempool_floor_uses_consensus_vsize)
+{
+    // Bitcoin-era ceil(weight/4) would charge MinimumFee(1) for weight 3.
+    // Mempool and ConnectBlock both pass ConsensusVsize (floor toward zero).
+    BOOST_CHECK_EQUAL((3 + WITNESS_SCALE_FACTOR - 1) / WITNESS_SCALE_FACTOR, 1);
+    BOOST_CHECK_EQUAL(ConsensusVsize(3), 0);
+    BOOST_CHECK_EQUAL(MinimumFee(ConsensusVsize(3)), 0);
+    BOOST_CHECK_EQUAL(ConsensusVsize(48), 12);
+    BOOST_CHECK_EQUAL(MinimumFee(ConsensusVsize(48)), 1);
 }
 
 BOOST_AUTO_TEST_CASE(data_carrier_nonce_and_scriptsig)
@@ -74,7 +101,10 @@ BOOST_AUTO_TEST_CASE(data_carrier_nonce_and_scriptsig)
     BOOST_CHECK(Consensus::MiningCoinbaseScriptSigFits(2));
     BOOST_CHECK(Consensus::MiningCoinbaseScriptSigFits(MAX_COINBASE_SCRIPTSIG_SIZE));
     BOOST_CHECK(!Consensus::MiningCoinbaseScriptSigFits(MAX_COINBASE_SCRIPTSIG_SIZE + 1));
-    BOOST_CHECK(SeedsServiceFlags() & NODE_REDUCED_DATA);
+    BOOST_CHECK_EQUAL(SeedsServiceFlags() & NODE_REDUCED_DATA, 0);
+    BOOST_CHECK(SeedsServiceFlags() & NODE_NETWORK);
+    BOOST_CHECK(SeedsServiceFlags() & NODE_WITNESS);
+    BOOST_CHECK(SeedsServiceFlags() & NODE_BLAKE2B);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

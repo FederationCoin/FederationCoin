@@ -372,7 +372,8 @@ public:
     void AddInput(const OutputGroup& group);
     void AddInputs(const std::set<std::shared_ptr<COutput>>& inputs, bool subtract_fee_outputs);
 
-    /** How much individual inputs overestimated the bump fees for shared ancestries */
+    /** Combined bump minus the sum of individuals. Positive when overlap
+     *  double-counted ancestry; negative when MinimumFee remainders combine. */
     void SetBumpFeeDiscount(const CAmount discount);
 
     /** Calculates and stores the waste for this result given the cost of change

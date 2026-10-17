@@ -153,12 +153,12 @@ void DirectoryCommit(const fs::path& dirname)
 #endif
 }
 
-bool TruncateFile(FILE* file, unsigned int length)
+bool TruncateFile(FILE* file, uint64_t length)
 {
 #if defined(WIN32)
-    return _chsize(_fileno(file), length) == 0;
+    return _chsize_s(_fileno(file), static_cast<__int64>(length)) == 0;
 #else
-    return ftruncate(fileno(file), length) == 0;
+    return ftruncate(fileno(file), static_cast<off_t>(length)) == 0;
 #endif
 }
 
@@ -209,13 +209,13 @@ int RaiseFileDescriptorLimit(int nMinFD)
  * this function tries to make a particular range of a file allocated (corresponding to disk space)
  * it is advisory, and the range specified in the arguments will never contain live data
  */
-void AllocateFileRange(FILE* file, unsigned int offset, unsigned int length)
+void AllocateFileRange(FILE* file, uint64_t offset, uint64_t length)
 {
 #if defined(WIN32)
     // Windows-specific version
     HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(file));
     LARGE_INTEGER nFileSize;
-    int64_t nEndPos = (int64_t)offset + length;
+    int64_t nEndPos = static_cast<int64_t>(offset) + static_cast<int64_t>(length);
     if (GetFileSizeEx(hFile, &nFileSize) && (int64_t{nFileSize.u.HighPart} << 32 | nFileSize.u.LowPart) <= nEndPos) {
         nFileSize.u.LowPart = nEndPos & 0xFFFFFFFF;
         nFileSize.u.HighPart = nEndPos >> 32;
@@ -241,17 +241,17 @@ void AllocateFileRange(FILE* file, unsigned int offset, unsigned int length)
 #else
 #if defined(HAVE_POSIX_FALLOCATE)
     // Version using posix_fallocate
-    if (0 == posix_fallocate(fileno(file), offset, length)) return;
+    if (0 == posix_fallocate(fileno(file), static_cast<off_t>(offset), static_cast<off_t>(length))) return;
 #endif
     // Fallback version
     // TODO: just write one byte per block
     uint8_t buf[65536];
-    if (fseek(file, offset, SEEK_SET)) {
+    if (fseek(file, static_cast<long>(offset), SEEK_SET)) {
         return;
     }
     clearerr(file);
     while (length > 0) {
-        unsigned int now = 65536;
+        uint64_t now = 65536;
         if (length < now)
             now = length;
         const size_t rlen = fread(buf, 1, now, file);

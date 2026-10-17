@@ -359,11 +359,17 @@ private:
     CTxOut m_tx_out;
     const CTransaction *ptxTo;
     unsigned int nIn;
+    unsigned int nFlags;
+    bool cacheStore;
     PrecomputedTransactionData *txdata;
+    SignatureCache* m_signature_cache;
 
 public:
     CScriptCheck(const CTxOut& outIn, const CTransaction& txToIn, unsigned int nInIn, PrecomputedTransactionData* txdataIn) :
-        m_tx_out(outIn), ptxTo(&txToIn), nIn(nInIn), txdata(txdataIn) { }
+        m_tx_out(outIn), ptxTo(&txToIn), nIn(nInIn), nFlags(STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_UNIFIED_SIGHASH), cacheStore(false), txdata(txdataIn), m_signature_cache(nullptr) { }
+
+    CScriptCheck(const CTxOut& outIn, const CTransaction& txToIn, unsigned int nInIn, unsigned int nFlagsIn, bool cacheIn, PrecomputedTransactionData* txdataIn, SignatureCache& signature_cache) :
+        m_tx_out(outIn), ptxTo(&txToIn), nIn(nInIn), nFlags(nFlagsIn), cacheStore(cacheIn), txdata(txdataIn), m_signature_cache(&signature_cache) { }
 
     CScriptCheck(const CScriptCheck&) = delete;
     CScriptCheck& operator=(const CScriptCheck&) = delete;
@@ -421,8 +427,9 @@ bool HasValidProofOfWork(const std::vector<CBlockHeader>& headers, const Consens
 /** Check if a block has been mutated (with respect to its merkle root and witness commitments). */
 bool IsBlockMutated(const CBlock& block, bool check_witness_root);
 
-/** Return the sum of the claimed work on a given set of headers. No verification of PoW is done. */
-arith_uint256 CalculateClaimedHeadersWork(std::span<const CBlockHeader> headers);
+/** Return the sum of the claimed work on a given set of headers. No verification of PoW is done.
+ *  Each header contributes WorkFromScale(S_met) from its nBits and declared kind. */
+arith_uint256 CalculateClaimedHeadersWork(std::span<const CBlockHeader> headers, const Consensus::Params& params);
 
 enum class VerifyDBResult {
     SUCCESS,
@@ -979,12 +986,14 @@ private:
      * Caller must set min_pow_checked=true in order to add a new header to the
      * block index (permanent memory storage), indicating that the header is
      * known to be part of a sufficiently high-work chain (anti-dos check).
+     * check_pow=false skips the digest when the caller already ran CheckProofOfWorkBatch.
      */
     bool AcceptBlockHeader(
         const CBlockHeader& block,
         BlockValidationState& state,
         CBlockIndex** ppindex,
-        bool min_pow_checked) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+        bool min_pow_checked,
+        bool check_pow = true) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     friend Chainstate;
 
     /** Most recent headers presync progress update, for rate-limiting. */
@@ -1036,13 +1045,6 @@ public:
      *  validity, so a single scan is sufficient. Lives on the manager because
      *  it needs only the block index. @sa Chainstate::CorrectRdtsInvalidBlocks */
     [[nodiscard]] std::vector<CBlockIndex*> FindInheritedInvalidBlocks() EXCLUSIVE_LOCKS_REQUIRED(cs_main);
-    /** Whether the branch ending in @p index continued SHA256d proof-of-work
-     *  at or past the BLAKE2b fork height, i.e. its block at that height is not
-     *  a v2 header. Such a branch can only come from a data directory inherited
-     *  from a client that was not enforcing the hardfork; it is excluded from
-     *  the fork-warning heuristic (m_best_invalid), see
-     *  Chainstate::InvalidChainFound. False when the fork is unscheduled. */
-    bool ContinuesSha256dPastFork(const CBlockIndex& index) const;
     const Consensus::Params& GetConsensus() const { return m_options.chainparams.GetConsensus(); }
     bool ShouldCheckBlockIndex() const;
     const arith_uint256& MinimumChainWork() const { return *Assert(m_options.minimum_chain_work); }
@@ -1302,8 +1304,9 @@ public:
      * @param[in]  min_pow_checked  True if proof-of-work anti-DoS checks have been done by caller for headers chain
      * @param[out] state This may be set to an Error state if any error occurred processing them
      * @param[out] ppindex If set, the pointer will be set to point to the last new block index object for the given headers
+     * @param[in]  check_pow When false, CheckBlockHeader skips the digest (caller already ran CheckProofOfWorkBatch).
      */
-    bool ProcessNewBlockHeaders(std::span<const CBlockHeader> headers, bool min_pow_checked, BlockValidationState& state, const CBlockIndex** ppindex = nullptr) LOCKS_EXCLUDED(cs_main);
+    bool ProcessNewBlockHeaders(std::span<const CBlockHeader> headers, bool min_pow_checked, BlockValidationState& state, const CBlockIndex** ppindex = nullptr, bool check_pow = true) LOCKS_EXCLUDED(cs_main);
 
     /**
      * Sufficiently validate a block for disk storage (and store on disk).

@@ -35,7 +35,7 @@ class WalletMultisigDescriptorPSBTTest(BitcoinTestFramework):
         wallets = node.listwallets()
         default_name = "default_wallet" if "default_wallet" in wallets else wallets[0]
         default = node.get_wallet_rpc(default_name)
-        for kind in ("mldsa87", "mldsa44", "secp"):
+        for kind in ("mldsa87", "mldsa44", "bech32"):
             assert default.validateaddress(default.getnewaddress("", kind))["isvalid"]
 
 

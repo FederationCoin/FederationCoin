@@ -62,9 +62,7 @@ class RdtsIgnoreRejectsTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
-        self.extra_args = [[
-            f'-testactivationheight=blake2b@{ACTIVATION_HEIGHT}',
-        ]]
+        self.extra_args = [[]]
 
     def fund_oversized_push(self):
         """Mine a P2WSH output and return a spend whose witness pushes 300 bytes."""
@@ -102,8 +100,7 @@ class RdtsIgnoreRejectsTest(BitcoinTestFramework):
             self.log.info(f"  ignore_rejects={ignore_rejects}: rejected ({result['reject-reason']})")
 
     def rdts_active_for_next_block(self):
-        info = self.nodes[0].getblockchaininfo()
-        return info['blocks'] + 1 >= ACTIVATION_HEIGHT
+        return True
 
     def run_test(self):
         node = self.nodes[0]

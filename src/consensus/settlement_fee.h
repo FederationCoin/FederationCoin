@@ -6,12 +6,21 @@
 #define BITCOIN_CONSENSUS_SETTLEMENT_FEE_H
 
 #include <consensus/amount.h>
+#include <consensus/consensus.h>
 
 #include <cstdint>
 
 /** Consensus minimum fee is floor(virtual bytes / this). A virtual byte is
- *  transaction weight divided by four. Changing this is a fork. */
+ *  transaction weight divided by four, floored. Changing this is a fork. */
 static constexpr int64_t MIN_FEE_VSIZE_DIVISOR{12};
+
+/** Floor of weight / WITNESS_SCALE_FACTOR. BIP-141 vsize is ceil((weight+3)/4);
+ *  ConnectBlock uses this floor. */
+inline int64_t ConsensusVsize(int64_t weight)
+{
+    if (weight <= 0) return 0;
+    return weight / WITNESS_SCALE_FACTOR;
+}
 
 /** Floor of virtual bytes over MIN_FEE_VSIZE_DIVISOR. Zero when virtual_bytes
  *  is not positive. Coinbase transactions are not passed here. */

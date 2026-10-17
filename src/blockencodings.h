@@ -45,7 +45,7 @@ class BlockTransactionsRequest {
 public:
     // A BlockTransactionsRequest message
     uint256 blockhash;
-    std::vector<uint16_t> indexes;
+    std::vector<uint32_t> indexes;
 
     SERIALIZE_METHODS(BlockTransactionsRequest, obj)
     {
@@ -73,7 +73,7 @@ public:
 struct PrefilledTransaction {
     // Used as an offset since last prefilled tx in CBlockHeaderAndShortTxIDs,
     // as a proper transaction-in-block-index in PartiallyDownloadedBlock
-    uint16_t index;
+    uint32_t index;
     CTransactionRef tx;
 
     SERIALIZE_METHODS(PrefilledTransaction, obj) { READWRITE(COMPACTSIZE(obj.index), TX_WITH_WITNESS(Using<TransactionCompression>(obj.tx))); }
@@ -122,9 +122,6 @@ public:
     {
         READWRITE(obj.header, obj.nonce, Using<VectorFormatter<CustomUintFormatter<SHORTTXIDS_LENGTH>>>(obj.shorttxids), obj.prefilledtxn);
         if (ser_action.ForRead()) {
-            if (obj.BlockTxCount() > std::numeric_limits<uint16_t>::max()) {
-                throw std::ios_base::failure("indexes overflowed 16 bits");
-            }
             obj.FillShortTxIDSelector();
         }
     }

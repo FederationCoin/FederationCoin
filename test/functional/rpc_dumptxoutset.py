@@ -65,7 +65,7 @@ class DumptxoutsetTest(BitcoinTestFramework):
         # Blockhash should be deterministic based on mocked time.
         assert_equal(
             out['base_hash'],
-            '1d828a3f1948932519c036ea0b02461f9cfdd0dbd2840bec17c2a23f936ddd8f')
+            '3165fbdf72d9b7d03bd24fb47e54ca30b75ed3d26663f8bc6e28c8470dd034b8')
 
         self.check_output_file(expected_path, is_human_readable, expected_digest)
 
@@ -81,7 +81,7 @@ class DumptxoutsetTest(BitcoinTestFramework):
             test_dump_file_compat(params.get('format'), show_header=params.get('show_header'), separator=params.get('separator'))
 
         assert_equal(
-            out['txoutset_hash'], 'a0b7baa3bf5ccbd3279728f230d7ca0c44a76e9923fca8f32dbfd08d65ea496a')
+            out['txoutset_hash'], '1e698e6809110f8fa45e718c842590d6e1cc075c4582d425db2d6a8d2ebc02ee')
         assert_equal(out['nchaintx'], 101)
 
         self.log.info("Test that a path to an existing or invalid file will fail")
@@ -109,9 +109,9 @@ class DumptxoutsetTest(BitcoinTestFramework):
                 sep = params.get('separator', ',')
                 if params.get('show_header', True):
                     assert_equal(content.pop(0).rstrip(),
-                        "#(blockhash 1d828a3f1948932519c036ea0b02461f9cfdd0dbd2840bec17c2a23f936ddd8f ) txid{s}vout{s}value{s}coinbase{s}height{s}scriptPubKey".format(s=sep))
+                        "#(blockhash 3165fbdf72d9b7d03bd24fb47e54ca30b75ed3d26663f8bc6e28c8470dd034b8 ) txid{s}vout{s}value{s}coinbase{s}height{s}scriptPubKey".format(s=sep))
                 assert_equal(content[0].rstrip(),
-                    "b9edce02689692b1cdc3440d03011486a27c46b966248b922cc6e4315e900708{s}0{s}5000000000{s}1{s}78{s}76a9142b4569203694fc997e13f2c0a1383b9e16c77a0d88ac".format(s=sep))
+                    "396ec5e18b7f76b37cf1eb120404c15c773a01fbf0e4b4f736f78a0d118d7500{s}0{s}5000000000{s}1{s}21{s}00142b4569203694fc997e13f2c0a1383b9e16c77a0d".format(s=sep))
 
     def run_test(self):
         """Test a trivial usage of the dumptxoutset RPC command."""
@@ -121,21 +121,21 @@ class DumptxoutsetTest(BitcoinTestFramework):
         self.generate(node, COINBASE_MATURITY)
 
         self.test_dump_file('no_option',           {},
-                            '17d2fc45eb5366f5d609fa291bb1153007d783b20f39c6c0998a26221bb5fb7e')
+                            '927ef4a287db4026705e7601e3571c612f79fee3e2fda9be771af6cee6b14c4d')
         self.test_dump_file('all_data',            {'format': ()},
-                            '7ead8a54828a23f56b065b23117bfdce1c5d719192391eb2828a0ba33f7b082e')
+                            '77c48f480a7584e6eb529a1f4c7807c122e00541356301890f98b7d23141add0')
         self.test_dump_file('partial_data_1',      {'format': ('txid',)},
-                            'ac70de1900df41acbeb29f017841338f9cb75d0f9c8f5412abd3fc11488e8259')
+                            'e7e455a85b9d1b656754b4a1ffdb5e50665d64f9bbc6a9b6b6fce362a2e301bf')
         self.test_dump_file('partial_data_order',  {'format': ('height', 'vout')},
-                            '65f6c8c6e5a022e4a3e8cffd5a0f793828f69d5e7d82142f68604f134a735faf')
+                            'b5504008b03ac6c1ad6af57c977bf687abb89ccc820843e2649662e08c3b3375')
         self.test_dump_file('partial_data_double', {'format': ('scriptPubKey', 'scriptPubKey')},
-                            'cb6ea242e4a03880210c42fa4296adf61e7aaa36c5e304b39e4e37b4497515d6')
+                            '69c7dd571f1a004e85a7335c1f16976104e7e98f34031c04400e5b93f9dc1ce1')
         self.test_dump_file('no_header',           {'format': (), 'show_header': False},
-                            'af1f38ee1d1b8bbdc117ab7e8353910dab5ab45f18be27aa4fa7d96ccc96a050')
+                            '9fe63e1b378d9d3b6a02657c933c352069d48eecc72c3f9f1b1b2093e969bf02')
         self.test_dump_file('separator',           {'format': (), 'separator': ':'},
-                            '25d58f9ee8d99f1e163bc28efe08f6f0909b15356e6e812059611a2ffc133464')
+                            'd0aa9311bfb95a9a5be6197dca3dc1059c8b2dabe643ef3c174dbf21d0a0c6c9')
         self.test_dump_file('all_options',         {'format': (), 'show_header': False, 'separator': ':'},
-                            '5c52c2a9bdb23946eb0f6d088f25ed8f5d9ebc3a3512182287975f1041cdedb4')
+                            '81c40851439597b7870972a9d036121da6170aad140e429c56563d348cecb99f')
 
         # Other failing tests
         assert_raises_rpc_error(

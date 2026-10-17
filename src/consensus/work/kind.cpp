@@ -40,6 +40,13 @@ const uint256& LimitForKind(const Params& params, WorkKindTag tag)
     return params.powLimitKind[static_cast<size_t>(tag)];
 }
 
+/** Header Check: claimed target vs pow_limit (powLimitKind), then digest < T.
+ *  Equal digest fails. CheckProofOfWorkImpl (hash-only / fuzz) uses Bitcoin
+ *  digest > T fail. Do not unify: live nodes already agree on this path;
+ *  equality is 2^-256; changing it is a consensus edit for no function gain.
+ *  Cap stays powLimitKind, not T0. Connect already requires exact nBits.
+ *  P2P headers check nBits before gym. Tightening Check to T0 is a later
+ *  CheckBlockHeader fork; skip (late, low impact, high re-work). */
 bool DigestMeetsTarget(const uint256& digest, unsigned int nBits, const uint256& pow_limit)
 {
     bool fNegative{false};
@@ -156,6 +163,7 @@ public:
         if (fNegative || bnTarget == 0 || fOverflow || bnTarget > limit) return false;
         const auto digest{Fp8GymDigest(header)};
         if (!digest) return false;
+        // Same `<` T and powLimitKind cap as DigestMeetsTarget. Do not retune.
         return UintToArith256(*digest) < bnTarget;
     }
     unsigned int ExpectedNBits(const uint256& work_scale, const Params& params) const override

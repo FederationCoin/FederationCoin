@@ -44,6 +44,10 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     const uint256 S{Consensus::NextWorkScale(pindexLast, params)};
     unsigned int nBits{kind->ExpectedNBits(S, params)};
 
+    // Testnet: Floor0[k]/S, then ApplyMinDifficultyFloor so gym is not
+    // clamped to Blake2b nMinDifficultyBits. Not a snap to genesis-easy
+    // (Bitcoin unstick). MAIN has this off. Changing it is a testnet
+    // consensus edit; wipe at MAIN. Skip (late, convenience only).
     if (params.fPowAllowMinDifficultyBlocks &&
         pblock->GetBlockTime() > pindexLast->GetBlockTime() + params.nPowTargetSpacing * 2) {
         arith_uint256 s{UintToArith256(S)};
@@ -125,7 +129,8 @@ bool CheckProofOfWorkImpl(uint256 hash, unsigned int nBits, const Consensus::Par
     auto bnTarget{DeriveTarget(nBits, params.powLimit)};
     if (!bnTarget) return false;
 
-    // Check proof of work matches claimed amount
+    // Hash-only / fuzz. Header consensus is kind Check (digest < T). Do not
+    // unify the compare: no function hole, consensus edit, late.
     if (UintToArith256(hash) > bnTarget)
         return false;
 

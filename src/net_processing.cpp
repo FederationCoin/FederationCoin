@@ -2549,6 +2549,9 @@ bool PeerManagerImpl::CheckHeadersPoW(const std::vector<CBlockHeader>& headers, 
 
     // Cheap nBits along the in-message chain, then digests off cs_main.
     // Missing parent returns here: unconnecting batches skip nBits and gym.
+    // That order is why CheckBlockHeader need not also cap at T0[k]: spoofed
+    // easy nBits never reach gym on a connected headers message. Tightening
+    // Check is a consensus edit for no P2P function gain this late.
     {
         LOCK(::cs_main);
         const CBlockIndex* pprev{m_chainman.m_blockman.LookupBlockIndex(headers[0].hashPrevBlock)};

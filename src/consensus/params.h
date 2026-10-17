@@ -132,8 +132,10 @@ struct Params {
     std::array<uint256, WORK_KIND_COUNT> powFloor0{};
     bool fPowAllowMinDifficultyBlocks;
     /**
-     * If non-zero, testnet min-difficulty blocks use this compact target
-     * instead of powLimit. Testnet3/4: 0x1c03a830 (genesis and floor).
+     * Testnet3/4 Blake2b genesis compact (0x1c03a830). Identity tests read
+     * this. GetNextWorkRequired min-diff uses powFloor0[k]/S, not this field.
+     * Leave the field (parked Params). Wiring or deleting it is a restructure
+     * with no consensus/P2P function gain this late.
      */
     uint32_t nMinDifficultyBits{0};
     /**

@@ -279,7 +279,11 @@ ChainTestingSetup::~ChainTestingSetup()
 {
     if (m_node.scheduler) m_node.scheduler->stop();
     if (m_node.validation_signals) m_node.validation_signals->FlushBackgroundCallbacks();
-    m_node.connman.reset();
+    if (m_node.connman) {
+        // TestingSetup allocates ConnmanTestMsg (paired BIP324 peer). unique_ptr<CConnman>
+        // sized-deletes sizeof(CConnman); ASan new-delete-type-mismatch.
+        delete static_cast<ConnmanTestMsg*>(m_node.connman.release());
+    }
     m_node.banman.reset();
     m_node.addrman.reset();
     m_node.netgroupman.reset();

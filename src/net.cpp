@@ -1426,9 +1426,12 @@ size_t V2Transport::GetMaxBytesToProcess() noexcept
         // that (64 bytes), as garbage follows, and locating the garbage terminator requires the
         // key exchange first.
         return EllSwiftPubKey::size() - m_recv_buffer.size();
-    case RecvState::GARB_GARBTERM:
+    case RecvState::GARB_GARBTERM: {
         // Process garbage bytes one by one (because terminator may appear anywhere).
+        const size_t garb_max = MAX_GARBAGE_LEN + BIP324Cipher::GARBAGE_TERMINATOR_LEN;
+        if (m_recv_buffer.size() >= garb_max) return 0;
         return 1;
+    }
     case RecvState::VERSION:
     case RecvState::APP:
         // These three states all involve decoding a packet. Process the length descriptor first,
@@ -1477,6 +1480,12 @@ bool V2Transport::ReceivedBytes(Span<const uint8_t>& msg_bytes) noexcept
     while (!msg_bytes.empty()) {
         // Decide how many bytes to copy from msg_bytes to m_recv_buffer.
         size_t max_read = GetMaxBytesToProcess();
+        if (max_read == 0) {
+            // Complete application packet: wait for GetReceivedMessage.
+            // Any other stall with bytes still on the wire is a failed handshake or packet.
+            if (m_recv_state == RecvState::APP_READY || m_recv_state == RecvState::APP_V3_READY) return true;
+            return false;
+        }
 
         // Reserve space in the buffer if there is not enough.
         if (m_recv_buffer.size() + std::min(msg_bytes.size(), max_read) > m_recv_buffer.capacity()) {
